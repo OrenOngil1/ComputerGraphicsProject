@@ -1,0 +1,26 @@
+{
+    "name": "OpenCV + OpenGL",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "target": "builder"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",
+                "ms-vscode.cpptools-themes",
+                "ms-vscode.makefile-tools"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "C_Cpp.default.includePath": [
+                    "/usr/include/opencv4",
+                    "/usr/include/GLFW",
+                    "${workspaceFolder}/include"
+                ],
+                "C_Cpp.default.compilerPath": "/usr/bin/g++"
+            }
+        }
+    },
+    "remoteUser": "root"
+}
