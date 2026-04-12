@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     libglfw3-dev \
     libgl1-mesa-dev \
     libglu1-mesa-dev \
+    libglm-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
