@@ -1,13 +1,13 @@
 # ── Project settings ──────────────────────────────────────────
-TARGET   := bin/myapp
+TARGET   := bin/drone_sim
 CXX      := g++
 CXXFLAGS := -std=c++17 -Wall -O2 -I/usr/include/opencv4
 
 # ── Sources ───────────────────────────────────────────────────
 SRC_DIR  := src
 OBJ_DIR  := obj
-SRCS     := $(wildcard $(SRC_DIR)/*.cpp)
-OBJS     := $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
+SRCS  := $(shell find $(SRC_DIR) -name "*.cpp")
+OBJS  := $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
 
 # ── Libraries ─────────────────────────────────────────────────
 OPENCV_FLAGS := $(shell pkg-config --cflags --libs opencv4)
@@ -24,7 +24,7 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
-	mkdir -p $(OBJ_DIR)
+	mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -Iinclude -c $< -o $@
 
 clean:

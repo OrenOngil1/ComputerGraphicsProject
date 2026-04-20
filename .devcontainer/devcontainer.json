@@ -1,5 +1,5 @@
 {
-    "name": "OpenCV + OpenGL",
+    "name": "Drone Sim",
     "build": {
         "dockerfile": "../Dockerfile",
         "target": "builder"
