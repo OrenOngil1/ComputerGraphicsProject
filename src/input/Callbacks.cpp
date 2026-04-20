@@ -53,7 +53,6 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
 
     switch (appState->mode) {
         case Mode::NONE:
-            std::cout << "key pressed in NONE mode" << std::endl;
             handleMovement(appState->playerCamera, appState->terrainSize, key, mods);
             break;
         case Mode::RECORD:

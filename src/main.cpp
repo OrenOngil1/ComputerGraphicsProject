@@ -1,18 +1,9 @@
-#include <opencv2/core.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/highgui.hpp>
-#include <GL/gl.h>
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
 #include <iostream>
+#include <GL/glu.h>
 
-// #include "core/AppState.h"
 #include "loader/TerrainLoader.h"
 #include "render/Renderer.h"
 #include "input/Callbacks.h"
-#include <GL/glu.h>
 
 AppState appState;
 
