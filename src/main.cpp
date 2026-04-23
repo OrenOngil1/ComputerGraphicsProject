@@ -26,7 +26,7 @@ GLFWwindow *initGL() {
     glfwMakeContextCurrent(window);
     glfwSetWindowUserPointer(window, &appState);
     glfwSetKeyCallback(window, keyCallback);
-    // glfwSetMouseButtonCallback(window, mouseButtonCallback);
+    glfwSetMouseButtonCallback(window, mouseButtonCallback);
     // glfwSetCursorPosCallback(window, cursorPosCallback);
 
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);                   // Black Background
@@ -84,6 +84,7 @@ int main()
 
     while(!glfwWindowShouldClose(window)) {
         // Clear the screen and set up for drawing
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         
         // Renders the global view camera on left side of the window

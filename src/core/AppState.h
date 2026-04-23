@@ -14,6 +14,7 @@ struct AppState {
     Camera playerCamera;
     std::vector<glm::vec3> pathPoints;
     std::vector<CameraRecord> cameraRecords;
+    std::vector<Vertex> pickedVertices;
 };
 
 extern AppState appState;

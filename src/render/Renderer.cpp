@@ -37,8 +37,10 @@ void setupCamera(Camera &camera)
     setupModelView(camera);
 }
 
-void renderTerrain(const Mesh &mesh)
-{   
+void renderTerrainByColor(const Mesh &mesh, const std::vector<glm::vec3> &colorCodes)
+{
+    int isPicking = !colorCodes.empty();
+
     // Center the terrain
     glMatrixMode(GL_MODELVIEW);
     glPushMatrix();
@@ -53,11 +55,19 @@ void renderTerrain(const Mesh &mesh)
         for (int x = 0; x < mesh.width; x++) {
 
             const Vertex &vertex = mesh.vertices[z * mesh.width + x];
-            glColor3f(vertex.color.r, vertex.color.g, vertex.color.b);
+            
+            // encoding the code in case of picking
+            glm::vec3 renderColor = isPicking ? colorCodes[z * mesh.width + x] : vertex.color;
+
+            glColor3f(renderColor.r, renderColor.g, renderColor.b);
             glVertex3f(vertex.position.x, vertex.position.y, vertex.position.z);
 
             const Vertex &nextVertex = mesh.vertices[(z + 1) * mesh.width + x];
-            glColor3f(nextVertex.color.r, nextVertex.color.g, nextVertex.color.b);
+            
+            // encoding the code in case of picking
+            glm::vec3 renderNextcolor = isPicking ? colorCodes[(z + 1) * mesh.width + x] : nextVertex.color;
+            
+            glColor3f(renderNextcolor.r, renderNextcolor.g, renderNextcolor.b);
             glVertex3f(nextVertex.position.x, nextVertex.position.y, nextVertex.position.z);
 
         }
@@ -67,6 +77,11 @@ void renderTerrain(const Mesh &mesh)
 
     // Restore the modelview matrix after drawing the terrain
     glPopMatrix();
+}
+
+void renderTerrain(const Mesh &mesh)
+{   
+    renderTerrainByColor(mesh, std::vector<glm::vec3>());
 }
 
 void updateAndSetupCameraViewport(Camera &camera)

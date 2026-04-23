@@ -2,9 +2,12 @@
 
 #include <iostream>
 
+#include "Movement.h"
 #include "RecordInput.h"
 #include "PlaybackInput.h"
-#include "Movement.h"
+#include "PickInput.h"
+#include "../core/Utils.h"
+
 
 int changeMode(AppState &appState, int key, int mods)
 {
@@ -24,8 +27,20 @@ int changeMode(AppState &appState, int key, int mods)
 
         case GLFW_KEY_P:
 
-            appState.mode = Mode::PICK;
+            if(appState.cameraRecords.empty()) {
+                std::cout << "No camera positions recorded before picking mode" << std::endl;
+                std::cout << "Record some camera positions in RECORD mode first" << std::endl;
+                return 1;
+            }
+
             appState.pathPoints.clear();
+            appState.mode = Mode::PICK;
+
+            // Randomly position the camera at one of the recorded positions to start picking
+            const auto& record = appState.cameraRecords[randomIndex(appState.cameraRecords.size())];
+            appState.playerCamera.position = record.position;
+            appState.playerCamera.target = record.target;
+
             std::cout << "Switched to PICK mode" << std::endl;
             
             return 1;
@@ -62,6 +77,29 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
             handleKeyPlayback(*appState, key);
             break;
         default:
+            break;
+    }
+}
+
+void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+{
+    AppState *appState = static_cast<AppState *>(glfwGetWindowUserPointer(window));
+    if(!appState) {
+        std::cerr << "Error: No AppState associated with window" << std::endl;
+        return;
+    }
+
+    switch (appState->mode) {
+        case Mode::NONE:
+        case Mode::RECORD:
+        case Mode::PLAYBACK:
+            return; // No mouse handling in these modes
+        case Mode::PICK:
+            if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+                double xpos, ypos;
+                glfwGetCursorPos(window, &xpos, &ypos);
+                handlePickMouseButton(*appState, xpos, ypos);
+            }
             break;
     }
 }
