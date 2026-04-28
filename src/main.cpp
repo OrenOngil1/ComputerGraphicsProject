@@ -74,9 +74,9 @@ int main()
     appState.playerCamera = {
         .x        = windowWidth / 2,
         .y        = 0,
-        .position = glm::vec3(0.0f, appState.terrainSize * 0.07f, appState.terrainSize * 0.5f),
-        .target   = glm::vec3(0.0f, 0.0f, 0.0f),
-        .up       = glm::vec3(0.0f, 1.0f, 0.0f),
+        .position = glm::vec3(0.0f, appState.terrainSize * 0.5f, appState.terrainSize * 0.3f),
+        .target   = glm::vec3(0.0f, -appState.terrainSize * 0.5f, appState.terrainSize * 0.3f),
+        .up       = glm::vec3(0.0f, 0.0f, -1.0f),
         .fov      = 45.0f,
         .near     = 0.1f,
         .far      = appState.terrainSize * 3.0f

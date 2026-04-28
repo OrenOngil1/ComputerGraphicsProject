@@ -18,14 +18,27 @@ void renderGlobalOverlay(const AppState &appState)
         case Mode::RECORD:
         case Mode::PLAYBACK:
             renderPath(appState.pathPoints);
-            renderCameraRecords(appState.cameraRecords, appState.playbackIndex);
+            renderCameraRecords(appState.playerCamera.position, appState.cameraRecords);
+            break;
+        case Mode::PICK:
+            renderPath(appState.pathPoints);
+            renderCameraRecords(appState.playerCamera.position, appState.cameraRecords);
+            renderPickedPoints(appState.pickedPoints, appState.mesh);
             break;
     }
 }
 
 void renderPlayerOverlay(const AppState &appState)
 {
-    return; // No player overlay for now
+    switch(appState.mode) {
+        case Mode::NONE:
+        case Mode::RECORD:
+        case Mode::PLAYBACK:
+            return;
+        case Mode::PICK:
+            renderPickedPoints(appState.pickedPoints, appState.mesh);
+            break;
+    }
 }
 
 void setupCamera(Camera &camera)

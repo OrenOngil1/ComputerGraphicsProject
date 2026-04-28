@@ -12,28 +12,26 @@ void handleMovement(Camera &camera, float terrainSize, int key, int mods)
 
     switch (key) {
         case GLFW_KEY_UP:
-            delta += glm::normalize(camera.target - camera.position) * moveSpeed;
-            delta.y = 0;
+            delta += glm::vec3(0.0f, 0.0f, -1.0f) * moveSpeed;
             break;
         case GLFW_KEY_DOWN:
-            delta -= glm::normalize(camera.target - camera.position) * moveSpeed;
-            delta.y = 0;
+            delta -= glm::vec3(0.0f, 0.0f, -1.0f) * moveSpeed;
             break;
         case GLFW_KEY_LEFT:
-            delta -= glm::normalize(glm::cross(camera.target - camera.position, camera.up)) * moveSpeed;
+            delta -= glm::vec3(1.0f, 0.0f, 0.0f) * moveSpeed;
             delta.y = 0;
             break;
         case GLFW_KEY_RIGHT:
-            delta += glm::normalize(glm::cross(camera.target - camera.position, camera.up)) * moveSpeed;
+            delta += glm::vec3(1.0f, 0.0f, 0.0f) * moveSpeed;
             delta.y = 0;
             break;
         case GLFW_KEY_PERIOD:
             if(mods & GLFW_MOD_SHIFT) // >
-                delta.y += moveSpeed;
+                delta += glm::vec3(0.0f, 1.0f, 0.0f) * moveSpeed;
             break;
         case GLFW_KEY_COMMA:
             if(mods & GLFW_MOD_SHIFT) // <
-                delta.y -= moveSpeed;
+                delta -= glm::vec3(0.0f, 1.0f, 0.0f) * moveSpeed;
             break;
     }
 

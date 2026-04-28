@@ -16,6 +16,7 @@ int changeMode(AppState &appState, int key, int mods)
         case GLFW_KEY_R:
         
             if (mods & GLFW_MOD_CONTROL) {
+                appState.playbackIndex = 0;
                 appState.mode = Mode::PLAYBACK;
                 std::cout << "Switched to PLAYBACK mode" << std::endl;
             } else {
@@ -33,7 +34,7 @@ int changeMode(AppState &appState, int key, int mods)
                 return 1;
             }
 
-            appState.pathPoints.clear();
+            // appState.pathPoints.clear();
             appState.mode = Mode::PICK;
 
             // Randomly position the camera at one of the recorded positions to start picking

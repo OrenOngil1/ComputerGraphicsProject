@@ -40,7 +40,7 @@ int pickVertex(float x, float y, const Mesh &mesh, Camera &camera, const std::ve
     // Render the terrain with unique colors for each vertex
     renderTerrainByColor(mesh, colorCodes);
     unsigned char color[3];
-    glReadPixels((int)x, camera.height - (int)y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, color);
+    glReadPixels(int(x), camera.height - (int)y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, color);
 
     // Reset the screen after picking
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -53,14 +53,16 @@ int pickVertex(float x, float y, const Mesh &mesh, Camera &camera, const std::ve
     return -1; // No vertex picked
 }
 
-void handlePickMouseButton(AppState &appstate, double x, double y)
+void handlePickMouseButton(AppState &appState, double x, double y)
 {
     static std::vector<glm::vec3> colorCodes = initColorCodes(appState.mesh.vertices.size());
 
-    int pickedIndex = pickVertex(x, y, appState.mesh, appstate.playerCamera, colorCodes);
+    
+
+    int pickedIndex = pickVertex(x, y, appState.mesh, appState.playerCamera, colorCodes);
     if(pickedIndex != -1) {
-        appstate.pickedVertices.push_back(appstate.mesh.vertices[pickedIndex]);
-        const glm::vec3 &pickedPos = appstate.mesh.vertices[pickedIndex].position;
+        appState.pickedPoints.push_back(appState.mesh.vertices[pickedIndex].position);
+        const glm::vec3 &pickedPos = appState.mesh.vertices[pickedIndex].position;
         std::cout << "Picked vertex position: (" << pickedPos.x << ", " << pickedPos.y << ", " << pickedPos.z << ")" << std::endl;
     }
 }

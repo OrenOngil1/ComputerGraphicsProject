@@ -1,3 +1,3 @@
 #include "../core/AppState.h"
 
-void handlePickMouseButton(AppState &appstate, double x, double y);
+void handlePickMouseButton(AppState &appState, double x, double y);
