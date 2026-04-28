@@ -37,6 +37,9 @@ int pickVertex(float x, float y, const Mesh &mesh, Camera &camera, const std::ve
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    // Use flat shading to ensure solid colors for picking
+    glShadeModel(GL_FLAT);
+
     // Render the terrain with unique colors for each vertex
     renderTerrainByColor(mesh, colorCodes);
     unsigned char color[3];
@@ -45,6 +48,9 @@ int pickVertex(float x, float y, const Mesh &mesh, Camera &camera, const std::ve
     // Reset the screen after picking
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Restore smooth shading
+    glShadeModel(GL_SMOOTH);
 
     size_t id = decodeColor(color);
     if(id < colorCodes.size())
@@ -56,8 +62,6 @@ int pickVertex(float x, float y, const Mesh &mesh, Camera &camera, const std::ve
 void handlePickMouseButton(AppState &appState, double x, double y)
 {
     static std::vector<glm::vec3> colorCodes = initColorCodes(appState.mesh.vertices.size());
-
-    
 
     int pickedIndex = pickVertex(x, y, appState.mesh, appState.playerCamera, colorCodes);
     if(pickedIndex != -1) {

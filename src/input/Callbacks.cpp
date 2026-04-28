@@ -34,7 +34,7 @@ int changeMode(AppState &appState, int key, int mods)
                 return 1;
             }
 
-            // appState.pathPoints.clear();
+            appState.pickedPoints.clear();
             appState.mode = Mode::PICK;
 
             // Randomly position the camera at one of the recorded positions to start picking

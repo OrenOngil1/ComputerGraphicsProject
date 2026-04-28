@@ -35,6 +35,8 @@ GLFWwindow *initGL() {
     glEnable(GL_DEPTH_TEST);                        // Enable Depth Testing
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);          // Enable Alpha Blending (disable alpha testing)
     glEnable(GL_BLEND);                         // Enable Blending       (disable alpha testing)
+    glEnable(GL_POINT_SMOOTH);
+    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
     // glEnable(GL_TEXTURE_2D);                        // Enable Texture Mapping
 
     return window;
