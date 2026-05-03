@@ -1,4 +1,5 @@
 #pragma once
+
 #include <random>
 
 size_t randomIndex(size_t size) {

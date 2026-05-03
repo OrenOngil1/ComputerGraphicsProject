@@ -43,6 +43,7 @@ glm::vec3 getPickedPointColor(size_t index)
         glm::vec3(1.0f, 0.4f, 0.7f),  // pink
         glm::vec3(1.0f, 0.7f, 0.3f),  // peach
     };
+    
     return palette[index % (sizeof(palette) / sizeof(palette[0]))];
 }
 
@@ -57,7 +58,7 @@ void renderPickedPoints(const std::vector<glm::vec3> &pickedPoints, const Mesh &
 
     glPointSize(20.0f);
     glBegin(GL_POINTS);
-    for (size_t i = 0; i < pickedPoints.size(); i++) {
+    for(size_t i = 0; i < pickedPoints.size(); i++) {
 
         const glm::vec3 &color = getPickedPointColor(i);
         const glm::vec3 &point = pickedPoints[i];

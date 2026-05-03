@@ -35,8 +35,8 @@ GLFWwindow *initGL() {
     glEnable(GL_DEPTH_TEST);                        // Enable Depth Testing
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);          // Enable Alpha Blending (disable alpha testing)
     glEnable(GL_BLEND);                         // Enable Blending       (disable alpha testing)
-    glEnable(GL_POINT_SMOOTH);
-    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);
+    glEnable(GL_POINT_SMOOTH);                  // Enable Point Smoothing (anti-aliasing for points)
+    glHint(GL_POINT_SMOOTH_HINT, GL_NICEST);    // Set Point Smoothing Hint to Nicest (highest quality)
     // glEnable(GL_TEXTURE_2D);                        // Enable Texture Mapping
 
     return window;
@@ -63,23 +63,23 @@ int main()
     appState.globalCamera = {
         .x        = 0,
         .y        = 0,
-        .position = glm::vec3(0.0f, appState.terrainSize * 0.8f, appState.terrainSize * 1.4f),
-        .target   = glm::vec3(0.0f, 0.0f, 0.0f),
-        .up       = glm::vec3(0.0f, 1.0f, 0.0f),
+        .position = {0.0f, appState.terrainSize * 0.8f, appState.terrainSize * 1.4f},
+        .target   = {0.0f, 0.0f, 0.0f},
+        .up       = {0.0f, 1.0f, 0.0f},
         .fov      = 45.0f,
         .near     = 0.1f,
         .far      = appState.terrainSize * 3.0f
     };
 
     // player camera will be controlled by the user
-    // starting at the edge of the terrain, looking towards the center
+    // starting at the edge of the terrain, looking at the center
     appState.playerCamera = {
         .x        = windowWidth / 2,
         .y        = 0,
-        .position = glm::vec3(0.0f, appState.terrainSize * 0.5f, appState.terrainSize * 0.3f),
-        .target   = glm::vec3(0.0f, -appState.terrainSize * 0.5f, appState.terrainSize * 0.3f),
-        .up       = glm::vec3(0.0f, 0.0f, -1.0f),
-        .fov      = 45.0f,
+        .position = {0.0f, 1.05f, appState.terrainSize * 0.3f},
+        .target   = {0.0f, 1.05f, appState.terrainSize * 0.3f - 1.0f},
+        .up       = {0.0f, 1.0f, 0.0f},
+        .fov      = 90.0f,
         .near     = 0.1f,
         .far      = appState.terrainSize * 3.0f
     };

@@ -42,6 +42,8 @@ int pickVertex(float x, float y, const Mesh &mesh, Camera &camera, const std::ve
 
     // Render the terrain with unique colors for each vertex
     renderTerrainByColor(mesh, colorCodes);
+
+    // Read the pixel color at the mouse position
     unsigned char color[3];
     glReadPixels(int(x), camera.height - (int)y, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, color);
 
