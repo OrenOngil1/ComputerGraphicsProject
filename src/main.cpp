@@ -90,7 +90,8 @@ int main()
 
     while(!glfwWindowShouldClose(window)) {
 
-        if(appState.mode == Mode::NONE || appState.mode == Mode::RECORD) {
+        // Move player camera
+        if(appState.isFreeMovement) {
             currentTime = glfwGetTime();
             move(appState.keys, currentTime - lastTime, appState.playerCamera, appState.pathPoints, appState.terrainSize);
             lastTime = currentTime;

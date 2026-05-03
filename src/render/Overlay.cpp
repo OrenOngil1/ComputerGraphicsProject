@@ -2,6 +2,8 @@
 
 #include <GL/gl.h>
 
+#define POINT_SIZE 10.0f
+
 void renderPath(const std::vector<glm::vec3> &pathPoints)
 {
     glColor3f(0.0f, 0.0f, 1.0f);
@@ -17,7 +19,7 @@ void renderCameraRecords(const glm::vec3 &playerPosition, const std::vector<Came
 {
     if(cameraRecords.empty()) return;
 
-    glPointSize(5.0f);
+    glPointSize(POINT_SIZE);
     glBegin(GL_POINTS);
     for (const auto &record : cameraRecords) {
 
@@ -47,7 +49,7 @@ glm::vec3 getPickedPointColor(size_t index)
     return palette[index % (sizeof(palette) / sizeof(palette[0]))];
 }
 
-void renderPickedPoints(const std::vector<glm::vec3> &pickedPoints, const Mesh &mesh, float pointSize)
+void renderPickedPoints(const std::vector<PickedPoint> &pickedPoints, const Mesh &mesh, float pointSize)
 {
     if(pickedPoints.empty()) return;
 
@@ -64,10 +66,10 @@ void renderPickedPoints(const std::vector<glm::vec3> &pickedPoints, const Mesh &
     for(size_t i = 0; i < pickedPoints.size(); i++) {
 
         const glm::vec3 &color = getPickedPointColor(i);
-        const glm::vec3 &point = pickedPoints[i];
+        const PickedPoint &point = pickedPoints[i];
 
         glColor3f(color.r, color.g, color.b);
-        glVertex3f(point.x, point.y, point.z);
+        glVertex3f(point.worldPos.x, point.worldPos.y, point.worldPos.z);
     }   
     glEnd();
 
@@ -76,12 +78,34 @@ void renderPickedPoints(const std::vector<glm::vec3> &pickedPoints, const Mesh &
     glPopMatrix();
 }
 
-void renderPickedPointGlobal(const std::vector<glm::vec3> &pickedPoints, const Mesh &mesh)
+void renderPickedPointGlobal(const std::vector<PickedPoint> &pickedPoints, const Mesh &mesh)
 {
-    renderPickedPoints(pickedPoints, mesh, 10.0f);
+    renderPickedPoints(pickedPoints, mesh, POINT_SIZE);
 }
 
-void renderPickedPointPlayer(const std::vector<glm::vec3> &pickedPoints, const Mesh &mesh)
+void renderPickedPointPlayer(const std::vector<PickedPoint> &pickedPoints, const Mesh &mesh)
 {
-    renderPickedPoints(pickedPoints, mesh, 20.0f);
+    renderPickedPoints(pickedPoints, mesh, POINT_SIZE * 1.5f);
+}
+
+void renderPnPCameraDiffGlobal(const glm::vec3 &computedCameraPosition)
+{
+    glColor3f(1.0f, 0.0f, 0.0f); // Red for computed camera
+    glPointSize(POINT_SIZE);
+    glBegin(GL_POINTS);
+    glVertex3f(computedCameraPosition.x, computedCameraPosition.y, computedCameraPosition.z);
+    glEnd();
+}
+
+void setupGhostEffect()
+{
+    glDepthMask(GL_FALSE);
+    glDisable(GL_DEPTH_TEST);
+}
+
+void cleanupGhostEffect()
+{
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 }

@@ -9,6 +9,7 @@
 void updateAndSetupCameraViewport(Camera &camera);
 void setupProjection(const Camera &camera);
 void setupModelView(const Camera &camera);
+void setupEstimatedCamera(const CameraRecord &record, const Camera &camera);
 
 void renderGlobalOverlay(const AppState &appState)
 {
@@ -24,6 +25,9 @@ void renderGlobalOverlay(const AppState &appState)
             renderPath(appState.pathPoints);
             renderCameraRecords(appState.playerCamera.position, appState.cameraRecords);
             renderPickedPointGlobal(appState.pickedPoints, appState.mesh);
+
+            if(appState.computedCameraFromPicking)
+                renderPnPCameraDiffGlobal(appState.computedCameraFromPicking->position);
             break;
     }
 }
@@ -36,7 +40,14 @@ void renderPlayerOverlay(const AppState &appState)
         case Mode::PLAYBACK:
             return;
         case Mode::PICK:
-            renderPickedPointPlayer(appState.pickedPoints, appState.mesh);
+
+            if(appState.computedCameraFromPicking) {
+                setupEstimatedCamera(*appState.computedCameraFromPicking, appState.playerCamera);
+                setupGhostEffect();
+                renderGhostTerrain(appState.mesh, glm::vec3(1.0f, 0.5f, 0.0f), 0.8f);
+                cleanupGhostEffect();
+            } else
+                renderPickedPointPlayer(appState.pickedPoints, appState.mesh);
             break;
     }
 }
@@ -50,9 +61,19 @@ void setupCamera(Camera &camera)
     setupModelView(camera);
 }
 
-void renderTerrainByColor(const Mesh &mesh, const std::vector<glm::vec3> &colorCodes)
+void setupEstimatedCamera(const CameraRecord &record, const Camera &camera)
 {
-    int isPicking = !colorCodes.empty();
+    Camera estimatedCamera = camera;
+
+    estimatedCamera.position = record.position;
+    estimatedCamera.target = record.target;
+
+    setupCamera(estimatedCamera);
+}
+
+void renderTerrain(const Mesh &mesh, const std::vector<glm::vec3> *colorCodes, const glm::vec3 *overrideColor, float alpha)
+{
+    int isPicking = colorCodes && !colorCodes->empty();
 
     // Center the terrain
     glMatrixMode(GL_MODELVIEW);
@@ -70,17 +91,21 @@ void renderTerrainByColor(const Mesh &mesh, const std::vector<glm::vec3> &colorC
             const Vertex &vertex = mesh.vertices[z * mesh.width + x];
             
             // encoding the code in case of picking
-            glm::vec3 renderColor = isPicking ? colorCodes[z * mesh.width + x] : vertex.color;
+            glm::vec3 renderColor = isPicking ? (*colorCodes)[z * mesh.width + x] : 
+                                    overrideColor ? *overrideColor :
+                                    vertex.color;
 
-            glColor3f(renderColor.r, renderColor.g, renderColor.b);
+            glColor4f(renderColor.r, renderColor.g, renderColor.b, alpha);
             glVertex3f(vertex.position.x, vertex.position.y, vertex.position.z);
 
             const Vertex &nextVertex = mesh.vertices[(z + 1) * mesh.width + x];
             
             // encoding the code in case of picking
-            glm::vec3 renderNextcolor = isPicking ? colorCodes[(z + 1) * mesh.width + x] : nextVertex.color;
-            
-            glColor3f(renderNextcolor.r, renderNextcolor.g, renderNextcolor.b);
+            glm::vec3 renderNextcolor = isPicking ? (*colorCodes)[(z + 1) * mesh.width + x] : 
+                                        overrideColor ? *overrideColor :
+                                        nextVertex.color;
+
+            glColor4f(renderNextcolor.r, renderNextcolor.g, renderNextcolor.b, alpha);
             glVertex3f(nextVertex.position.x, nextVertex.position.y, nextVertex.position.z);
 
         }
@@ -92,9 +117,9 @@ void renderTerrainByColor(const Mesh &mesh, const std::vector<glm::vec3> &colorC
     glPopMatrix();
 }
 
-void renderTerrain(const Mesh &mesh)
-{   
-    renderTerrainByColor(mesh, std::vector<glm::vec3>());
+void renderGhostTerrain(const Mesh &mesh, const glm::vec3 &color, float alpha)
+{
+    renderTerrain(mesh, nullptr, &color, alpha);
 }
 
 void updateAndSetupCameraViewport(Camera &camera)

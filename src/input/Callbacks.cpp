@@ -8,6 +8,16 @@
 #include "PickInput.h"
 #include "../core/Utils.h"
 
+int checkForCameraRecords(const std::vector<CameraRecord> &cameraRecords)
+{
+    if(cameraRecords.empty()) {
+        std::cout << "No camera positions recorded before picking mode" << std::endl;
+        std::cout << "Record some camera positions in RECORD mode first" << std::endl;
+        return 0;
+    }
+    return 1;
+}
+
 
 int changeMode(AppState &appState, int key, int mods)
 {
@@ -16,10 +26,21 @@ int changeMode(AppState &appState, int key, int mods)
         case GLFW_KEY_R:
         
             if (mods & GLFW_MOD_CONTROL) {
+                if(!checkForCameraRecords(appState.cameraRecords))
+                    return 1;
+
+                appState.isFreeMovement = false;
+                appState.pickedPoints.clear();
+                appState.computedCameraFromPicking = nullptr;
                 appState.playbackIndex = 0;
                 appState.mode = Mode::PLAYBACK;
                 std::cout << "Switched to PLAYBACK mode" << std::endl;
             } else {
+                appState.pickedPoints.clear();
+                appState.cameraRecords.clear();
+                appState.pathPoints.clear();
+                appState.computedCameraFromPicking = nullptr;
+                appState.isFreeMovement = true;
                 appState.mode = Mode::RECORD;
                 std::cout << "Switched to RECORD mode" << std::endl;
             }   
@@ -28,13 +49,13 @@ int changeMode(AppState &appState, int key, int mods)
 
         case GLFW_KEY_P:
 
-            if(appState.cameraRecords.empty()) {
-                std::cout << "No camera positions recorded before picking mode" << std::endl;
-                std::cout << "Record some camera positions in RECORD mode first" << std::endl;
+            if(!checkForCameraRecords(appState.cameraRecords))
                 return 1;
-            }
 
+            appState.isFreeMovement = false;
             appState.pickedPoints.clear();
+            appState.pathPoints.clear();
+            appState.computedCameraFromPicking = nullptr;
             appState.mode = Mode::PICK;
 
             // Randomly position the camera at one of the recorded positions to start picking
@@ -59,15 +80,16 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     }
 
     // Ignore keys outside our tracking range
-    if(key < 0 || key >= 1024)
+    if(key < 0 || key >= NKEYS)
         return;
 
-    // Update key state for movement handling
-    if(action == GLFW_PRESS) {
-        appState->keys[key] = true;
-    } else if(action == GLFW_RELEASE) {
+    if(action == GLFW_RELEASE)
         appState->keys[key] = false;
-    }
+
+    if(action != GLFW_PRESS)
+        return;
+
+    appState->keys[key] = true;
 
     // if we handled a mode change
     // don't handle it as a regular key press in the current mode
@@ -82,6 +104,9 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
             break;
         case Mode::PLAYBACK:
             handleKeyPlayback(*appState, key);
+            break;
+        case Mode::PICK:
+            handlePickKeyButton(*appState, key);
             break;
         default:
             break;

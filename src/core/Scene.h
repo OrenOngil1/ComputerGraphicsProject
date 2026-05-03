@@ -4,6 +4,11 @@
 #include <glm/glm.hpp>
 
 typedef struct {
+    glm::vec3 worldPos;
+    glm::vec2 imagePos;
+} PickedPoint;
+
+typedef struct {
     glm::vec3 position;
     glm::vec3 color;
 } Vertex;

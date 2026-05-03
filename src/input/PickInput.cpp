@@ -1,8 +1,10 @@
 #include "PickInput.h"
 #include "../render/Renderer.h"
+#include "../core/Utils.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
+#include <opencv2/calib3d.hpp>
 #include <iostream> // for debugging
 
 glm::vec3 encodeId(size_t id)
@@ -41,7 +43,7 @@ int pickVertex(float x, float y, const Mesh &mesh, Camera &camera, const std::ve
     glShadeModel(GL_FLAT);
 
     // Render the terrain with unique colors for each vertex
-    renderTerrainByColor(mesh, colorCodes);
+    renderTerrain(mesh, &colorCodes);
 
     // Read the pixel color at the mouse position
     unsigned char color[3];
@@ -61,14 +63,69 @@ int pickVertex(float x, float y, const Mesh &mesh, Camera &camera, const std::ve
     return -1; // No vertex picked
 }
 
+std::unique_ptr<CameraRecord> computeCameraFromPickedPoints(const std::vector<PickedPoint> &pickedPoints, float fov, int width, int height)
+{
+    if(pickedPoints.size() < 4) {
+        std::cerr << "Not enough points picked to compute camera. Need at least 4 points." << std::endl;
+        return nullptr;
+    }
+
+    cv::Mat rvec, tvec;
+
+    bool computed = cv::solvePnP(
+        map(pickedPoints, [&](const PickedPoint &p) { return cv::Point3f(p.worldPos.x - width / 2.0f, p.worldPos.y, p.worldPos.z - height / 2.0f); }),
+        map(pickedPoints, [](const PickedPoint &p) { return cv::Point2f(p.imagePos.x, p.imagePos.y); }),
+        getCameraIntrinsicMatrix(fov, width, height),
+        cv::Mat::zeros(4, 1, CV_64F),
+        rvec,
+        tvec,
+        false,
+        cv::SOLVEPNP_EPNP
+    );
+
+    if(!computed) {
+        std::cerr << "Failed to compute camera from picked points" << std::endl;
+        return nullptr;
+    }
+
+    cv::Mat R;
+    cv::Rodrigues(rvec, R);
+    cv::Mat cvCameraPos = -R.t() * tvec;
+    cv::Mat cvForward = R.t() * (cv::Mat_<double>(3,1) << 0, 0, 1);
+    cv::Mat cvTarget = cvCameraPos + cvForward;
+
+    glm::vec3 cameraPos(cvCameraPos.at<double>(0), cvCameraPos.at<double>(1), cvCameraPos.at<double>(2));
+    glm::vec3 target(cvTarget.at<double>(0), cvTarget.at<double>(1), cvTarget.at<double>(2));
+    std::cout << "Computed camera position: (" << cameraPos.x << ", " << cameraPos.y << ", " << cameraPos.z << ")" << std::endl;
+    return std::make_unique<CameraRecord>(CameraRecord{cameraPos, target});
+}
+
+void handlePickKeyButton(AppState &appState, int key)
+{
+    if(key == GLFW_KEY_C) {
+        std::cout << "Computing camera from picked points..." << std::endl;
+        appState.computedCameraFromPicking = computeCameraFromPickedPoints(
+            appState.pickedPoints,
+            appState.playerCamera.fov,
+            appState.mesh.width,
+            appState.mesh.height
+        );
+    }
+}
+
 void handlePickMouseButton(AppState &appState, double x, double y)
 {
     static std::vector<glm::vec3> colorCodes = initColorCodes(appState.mesh.vertices.size());
 
     int pickedIndex = pickVertex(x, y, appState.mesh, appState.playerCamera, colorCodes);
     if(pickedIndex != -1) {
-        appState.pickedPoints.push_back(appState.mesh.vertices[pickedIndex].position);
-        const glm::vec3 &pickedPos = appState.mesh.vertices[pickedIndex].position;
-        std::cout << "Picked vertex position: (" << pickedPos.x << ", " << pickedPos.y << ", " << pickedPos.z << ")" << std::endl;
+        glm::vec3 worldPos = appState.mesh.vertices[pickedIndex].position;
+        glm::vec2 imagePos(x - appState.playerCamera.x, y - appState.playerCamera.y);
+        appState.pickedPoints.push_back(PickedPoint{worldPos, imagePos});
+        std::cout << "Picked world: ("
+            << worldPos.x << ", " << worldPos.y << ", " << worldPos.z
+            << "), image: ("
+            << imagePos.x << ", " << imagePos.y << ")"
+            << std::endl;
     }
 }
