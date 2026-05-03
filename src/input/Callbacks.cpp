@@ -58,9 +58,16 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         return;
     }
 
-    // Only handle key presses and repeats, ignore releases
-    if(action != GLFW_PRESS && action != GLFW_REPEAT)
+    // Ignore keys outside our tracking range
+    if(key < 0 || key >= 1024)
         return;
+
+    // Update key state for movement handling
+    if(action == GLFW_PRESS) {
+        appState->keys[key] = true;
+    } else if(action == GLFW_RELEASE) {
+        appState->keys[key] = false;
+    }
 
     // if we handled a mode change
     // don't handle it as a regular key press in the current mode
@@ -69,8 +76,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
 
     switch (appState->mode) {
         case Mode::NONE:
-            handleMovement(appState->playerCamera, appState->terrainSize, key, mods);
-            break;
+            return; // No key handling in NONE mode
         case Mode::RECORD:
             handleKeyRecord(*appState, key, mods);
             break;

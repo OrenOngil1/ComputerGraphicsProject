@@ -4,6 +4,7 @@
 #include "loader/TerrainLoader.h"
 #include "render/Renderer.h"
 #include "input/Callbacks.h"
+#include "input/Movement.h"
 
 AppState appState;
 
@@ -84,7 +85,17 @@ int main()
         .far      = appState.terrainSize * 3.0f
     };
 
+    float lastTime = 0.0f;
+    float currentTime;
+
     while(!glfwWindowShouldClose(window)) {
+
+        if(appState.mode == Mode::NONE || appState.mode == Mode::RECORD) {
+            currentTime = glfwGetTime();
+            move(appState.keys, currentTime - lastTime, appState.playerCamera, appState.pathPoints, appState.terrainSize);
+            lastTime = currentTime;
+        }
+
         // Clear the screen and set up for drawing
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

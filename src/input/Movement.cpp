@@ -1,59 +1,47 @@
 #include "Movement.h"
 
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
+#include "../core/Recording.h"
 // #include <iostream> // For debugging
 
-void handleMovement(Camera &camera, float terrainSize, int key, int mods)
+void move(const bool keys[], float deltaTime, Camera &camera, std::vector<glm::vec3> &pathPoints, float terrainSize)
 {
-    // Movement speed scales with terrain size
-    float rotationSpeed = 0.005f;
-    float moveSpeed = terrainSize * 0.01f;
+    bool isShift = keys[GLFW_KEY_LEFT_SHIFT] || keys[GLFW_KEY_RIGHT_SHIFT];
+
+    // Movement speed scales with terrain size and deltaTime for smooth movement
+    float rotationSpeed = 1.05f * deltaTime;
+    float moveSpeed = 0.05f * terrainSize * deltaTime;
 
     glm::vec3 delta(0.0f);
     glm::vec3 forward = glm::normalize(camera.target - camera.position);
     glm::vec3 right = glm::normalize(glm::cross(forward, camera.up));
 
-    switch (key) {
-        case GLFW_KEY_W:
-            delta += forward * moveSpeed;
-            break;
-        case GLFW_KEY_S:
-            delta -= forward * moveSpeed;
-            break;
-        case GLFW_KEY_A:
-            delta -= right * moveSpeed;
-            break;
-        case GLFW_KEY_D:
-            delta += right * moveSpeed;
-            break;
-        case GLFW_KEY_UP:
-            if(forward.y > 0.99f) return;
-            camera.target += camera.up * rotationSpeed;
-            break;
-        case GLFW_KEY_DOWN:
-            if(forward.y < -0.99f) return;
-            camera.target -= camera.up * rotationSpeed;
-            break;
-        case GLFW_KEY_LEFT:
-            camera.target -= right * rotationSpeed;
-            break;
-        case GLFW_KEY_RIGHT:
-            camera.target += right * rotationSpeed;
-            break;
-        case GLFW_KEY_PERIOD:
-            if(mods & GLFW_MOD_SHIFT) // >
-                delta += camera.up * moveSpeed;
-            break;
-        case GLFW_KEY_COMMA:
-            if(mods & GLFW_MOD_SHIFT) // <
-                delta -= camera.up * moveSpeed;
-            break;
-    }
+    if(keys[GLFW_KEY_W])
+        delta += forward * moveSpeed;
+    if(keys[GLFW_KEY_S])
+        delta -= forward * moveSpeed;
+    if(keys[GLFW_KEY_A])
+        delta -= right * moveSpeed;
+    if(keys[GLFW_KEY_D])
+        delta += right * moveSpeed;
+    if(keys[GLFW_KEY_UP] && forward.y <= 0.99f)
+        camera.target += camera.up * rotationSpeed;
+    if(keys[GLFW_KEY_DOWN] && forward.y >= -0.99f)
+        camera.target -= camera.up * rotationSpeed;
+    if(keys[GLFW_KEY_LEFT])
+        camera.target -= right * rotationSpeed;
+    if(keys[GLFW_KEY_RIGHT])
+        camera.target += right * rotationSpeed;
+    if(isShift && keys[GLFW_KEY_PERIOD]) // >
+        delta += camera.up * moveSpeed;
+    if(isShift && keys[GLFW_KEY_COMMA]) // <
+        delta -= camera.up * moveSpeed; 
 
     camera.position += delta;
     camera.target += delta;
 
     forward = glm::normalize(camera.target - camera.position);
     camera.target = camera.position + forward; // Ensure target is always in front of the camera   
+
+    recordPathPoint(pathPoints, camera.position);
 }

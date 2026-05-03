@@ -1,5 +1,8 @@
 #pragma once
 
+#include <vector>
+#include <glm/glm.hpp>
+
 #include "../core/Camera.h"
 
-void handleMovement(Camera &camera, float terrainSize, int key, int mods);
+void move(const bool keys[], float deltaTime, Camera &camera, std::vector<glm::vec3> &pathPoints, float terrainSize);

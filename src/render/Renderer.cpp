@@ -23,7 +23,7 @@ void renderGlobalOverlay(const AppState &appState)
         case Mode::PICK:
             renderPath(appState.pathPoints);
             renderCameraRecords(appState.playerCamera.position, appState.cameraRecords);
-            renderPickedPoints(appState.pickedPoints, appState.mesh);
+            renderPickedPointGlobal(appState.pickedPoints, appState.mesh);
             break;
     }
 }
@@ -36,7 +36,7 @@ void renderPlayerOverlay(const AppState &appState)
         case Mode::PLAYBACK:
             return;
         case Mode::PICK:
-            renderPickedPoints(appState.pickedPoints, appState.mesh);
+            renderPickedPointPlayer(appState.pickedPoints, appState.mesh);
             break;
     }
 }

@@ -47,7 +47,7 @@ glm::vec3 getPickedPointColor(size_t index)
     return palette[index % (sizeof(palette) / sizeof(palette[0]))];
 }
 
-void renderPickedPoints(const std::vector<glm::vec3> &pickedPoints, const Mesh &mesh)
+void renderPickedPoints(const std::vector<glm::vec3> &pickedPoints, const Mesh &mesh, float pointSize)
 {
     if(pickedPoints.empty()) return;
 
@@ -56,7 +56,10 @@ void renderPickedPoints(const std::vector<glm::vec3> &pickedPoints, const Mesh &
     glPushMatrix();
     glTranslatef(-mesh.width / 2.0f, 0.0f, -mesh.height / 2.0f);
 
-    glPointSize(20.0f);
+    // Ensure points are visible on top of terrain
+    glDisable(GL_DEPTH_TEST);
+
+    glPointSize(pointSize);
     glBegin(GL_POINTS);
     for(size_t i = 0; i < pickedPoints.size(); i++) {
 
@@ -64,9 +67,21 @@ void renderPickedPoints(const std::vector<glm::vec3> &pickedPoints, const Mesh &
         const glm::vec3 &point = pickedPoints[i];
 
         glColor3f(color.r, color.g, color.b);
-        glVertex3f(point.x, point.y * 0.75f, point.z);
+        glVertex3f(point.x, point.y, point.z);
     }   
     glEnd();
 
+    glEnable(GL_DEPTH_TEST);
+
     glPopMatrix();
+}
+
+void renderPickedPointGlobal(const std::vector<glm::vec3> &pickedPoints, const Mesh &mesh)
+{
+    renderPickedPoints(pickedPoints, mesh, 10.0f);
+}
+
+void renderPickedPointPlayer(const std::vector<glm::vec3> &pickedPoints, const Mesh &mesh)
+{
+    renderPickedPoints(pickedPoints, mesh, 20.0f);
 }

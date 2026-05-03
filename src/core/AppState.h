@@ -9,6 +9,7 @@ struct AppState {
     Mode mode = Mode::NONE;
     float terrainSize = 0.0f;
     size_t playbackIndex = 0;
+    bool keys[1024] = { false };
     Mesh mesh;
     Camera globalCamera;
     Camera playerCamera;
