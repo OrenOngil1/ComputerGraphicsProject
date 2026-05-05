@@ -1,6 +1,7 @@
 #include <iostream>
 #include <GL/glu.h>
 
+#include "core/Menu.h"
 #include "loader/TerrainLoader.h"
 #include "render/Renderer.h"
 #include "input/Callbacks.h"
@@ -10,15 +11,13 @@ AppState appState;
 
 GLFWwindow *initGL() {
 
-    if (!glfwInit())
-    {
+    if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
         return nullptr;
     }
 
     GLFWwindow *window = glfwCreateWindow(800, 600, "OpenGL Window", nullptr, nullptr);
-    if (!window)
-    {
+    if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return nullptr;
@@ -45,77 +44,81 @@ GLFWwindow *initGL() {
 
 int main()
 {
-    std::string image_path = "assets/terrain1.jpg";
+    while(true) {
+        std::cout << "Welcome to the Terrain Visualization App!" << std::endl;
+        std::string dir = "assets/";
+        std::string image_path = imagePath(dir);
 
-    appState.mesh = readTerrain(image_path);
-    appState.terrainSize = std::max(appState.mesh.width, appState.mesh.height);
+        appState.mesh = readTerrain(image_path);
+        appState.terrainSize = std::max(appState.mesh.width, appState.mesh.height);
 
-    GLFWwindow *window = initGL();
-    if (!window) {
-        std::cerr << "Failed to initialize OpenGL" << std::endl;
-        return -1;
-    }
-
-    int windowWidth;
-    glfwGetWindowSize(window, &windowWidth, NULL);
-
-    // global camera will be above the terrain
-    // looking towards the center
-    appState.globalCamera = {
-        .x        = 0,
-        .y        = 0,
-        .position = {0.0f, appState.terrainSize * 0.8f, appState.terrainSize * 1.4f},
-        .target   = {0.0f, 0.0f, 0.0f},
-        .up       = {0.0f, 1.0f, 0.0f},
-        .fov      = 45.0f,
-        .near     = 0.1f,
-        .far      = appState.terrainSize * 3.0f
-    };
-
-    // player camera will be controlled by the user
-    // starting at the edge of the terrain, looking at the center
-    appState.playerCamera = {
-        .x        = windowWidth / 2,
-        .y        = 0,
-        .position = {0.0f, 1.05f, appState.terrainSize * 0.3f},
-        .target   = {0.0f, 1.05f, appState.terrainSize * 0.3f - 1.0f},
-        .up       = {0.0f, 1.0f, 0.0f},
-        .fov      = 90.0f,
-        .near     = 0.1f,
-        .far      = appState.terrainSize * 3.0f
-    };
-
-    float lastTime = 0.0f;
-    float currentTime;
-
-    while(!glfwWindowShouldClose(window)) {
-
-        // Move player camera
-        if(appState.isFreeMovement) {
-            currentTime = glfwGetTime();
-            move(appState.keys, currentTime - lastTime, appState.playerCamera, appState.pathPoints, appState.terrainSize);
-            lastTime = currentTime;
+        GLFWwindow *window = initGL();
+        if (!window) {
+            std::cerr << "Failed to initialize OpenGL" << std::endl;
+            return -1;
         }
 
-        // Clear the screen and set up for drawing
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        int windowWidth;
+        glfwGetWindowSize(window, &windowWidth, NULL);
+
+        // global camera will be above the terrain
+        // looking towards the center
+        appState.globalCamera = {
+            .x        = 0,
+            .y        = 0,
+            .position = {0.0f, appState.terrainSize * 0.8f, appState.terrainSize * 1.4f},
+            .target   = {0.0f, 0.0f, 0.0f},
+            .up       = {0.0f, 1.0f, 0.0f},
+            .fov      = 45.0f,
+            .near     = 0.1f,
+            .far      = appState.terrainSize * 3.0f
+        };
+
+        // player camera will be controlled by the user
+        // starting at the edge of the terrain, looking at the center
+        appState.playerCamera = {
+            .x        = windowWidth / 2,
+            .y        = 0,
+            .position = {0.0f, 1.05f, appState.terrainSize * 0.3f},
+            .target   = {0.0f, 1.05f, appState.terrainSize * 0.3f - 1.0f},
+            .up       = {0.0f, 1.0f, 0.0f},
+            .fov      = 90.0f,
+            .near     = 0.1f,
+            .far      = appState.terrainSize * 3.0f
+        };
+
+        float lastTime = 0.0f;
+        float currentTime;
+
+        while(!glfwWindowShouldClose(window)) {
+
+            // Move player camera
+            if(appState.isFreeMovement) {
+                currentTime = glfwGetTime();
+                move(appState.keys, currentTime - lastTime, appState.playerCamera, appState.pathPoints, appState.terrainSize);
+                lastTime = currentTime;
+            }
+
+            // Clear the screen and set up for drawing
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            
+            // Renders the global view camera on left side of the window
+            setupCamera(appState.globalCamera);
+            renderTerrain(appState.mesh);
+            renderGlobalOverlay(appState);
         
-        // Renders the global view camera on left side of the window
-        setupCamera(appState.globalCamera);
-        renderTerrain(appState.mesh);
-        renderGlobalOverlay(appState);
-    
-        // Renders the local view camera on right side of the window
-        setupCamera(appState.playerCamera);
-        renderTerrain(appState.mesh);
-        renderPlayerOverlay(appState);
-    
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+            // Renders the local view camera on right side of the window
+            setupCamera(appState.playerCamera);
+            renderTerrain(appState.mesh);
+            renderPlayerOverlay(appState);
+        
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+        }
+        
+        glfwTerminate();
     }
-    
-    glfwTerminate();
 
     return 0;
 }

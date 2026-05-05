@@ -89,6 +89,12 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     if(action != GLFW_PRESS)
         return;
 
+    // Exiting to main menu
+    if(key == GLFW_KEY_ESCAPE) {
+        glfwSetWindowShouldClose(window, true);
+        return;
+    }
+
     appState->keys[key] = true;
 
     // if we handled a mode change

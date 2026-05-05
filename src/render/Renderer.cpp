@@ -44,7 +44,7 @@ void renderPlayerOverlay(const AppState &appState)
             if(appState.computedCameraFromPicking) {
                 setupEstimatedCamera(*appState.computedCameraFromPicking, appState.playerCamera);
                 setupGhostEffect();
-                renderGhostTerrain(appState.mesh, glm::vec3(1.0f, 0.5f, 0.0f), 0.8f);
+                renderGhostTerrain(appState.mesh, {1.0f, 0.5f, 0.0f}, 0.8f);
                 cleanupGhostEffect();
             } else
                 renderPickedPointPlayer(appState.pickedPoints, appState.mesh);
