@@ -9,6 +9,14 @@
 
 AppState appState;
 
+// Init order is load-bearing here:
+//   1. glfwInit                       -- start the window system
+//   2. glfwWindowHint(...)             -- request a 3.3 core context BEFORE create
+//   3. glfwCreateWindow                -- the context is born with the requested version
+//   4. glfwMakeContextCurrent          -- bind the context to this thread
+//   5. gladLoadGLLoader                -- look up gl* function pointers; nothing
+//                                         can call any gl* function before this
+//   6. glClearColor / glEnable / etc.  -- now safe
 GLFWwindow *initGL() {
 
     if (!glfwInit())
@@ -17,6 +25,7 @@ GLFWwindow *initGL() {
         return nullptr;
     }
 
+    // Hints must be set BEFORE glfwCreateWindow -- they configure the context.
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -31,6 +40,8 @@ GLFWwindow *initGL() {
 
     glfwMakeContextCurrent(window);
 
+    // GLAD looks up every gl* function pointer the driver provides. Calling any
+    // gl* function before this returns is a null-pointer crash.
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         std::cerr << "Failed to load OpenGL via GLAD" << std::endl;
@@ -43,6 +54,7 @@ GLFWwindow *initGL() {
     glfwSetWindowUserPointer(window, &appState);
     glfwSetKeyCallback(window, keyCallback);
 
+    // Persistent GL state -- set once, applies to every draw call afterward.
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClearDepth(1.0f);
     glDepthFunc(GL_LEQUAL);
@@ -95,13 +107,16 @@ int main()
         .far      = appState.terrainSize * 3.0f
     };
 
+    // Compiled once at startup; the GLSL source is parsed and uploaded to the GPU.
     Shader sceneShader("assets/shaders/terrain.shader");
+    // Terrain geometry uploaded to GPU once; reused every frame for both viewports.
     TerrainGpu terrainGpu = uploadTerrain(appState.mesh);
 
     while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Renders the global view camera on left side of the window
+        // Left half: overhead "global" view. setupCamera sets the viewport
+        // to the left half of the window, then the MVP places objects in it.
         setupCamera(appState.globalCamera);
         {
             glm::mat4 mvp = computeViewProjection(appState.globalCamera);
@@ -109,7 +124,7 @@ int main()
             renderGlobalOverlay(appState, sceneShader, mvp);
         }
 
-        // Renders the local view camera on right side of the window
+        // Right half: first-person "player" view. Same terrain, different camera.
         setupCamera(appState.playerCamera);
         {
             glm::mat4 mvp = computeViewProjection(appState.playerCamera);

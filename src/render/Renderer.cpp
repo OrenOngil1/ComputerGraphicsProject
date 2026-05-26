@@ -10,12 +10,19 @@
 
 #include "Overlay.h"
 
+// Builds the terrain's GPU buffers ONCE at startup. After this returns, the
+// vertex and index data live in GPU memory and stay there for the rest of the
+// program; every frame just issues a single draw call referencing them.
 TerrainGpu uploadTerrain(const Mesh &mesh)
 {
-    // Interleaved (pos.xyz, color.rgb) with terrain centered at origin
+    // Bake the centering translation into vertex positions instead of doing it
+    // every frame with a model matrix. Origin = middle of the terrain.
     const float cx = mesh.width  / 2.0f;
     const float cz = mesh.height / 2.0f;
 
+    // Interleaved layout: [x,y,z, r,g,b, x,y,z, r,g,b, ...] -- 6 floats per vertex.
+    // The shader reads attribute 0 (position) from offset 0 and attribute 1
+    // (color) from offset 12, with stride 24.
     std::vector<float> verts;
     verts.reserve(mesh.vertices.size() * 6);
     for (const Vertex &v : mesh.vertices) {
@@ -27,7 +34,14 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
         verts.push_back(v.color.b);
     }
 
-    // Index two triangles per quad: (z,x)-(z+1,x)-(z,x+1) and (z,x+1)-(z+1,x)-(z+1,x+1)
+    // Each cell of the height-map grid is two triangles sharing a diagonal:
+    //
+    //   i00 --- i01        first  triangle: i00 -> i10 -> i01
+    //    |  \    |         second triangle: i01 -> i10 -> i11
+    //   i10 --- i11
+    //
+    // Using indices lets a vertex be reused by up to 6 surrounding triangles
+    // instead of being duplicated, which keeps the VBO small.
     std::vector<unsigned int> indices;
     indices.reserve((mesh.width - 1) * (mesh.height - 1) * 6);
     for (int z = 0; z < mesh.height - 1; z++) {
@@ -41,26 +55,33 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
         }
     }
 
+    // VertexBuffer / IndexBuffer constructors call glBufferData, which is the
+    // actual CPU -> GPU memory transfer. The CPU-side `verts`/`indices` vectors
+    // can be freed after this; the GPU has its own copy.
     TerrainGpu gpu;
     gpu.va = std::make_unique<VertexArray>();
     gpu.vb = std::make_unique<VertexBuffer>(verts.data(), verts.size() * sizeof(float));
     gpu.ib = std::make_unique<IndexBuffer>(indices.data(), indices.size() * sizeof(unsigned int));
     gpu.indexCount = (unsigned int)indices.size();
 
+    // The VAO records "how to read the VBO's bytes" -- not the bytes themselves.
+    // Push order maps to shader attribute locations: 0 = position, 1 = color.
     VertexBufferLayout layout;
     layout.Push<float>(3);  // position
     layout.Push<float>(3);  // color
     gpu.va->AddBuffer(*gpu.vb, layout);
 
+    // Defensive unbind so nothing else accidentally modifies these objects.
     gpu.va->Unbind();
     gpu.vb->Unbind();
     gpu.ib->Unbind();
     return gpu;
 }
 
+// Selects which half of the window this camera draws into and updates the
+// camera's stored width/height in case the window has been resized.
 void setupCamera(Camera &camera)
 {
-    // Update viewport size in case the window was resized
     glfwGetWindowSize(glfwGetCurrentContext(), &camera.width, &camera.height);
 
     // TODO(phase3-cleanup): split viewport x-position from camera state; the
@@ -72,6 +93,10 @@ void setupCamera(Camera &camera)
     glViewport(camera.x, camera.y, camera.width, camera.height);
 }
 
+// Build the projection*view matrix on the CPU. The vertex shader will
+// multiply it by each vertex position to get the final clip-space coordinate.
+// No model matrix yet -- the centering offset is baked into the vertices and
+// nothing else moves.
 glm::mat4 computeViewProjection(const Camera &camera)
 {
     glm::mat4 proj = glm::perspective(
@@ -83,6 +108,8 @@ glm::mat4 computeViewProjection(const Camera &camera)
     return proj * view;
 }
 
+// One draw call: bind the shader, push the MVP uniform, bind the pre-uploaded
+// VAO+IBO, and let the GPU rasterize. No vertex data crosses the bus here.
 void renderTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
 {
     shader.Bind();
@@ -92,6 +119,8 @@ void renderTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
     GLCall(glDrawElements(GL_TRIANGLES, gpu.indexCount, GL_UNSIGNED_INT, nullptr));
 }
 
+// Overlay for the global (overhead) view: shows the recorded flight path and
+// the camera waypoints. Only drawn in RECORD / PLAYBACK modes.
 void renderGlobalOverlay(const AppState &appState, Shader &shader, const glm::mat4 &mvp)
 {
     switch (appState.mode) {
@@ -107,8 +136,9 @@ void renderGlobalOverlay(const AppState &appState, Shader &shader, const glm::ma
     }
 }
 
+// Overlay for the player (first-person) view -- placeholder for a future HUD
+// (crosshair, altitude readout, attitude indicator, etc.).
 void renderPlayerOverlay(const AppState &appState, Shader &shader, const glm::mat4 &mvp)
 {
     (void)appState; (void)shader; (void)mvp;
-    // No player overlay for now
 }

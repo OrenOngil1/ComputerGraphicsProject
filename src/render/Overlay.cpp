@@ -9,6 +9,11 @@
 #include <VertexBufferLayout.h>
 #include <Debugger.h>
 
+// Overlays differ from terrain in one important way: their contents CHANGE
+// every frame (the recorded path grows, the playback marker moves). So instead
+// of building a long-lived VAO/VBO like the terrain does, we build a throwaway
+// pair each call -- upload the latest data, draw it, and let the destructors
+// free the GPU buffers when the function returns. Cheap for hundreds of points.
 static void drawPoints(const std::vector<float> &verts, GLenum primitive, Shader &shader, const glm::mat4 &mvp)
 {
     VertexArray va;
@@ -22,9 +27,11 @@ static void drawPoints(const std::vector<float> &verts, GLenum primitive, Shader
     shader.Bind();
     shader.SetUniformMat4f("u_MVP", mvp);
     va.Bind();
+    // verts.size() / 6 because each vertex is 6 floats (xyz + rgb).
     GLCall(glDrawArrays(primitive, 0, (GLsizei)(verts.size() / 6)));
 }
 
+// Flight path: a blue line strip connecting all recorded positions in order.
 void renderPath(const std::vector<glm::vec3> &pathPoints, Shader &shader, const glm::mat4 &mvp)
 {
     if (pathPoints.empty()) return;
@@ -40,6 +47,8 @@ void renderPath(const std::vector<glm::vec3> &pathPoints, Shader &shader, const 
     drawPoints(verts, GL_LINE_STRIP, shader, mvp);
 }
 
+// Camera waypoints: red dots for past positions, green dot for the current
+// playback target. Drawn as GL_POINTS (one screen-space dot per vertex).
 void renderCameraRecords(const std::vector<CameraRecord> &cameraRecords, size_t playbackIndex, Shader &shader, const glm::mat4 &mvp)
 {
     if (cameraRecords.empty()) return;
