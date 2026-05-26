@@ -82,8 +82,8 @@ unsigned int Shader::CreateShader(const std::string& vertexShader, const std::st
     GLCall(int program = glCreateProgram());
     
     // Debug output
-    std::cout << "[DEBUG] Vertex Shader Source:\n" << vertexShader << "\n[END VERTEX]\n" << std::endl;
-    std::cout << "[DEBUG] Fragment Shader Source:\n" << fragmentShader << "\n[END FRAGMENT]\n" << std::endl;
+    // std::cout << "[DEBUG] Vertex Shader Source:\n" << vertexShader << "\n[END VERTEX]\n" << std::endl;
+    // std::cout << "[DEBUG] Fragment Shader Source:\n" << fragmentShader << "\n[END FRAGMENT]\n" << std::endl;
     
     unsigned int vs = CompileShader(GL_VERTEX_SHADER, vertexShader);
     unsigned int fs = CompileShader(GL_FRAGMENT_SHADER, fragmentShader);

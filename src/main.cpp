@@ -107,34 +107,34 @@ int main()
         .far      = appState.terrainSize * 3.0f
     };
 
-    // Compiled once at startup; the GLSL source is parsed and uploaded to the GPU.
-    Shader sceneShader("assets/shaders/terrain.shader");
-    // Terrain geometry uploaded to GPU once; reused every frame for both viewports.
-    TerrainGpu terrainGpu = uploadTerrain(appState.mesh);
+    // Scope ensures GPU resources (Shader, TerrainGpu) are destroyed while the
+    // OpenGL context is still alive. glfwTerminate() tears down the context, so
+    // any gl* call after it (including destructors) would be a null-ptr crash.
+    {
+        Shader sceneShader("assets/shaders/terrain.shader");
+        TerrainGpu terrainGpu = uploadTerrain(appState.mesh);
 
-    while (!glfwWindowShouldClose(window)) {
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        while (!glfwWindowShouldClose(window)) {
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Left half: overhead "global" view. setupCamera sets the viewport
-        // to the left half of the window, then the MVP places objects in it.
-        setupCamera(appState.globalCamera);
-        {
-            glm::mat4 mvp = computeViewProjection(appState.globalCamera);
-            renderTerrain(terrainGpu, sceneShader, mvp);
-            renderGlobalOverlay(appState, sceneShader, mvp);
+            setupCamera(appState.globalCamera);
+            {
+                glm::mat4 mvp = computeViewProjection(appState.globalCamera);
+                renderTerrain(terrainGpu, sceneShader, mvp);
+                renderGlobalOverlay(appState, sceneShader, mvp);
+            }
+
+            setupCamera(appState.playerCamera);
+            {
+                glm::mat4 mvp = computeViewProjection(appState.playerCamera);
+                renderTerrain(terrainGpu, sceneShader, mvp);
+                renderPlayerOverlay(appState, sceneShader, mvp);
+            }
+
+            glfwSwapBuffers(window);
+            glfwPollEvents();
         }
-
-        // Right half: first-person "player" view. Same terrain, different camera.
-        setupCamera(appState.playerCamera);
-        {
-            glm::mat4 mvp = computeViewProjection(appState.playerCamera);
-            renderTerrain(terrainGpu, sceneShader, mvp);
-            renderPlayerOverlay(appState, sceneShader, mvp);
-        }
-
-        glfwSwapBuffers(window);
-        glfwPollEvents();
-    }
+    } // glDeleteProgram, glDeleteBuffers, etc. called here — context still alive
 
     glfwTerminate();
 
