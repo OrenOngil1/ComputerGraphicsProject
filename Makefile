@@ -1,18 +1,22 @@
 # ── Project settings ──────────────────────────────────────────
 TARGET   := bin/drone_sim
 CXX      := g++
-CXXFLAGS := -std=c++17 -Wall -O2 -I/usr/include/opencv4
+CC       := gcc
+CXXFLAGS := -std=c++17 -Wall -O2 -DGLFW_INCLUDE_NONE -I/usr/include/opencv4 -Iinclude -Isrc/engine
+CFLAGS   := -Wall -O2 -Iinclude
 
 # ── Sources ───────────────────────────────────────────────────
 SRC_DIR  := src
 OBJ_DIR  := obj
-SRCS  := $(shell find $(SRC_DIR) -name "*.cpp")
-OBJS  := $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(SRCS))
+CPP_SRCS := $(shell find $(SRC_DIR) -name "*.cpp")
+C_SRCS   := $(SRC_DIR)/glad.c
+OBJS     := $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(CPP_SRCS)) \
+            $(patsubst $(SRC_DIR)/%.c,   $(OBJ_DIR)/%.o, $(C_SRCS))
 
 # ── Libraries ─────────────────────────────────────────────────
 OPENCV_FLAGS := $(shell pkg-config --cflags --libs opencv4)
 GLFW_FLAGS   := $(shell pkg-config --cflags --libs glfw3)
-GL_FLAGS     := -lGL -lGLU
+GL_FLAGS     := -lGL -ldl
 
 LIBS := $(OPENCV_FLAGS) $(GLFW_FLAGS) $(GL_FLAGS)
 
@@ -25,7 +29,11 @@ $(TARGET): $(OBJS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 	mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -Iinclude -c $< -o $@
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -rf $(OBJ_DIR) bin

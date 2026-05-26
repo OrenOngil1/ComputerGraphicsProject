@@ -1,34 +1,70 @@
 #include "Overlay.h"
 
-#include <GL/gl.h>
+#include <vector>
 
-void renderPath(const std::vector<glm::vec3> &pathPoints)
+#include <glad/glad.h>
+
+#include <VertexArray.h>
+#include <VertexBuffer.h>
+#include <VertexBufferLayout.h>
+#include <Debugger.h>
+
+// Overlays differ from terrain in one important way: their contents CHANGE
+// every frame (the recorded path grows, the playback marker moves). So instead
+// of building a long-lived VAO/VBO like the terrain does, we build a throwaway
+// pair each call -- upload the latest data, draw it, and let the destructors
+// free the GPU buffers when the function returns. Cheap for hundreds of points.
+static void drawPoints(const std::vector<float> &verts, GLenum primitive, Shader &shader, const glm::mat4 &mvp)
 {
-    glColor3f(0.0f, 0.0f, 1.0f);
-    glLineWidth(3.0f);
-    glBegin(GL_LINE_STRIP);
-    for (const glm::vec3 &point : pathPoints) {
-        glVertex3f(point.x, point.y, point.z);
-    }
-    glEnd();
+    VertexArray va;
+    VertexBuffer vb(verts.data(), verts.size() * sizeof(float));
+
+    VertexBufferLayout layout;
+    layout.Push<float>(3);  // position
+    layout.Push<float>(3);  // color
+    va.AddBuffer(vb, layout);
+
+    shader.Bind();
+    shader.SetUniformMat4f("u_MVP", mvp);
+    va.Bind();
+    // verts.size() / 6 because each vertex is 6 floats (xyz + rgb).
+    GLCall(glDrawArrays(primitive, 0, (GLsizei)(verts.size() / 6)));
 }
 
-void renderCameraRecords(const std::vector<CameraRecord> &cameraRecords, size_t playbackIndex)
+// Flight path: a blue line strip connecting all recorded positions in order.
+void renderPath(const std::vector<glm::vec3> &pathPoints, Shader &shader, const glm::mat4 &mvp)
 {
-    if(cameraRecords.empty()) return;
+    if (pathPoints.empty()) return;
 
-    glPointSize(5.0f);
-    glBegin(GL_POINTS);
-    for (size_t i = 0; i < cameraRecords.size(); i++) {
-
-        if (i == playbackIndex) {
-            glColor3f(0.0f, 1.0f, 0.0f); // Green for current position
-        } else {
-            glColor3f(1.0f, 0.0f, 0.0f); // Red for past positions
-        }
-
-        const CameraRecord &record = cameraRecords[i];
-        glVertex3f(record.position.x, record.position.y, record.position.z);
+    std::vector<float> verts;
+    verts.reserve(pathPoints.size() * 6);
+    for (const glm::vec3 &p : pathPoints) {
+        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
+        verts.push_back(0.0f); verts.push_back(0.0f); verts.push_back(1.0f); // blue
     }
-    glEnd();
+
+    GLCall(glLineWidth(3.0f));
+    drawPoints(verts, GL_LINE_STRIP, shader, mvp);
+}
+
+// Camera waypoints: red dots for past positions, green dot for the current
+// playback target. Drawn as GL_POINTS (one screen-space dot per vertex).
+void renderCameraRecords(const std::vector<CameraRecord> &cameraRecords, size_t playbackIndex, Shader &shader, const glm::mat4 &mvp)
+{
+    if (cameraRecords.empty()) return;
+
+    std::vector<float> verts;
+    verts.reserve(cameraRecords.size() * 6);
+    for (size_t i = 0; i < cameraRecords.size(); i++) {
+        const glm::vec3 &p = cameraRecords[i].position;
+        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
+        if (i == playbackIndex) {
+            verts.push_back(0.0f); verts.push_back(1.0f); verts.push_back(0.0f); // green
+        } else {
+            verts.push_back(1.0f); verts.push_back(0.0f); verts.push_back(0.0f); // red
+        }
+    }
+
+    GLCall(glPointSize(5.0f));
+    drawPoints(verts, GL_POINTS, shader, mvp);
 }
