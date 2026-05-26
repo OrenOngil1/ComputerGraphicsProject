@@ -1,5 +1,7 @@
 #include <iostream>
-#include <GL/glu.h>
+
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
 
 #include "loader/TerrainLoader.h"
 #include "render/Renderer.h"
@@ -15,6 +17,10 @@ GLFWwindow *initGL() {
         return nullptr;
     }
 
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
     GLFWwindow *window = glfwCreateWindow(800, 600, "OpenGL Window", nullptr, nullptr);
     if (!window)
     {
@@ -24,18 +30,25 @@ GLFWwindow *initGL() {
     }
 
     glfwMakeContextCurrent(window);
+
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    {
+        std::cerr << "Failed to load OpenGL via GLAD" << std::endl;
+        glfwTerminate();
+        return nullptr;
+    }
+
+    std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
+
     glfwSetWindowUserPointer(window, &appState);
     glfwSetKeyCallback(window, keyCallback);
-    // glfwSetMouseButtonCallback(window, mouseButtonCallback);
-    // glfwSetCursorPosCallback(window, cursorPosCallback);
 
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);                   // Black Background
-    glClearDepth(1.0f);                         // Depth Buffer Setup
-    glDepthFunc(GL_LEQUAL);                         // Type Of Depth Testing
-    glEnable(GL_DEPTH_TEST);                        // Enable Depth Testing
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);          // Enable Alpha Blending (disable alpha testing)
-    glEnable(GL_BLEND);                         // Enable Blending       (disable alpha testing)
-    // glEnable(GL_TEXTURE_2D);                        // Enable Texture Mapping
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearDepth(1.0f);
+    glDepthFunc(GL_LEQUAL);
+    glEnable(GL_DEPTH_TEST);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND);
 
     return window;
 }
@@ -82,24 +95,32 @@ int main()
         .far      = appState.terrainSize * 3.0f
     };
 
-    while(!glfwWindowShouldClose(window)) {
-        // Clear the screen and set up for drawing
+    Shader sceneShader("assets/shaders/terrain.shader");
+    TerrainGpu terrainGpu = uploadTerrain(appState.mesh);
+
+    while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        
+
         // Renders the global view camera on left side of the window
         setupCamera(appState.globalCamera);
-        renderTerrain(appState.mesh);
-        renderGlobalOverlay(appState);
-    
+        {
+            glm::mat4 mvp = computeViewProjection(appState.globalCamera);
+            renderTerrain(terrainGpu, sceneShader, mvp);
+            renderGlobalOverlay(appState, sceneShader, mvp);
+        }
+
         // Renders the local view camera on right side of the window
         setupCamera(appState.playerCamera);
-        renderTerrain(appState.mesh);
-        renderPlayerOverlay(appState);
-    
+        {
+            glm::mat4 mvp = computeViewProjection(appState.playerCamera);
+            renderTerrain(terrainGpu, sceneShader, mvp);
+            renderPlayerOverlay(appState, sceneShader, mvp);
+        }
+
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
-    
+
     glfwTerminate();
 
     return 0;
