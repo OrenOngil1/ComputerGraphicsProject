@@ -19,9 +19,16 @@ struct TerrainGpu {
 
 TerrainGpu uploadTerrain(const Mesh &mesh);
 
-void setupCamera(Camera &camera);
+// Window-layout helpers: the two viewports are pure functions of the current
+// window size, so we compute them on demand each frame rather than storing them.
+Viewport leftHalf(int windowWidth, int windowHeight);
+Viewport rightHalf(int windowWidth, int windowHeight);
 
-glm::mat4 computeViewProjection(const Camera &camera);
+void setupViewport(const Viewport &viewport);
+
+// The viewport's aspect ratio feeds the projection, so it is an explicit input
+// here -- but the camera itself stays untouched (const&).
+glm::mat4 computeViewProjection(const Camera &camera, const Viewport &viewport);
 
 void renderTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp);
 

@@ -78,14 +78,9 @@ int main()
         return -1;
     }
 
-    int windowWidth;
-    glfwGetWindowSize(window, &windowWidth, NULL);
-
     // global camera will be above the terrain
     // looking towards the center
     appState.globalCamera = {
-        .x        = 0,
-        .y        = 0,
         .position = glm::vec3(0.0f, appState.terrainSize * 0.8f, appState.terrainSize * 1.4f),
         .target   = glm::vec3(0.0f, 0.0f, 0.0f),
         .up       = glm::vec3(0.0f, 1.0f, 0.0f),
@@ -97,8 +92,6 @@ int main()
     // player camera will be controlled by the user
     // starting at the edge of the terrain, looking towards the center
     appState.playerCamera = {
-        .x        = windowWidth / 2,
-        .y        = 0,
         .position = glm::vec3(0.0f, appState.terrainSize * 0.07f, appState.terrainSize * 0.5f),
         .target   = glm::vec3(0.0f, 0.0f, 0.0f),
         .up       = glm::vec3(0.0f, 1.0f, 0.0f),
@@ -117,16 +110,23 @@ int main()
         while (!glfwWindowShouldClose(window)) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            setupCamera(appState.globalCamera);
+            // Viewports are derived from the live window size each frame, so
+            // resizing the window keeps both halves correct for free.
+            int windowWidth, windowHeight;
+            glfwGetWindowSize(window, &windowWidth, &windowHeight);
+
+            Viewport globalViewport = leftHalf(windowWidth, windowHeight);
+            setupViewport(globalViewport);
             {
-                glm::mat4 mvp = computeViewProjection(appState.globalCamera);
+                glm::mat4 mvp = computeViewProjection(appState.globalCamera, globalViewport);
                 renderTerrain(terrainGpu, sceneShader, mvp);
                 renderGlobalOverlay(appState, sceneShader, mvp);
             }
 
-            setupCamera(appState.playerCamera);
+            Viewport playerViewport = rightHalf(windowWidth, windowHeight);
+            setupViewport(playerViewport);
             {
-                glm::mat4 mvp = computeViewProjection(appState.playerCamera);
+                glm::mat4 mvp = computeViewProjection(appState.playerCamera, playerViewport);
                 renderTerrain(terrainGpu, sceneShader, mvp);
                 renderPlayerOverlay(appState, sceneShader, mvp);
             }

@@ -78,30 +78,33 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
     return gpu;
 }
 
-// Selects which half of the window this camera draws into and updates the
-// camera's stored width/height in case the window has been resized.
-void setupCamera(Camera &camera)
+// The two halves of a split-screen window. Pure functions of the window size:
+// no stored state, evaluated wherever a viewport is needed.
+Viewport leftHalf(int windowWidth, int windowHeight)
 {
-    glfwGetWindowSize(glfwGetCurrentContext(), &camera.width, &camera.height);
+    return Viewport{ 0, 0, windowWidth / 2, windowHeight };
+}
 
-    // TODO(phase3-cleanup): split viewport x-position from camera state; the
-    // `camera.x == 0 ? 0 : width` flag-as-coordinate hack should become an
-    // explicit left/right enum on the Camera or a separate Viewport struct.
-    camera.width /= 2.0f;
-    camera.x = camera.x == 0 ? 0 : camera.width;
+Viewport rightHalf(int windowWidth, int windowHeight)
+{
+    return Viewport{ windowWidth / 2, 0, windowWidth / 2, windowHeight };
+}
 
-    glViewport(camera.x, camera.y, camera.width, camera.height);
+// Tell GL which rectangle of the framebuffer subsequent draws land in.
+void setupViewport(const Viewport &viewport)
+{
+    glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
 }
 
 // Build the projection*view matrix on the CPU. The vertex shader will
 // multiply it by each vertex position to get the final clip-space coordinate.
-// No model matrix yet -- the centering offset is baked into the vertices and
-// nothing else moves.
-glm::mat4 computeViewProjection(const Camera &camera)
+// The aspect ratio comes from the viewport, not the camera. No model matrix
+// yet -- the centering offset is baked into the vertices and nothing else moves.
+glm::mat4 computeViewProjection(const Camera &camera, const Viewport &viewport)
 {
     glm::mat4 proj = glm::perspective(
         glm::radians(camera.fov),
-        (float)camera.width / (float)camera.height,
+        (float)viewport.width / (float)viewport.height,
         camera.near,
         camera.far);
     glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
