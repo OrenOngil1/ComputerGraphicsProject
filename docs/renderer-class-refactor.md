@@ -1,5 +1,12 @@
 # Renderer Class Refactor — Decision Note
 
+> **Status (updated):** Implemented on branch `oop`. The decision below stands; the build
+> added `loadTerrain()` (a menu seam), and `renderGlobalView` / `renderPlayerView` (two
+> intent-revealing methods, not a flag) delegate the overlay to the active `State` — the #4
+> prediction came true. Companion
+> docs: `state-pattern-refactor.md` (#4, done) and `application-class-refactor.md`
+> (#3, deferred — YAGNI).
+
 ## The Prompt (original question)
 
 > In another session, you recommended the following changes to the codebase:
@@ -71,25 +78,30 @@ private:
 
 Ordering matters because these refactors depend on each other:
 
-1. **Camera/Viewport split** — done.
-2. **Renderer class (this one)** — do it *next*, before `Application`. It is the most
-   self-contained win: it owns GPU resources and removes a documented crash hazard with
-   no dependency on the State or AppState refactors. `Application` will want to *hold* a
-   `Renderer`, so the Renderer should exist first.
-3. **Application class** — owns the `GLFWwindow`, the `Renderer`, and the `AppState`, and
-   runs the main loop. This is where `main()`'s body migrates. Depends on Renderer.
-4. **State pattern for Mode + AppState decomposition** — do these together. **This is the
-   one design coupling to decide deliberately:** overlays are mode-specific, so resist
-   the temptation to make `Renderer` `switch` on `Mode`. Instead, the current
-   `renderGlobalOverlay`'s `switch (appState.mode)` should eventually move *into the State
-   objects* — each `State` knows how to draw its own overlay, and `Renderer::renderView`
-   either calls `state.renderOverlay(...)` or takes a small overlay callback. This keeps
-   Renderer closed to modification as Modes 3/4 are added (Open/Closed principle).
+1. **Camera/Viewport split** — ✅ done.
+2. **Renderer class (this one)** — ✅ done. Owns `Shader` + `TerrainGpu` (RAII); collapsed
+   the duplicated per-viewport block into `renderView`; added `loadTerrain()` for the menu.
+3. **Application class** — ⏸️ deferred (YAGNI). Its dependency on Renderer is satisfied, but
+   it isn't urgent: its only concrete win is retiring the global `appState`, and `State`
+   objects own no GL resources, so the global's static destruction stays safe. Build it
+   when the menu or PICK forces it. See `application-class-refactor.md`.
+4. **State pattern for Mode + AppState decomposition** — ⚠️ *partly* done.
+   - **State pattern: done.** The `switch (appState.mode)` moved into the State objects (each
+     draws its own overlay, `Renderer::renderGlobalView` / `renderPlayerView` call
+     `state.render*Overlay(...)`, Renderer no longer knows `Mode`); `Mode mode` became
+     `unique_ptr<State> currentState` (the enum was dropped, not kept). See
+     `state-pattern-refactor.md`.
+   - **AppState decomposition: NOT done.** `AppState` still bundles scene (`mesh`,
+     `terrainSize`), view (two cameras), recording (`pathPoints`, `cameraRecords`) and mode
+     (`currentState`) in one context object passed by reference everywhere. It remains a god
+     object — the name is accurate, not aspirational.
 
-**Why this order:** each step compiles and runs on its own, matching the project's
-collaborative, incremental pace. Renderer first because it is dependency-free and pays
-off immediately (lifetime safety + dedup); State last because it is the broadest change
-and benefits from Renderer + Application already being in place to plug into.
+**Why this order (as it played out):** each step compiles and runs on its own, matching the
+project's collaborative, incremental pace. Renderer went first (dependency-free, immediate
+payoff: lifetime safety + dedup). Application was then *deferred* rather than built, so the
+State pattern was done on top of Renderer alone — it turned out not to need Application, only
+somewhere for `currentState` to live (it went on `AppState` for now, and migrates into
+`Application` if/when that lands). State last because it was the broadest change.
 
 ## What this is NOT
 

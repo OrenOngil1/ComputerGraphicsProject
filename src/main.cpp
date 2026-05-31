@@ -1,4 +1,5 @@
 #include <iostream>
+#include <memory>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -6,6 +7,7 @@
 #include "loader/TerrainLoader.h"
 #include "render/Renderer.h"
 #include "input/Callbacks.h"
+#include "state/States.h"
 
 AppState appState;
 
@@ -100,6 +102,10 @@ int main()
         .far      = appState.terrainSize * 3.0f
     };
 
+    // Start in free-navigation mode. Must be set before the loop: both
+    // keyCallback and Renderer::renderView dereference currentState.
+    appState.currentState = std::make_unique<NavigationState>();
+
     // Scope ensures the Renderer's GPU resources (Shader, TerrainGpu) are
     // destroyed while the OpenGL context is still alive. glfwTerminate() below
     // tears down the context, so any gl* call after it (including the Renderer's
@@ -115,10 +121,8 @@ int main()
             int windowWidth, windowHeight;
             glfwGetWindowSize(window, &windowWidth, &windowHeight);
 
-            renderer.renderView(appState.globalCamera, leftHalf(windowWidth, windowHeight),
-                                appState, Renderer::Overlay::Global);
-            renderer.renderView(appState.playerCamera, rightHalf(windowWidth, windowHeight),
-                                appState, Renderer::Overlay::Player);
+            renderer.renderGlobalView(appState.globalCamera, leftHalf(windowWidth, windowHeight), appState);
+            renderer.renderPlayerView(appState.playerCamera, rightHalf(windowWidth, windowHeight), appState);
 
             glfwSwapBuffers(window);
             glfwPollEvents();

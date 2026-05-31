@@ -47,18 +47,18 @@ void renderPath(const std::vector<glm::vec3> &pathPoints, Shader &shader, const 
     drawPoints(verts, GL_LINE_STRIP, shader, mvp);
 }
 
-// Camera waypoints: red dots for past positions, green dot for the current
-// playback target. Drawn as GL_POINTS (one screen-space dot per vertex).
-void renderCameraRecords(const std::vector<CameraRecord> &cameraRecords, size_t playbackIndex, Shader &shader, const glm::mat4 &mvp)
+// Camera waypoints: green for the record the player camera is on (position
+// match), red for the rest.
+void renderCameraRecords(const std::vector<CameraRecord> &cameraRecords, const glm::vec3 &cameraPos, Shader &shader, const glm::mat4 &mvp)
 {
     if (cameraRecords.empty()) return;
 
     std::vector<float> verts;
     verts.reserve(cameraRecords.size() * 6);
-    for (size_t i = 0; i < cameraRecords.size(); i++) {
-        const glm::vec3 &p = cameraRecords[i].position;
+    for (const CameraRecord &record : cameraRecords) {
+        const glm::vec3 &p = record.position;
         verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
-        if (i == playbackIndex) {
+        if (p == cameraPos) {
             verts.push_back(0.0f); verts.push_back(1.0f); verts.push_back(0.0f); // green
         } else {
             verts.push_back(1.0f); verts.push_back(0.0f); verts.push_back(0.0f); // red

@@ -36,8 +36,6 @@ Viewport rightHalf(int windowWidth, int windowHeight);
 // cheap terrain swap (loadTerrain) and leaves a home for Mode-2 picking/ghost.
 class Renderer {
 public:
-    enum class Overlay { Global, Player };
-
     explicit Renderer(const Mesh &terrain);   // compile scene shader + upload terrain
 
     // Owns a Shader (raw GL program id, no safe copy), so the Renderer is
@@ -51,12 +49,18 @@ public:
     // compiled shader is reused, so changing terrains never recompiles GLSL.
     void loadTerrain(const Mesh &terrain);
 
-    // Paint one view: set the viewport, build its MVP, draw the terrain, then the
-    // requested overlay. Collapses the old duplicated left/right blocks in main().
-    void renderView(const Camera &camera, const Viewport &viewport,
-                    const AppState &appState, Overlay overlay);
+    // Paint one viewport: draw the terrain, then let the active mode decorate it.
+    // Two methods rather than a flag parameter, so the overlay can never be
+    // mismatched with the view -- the global view draws the global overlay, the
+    // player view draws the player overlay.
+    void renderGlobalView(const Camera &camera, const Viewport &viewport, const AppState &appState);
+    void renderPlayerView(const Camera &camera, const Viewport &viewport, const AppState &appState);
 
 private:
+    // Shared by both views: set the viewport, build the MVP, draw the terrain;
+    // returns the MVP so the caller can hand it to the active mode's overlay.
+    glm::mat4 renderScene(const Camera &camera, const Viewport &viewport);
+
     Shader     m_sceneShader;
     TerrainGpu m_terrain;
     // SEAM (Mode 2, not implemented yet): a second m_pickShader + a pickVertex()

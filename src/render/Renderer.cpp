@@ -8,7 +8,7 @@
 
 #include <VertexBufferLayout.h>
 
-#include "Overlay.h"
+#include "../state/State.h"
 
 // Builds the terrain's GPU buffers ONCE at startup. After this returns, the
 // vertex and index data live in GPU memory and stay there for the rest of the
@@ -122,30 +122,6 @@ void renderTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
     GLCall(glDrawElements(GL_TRIANGLES, gpu.indexCount, GL_UNSIGNED_INT, nullptr));
 }
 
-// Overlay for the global (overhead) view: shows the recorded flight path and
-// the camera waypoints. Only drawn in RECORD / PLAYBACK modes.
-void renderGlobalOverlay(const AppState &appState, Shader &shader, const glm::mat4 &mvp)
-{
-    switch (appState.mode) {
-        case Mode::NONE:
-            return;
-        case Mode::RECORD:
-        case Mode::PLAYBACK:
-            renderPath(appState.pathPoints, shader, mvp);
-            renderCameraRecords(appState.cameraRecords, appState.playbackIndex, shader, mvp);
-            break;
-        default:
-            break;
-    }
-}
-
-// Overlay for the player (first-person) view -- placeholder for a future HUD
-// (crosshair, altitude readout, attitude indicator, etc.).
-void renderPlayerOverlay(const AppState &appState, Shader &shader, const glm::mat4 &mvp)
-{
-    (void)appState; (void)shader; (void)mvp;
-}
-
 // ── Renderer ──────────────────────────────────────────────────
 // A thin owner over the free helpers above. The constructor acquires the GPU
 // resources (compile shader + upload terrain); renderView sequences the same
@@ -169,15 +145,28 @@ void Renderer::loadTerrain(const Mesh &terrain)
     m_terrain = uploadTerrain(terrain);
 }
 
-void Renderer::renderView(const Camera &camera, const Viewport &viewport,
-                          const AppState &appState, Overlay overlay)
+// Shared scene pass: set the viewport, build the MVP, draw the terrain. Returns
+// the MVP so the view methods can hand it to the active mode's overlay.
+glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport)
 {
     setupViewport(viewport);
     glm::mat4 mvp = computeViewProjection(camera, viewport);
     renderTerrain(m_terrain, m_sceneShader, mvp);
+    return mvp;
+}
 
-    switch (overlay) {
-        case Overlay::Global: renderGlobalOverlay(appState, m_sceneShader, mvp); break;
-        case Overlay::Player: renderPlayerOverlay(appState, m_sceneShader, mvp); break;
-    }
+// The overlay is the active mode's responsibility: Renderer no longer knows about
+// Mode, it just asks the State to decorate the view it drew.
+void Renderer::renderGlobalView(const Camera &camera, const Viewport &viewport, const AppState &appState)
+{
+    glm::mat4 mvp = renderScene(camera, viewport);
+    if (appState.currentState)
+        appState.currentState->renderGlobalOverlay(appState, m_sceneShader, mvp);
+}
+
+void Renderer::renderPlayerView(const Camera &camera, const Viewport &viewport, const AppState &appState)
+{
+    glm::mat4 mvp = renderScene(camera, viewport);
+    if (appState.currentState)
+        appState.currentState->renderPlayerOverlay(appState, m_sceneShader, mvp);
 }
