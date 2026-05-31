@@ -15,14 +15,14 @@ static void setState(AppState &appState, std::unique_ptr<State> next)
     appState.currentState->onEnter(appState);
 }
 
-// PLAYBACK and PICK both require at least one recorded camera. The precondition
-// is a property of the transition (you may only enter if records exist), so it
+// PLAYBACK and PICK both require at least one recorded waypoint. The precondition
+// is a property of the transition (you may only enter if waypoints exist), so it
 // is checked here, before the swap is committed -- not in onEnter, which runs
 // after the swap and so would be too late to refuse.
-static bool requireRecords(const AppState &appState)
+static bool requireWaypoints(const AppState &appState)
 {
-    if (appState.cameraRecords.empty()) {
-        std::cout << "Record camera positions in RECORD mode first" << std::endl;
+    if (appState.waypoints.empty()) {
+        std::cout << "Record camera waypoints in RECORD mode first" << std::endl;
         return false;
     }
     return true;
@@ -38,7 +38,7 @@ static bool tryTransition(AppState &appState, int key, int mods)
     switch (key) {
         case GLFW_KEY_R:
             if (mods & GLFW_MOD_CONTROL) {
-                if (!requireRecords(appState))
+                if (!requireWaypoints(appState))
                     return true;
                 setState(appState, std::make_unique<PlaybackState>());
                 std::cout << "Switched to PLAYBACK mode" << std::endl;
@@ -49,7 +49,7 @@ static bool tryTransition(AppState &appState, int key, int mods)
             return true;
 
         case GLFW_KEY_P:
-            if (!requireRecords(appState))
+            if (!requireWaypoints(appState))
                 return true;
             setState(appState, std::make_unique<PickState>());
             std::cout << "Switched to PICK mode" << std::endl;

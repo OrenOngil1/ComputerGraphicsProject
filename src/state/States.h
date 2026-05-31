@@ -22,7 +22,7 @@ class RecordState : public State {
 public:
     void onEnter(AppState &appState) override;   // start a fresh recording
     void handleKey(AppState &appState, int key, int mods) override;
-    void renderGlobalOverlay(const AppState &appState, Shader &shader,
+    void renderGlobalOverlay(const AppState &appState, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
 };
 
@@ -30,12 +30,12 @@ public:
 // global view shows the path + waypoints, the one under the camera highlighted.
 class PlaybackState : public State {
 public:
-    void onEnter(AppState &appState) override;   // snap to the first record
+    void onEnter(AppState &appState) override;   // snap to the first waypoint
     void handleKey(AppState &appState, int key, int mods) override;
-    void renderGlobalOverlay(const AppState &appState, Shader &shader,
+    void renderGlobalOverlay(const AppState &appState, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
 private:
-    // The selected record. Mode-local: born at 0 when PLAYBACK is entered, gone
+    // The selected waypoint. Mode-local: born at 0 when PLAYBACK is entered, gone
     // when it is left -- no need for a field on AppState.
     size_t m_index = 0;
 };

@@ -2,6 +2,9 @@
 
 #include <memory>
 #include <string>
+#include <vector>
+
+#include <glm/glm.hpp>
 
 #include <Shader.h>
 #include <VertexArray.h>
@@ -56,6 +59,13 @@ public:
     void renderGlobalView(const Camera &camera, const Viewport &viewport, const AppState &appState);
     void renderPlayerView(const Camera &camera, const Viewport &viewport, const AppState &appState);
 
+    // Overlay drawing surface: a mode's render*Overlay draws *through* the Renderer
+    // (it is handed `*this`, not a Shader), so m_sceneShader never leaves its owner.
+    // Throwaway buffers each call -- overlay geometry changes every frame.
+    void drawPath(const std::vector<glm::vec3> &pathPoints, const glm::mat4 &mvp);
+    void drawWaypoints(const std::vector<Waypoint> &waypoints,
+                       const glm::vec3 &cameraPos, const glm::mat4 &mvp);
+
 private:
     // Shared by both views: set the viewport, build the MVP, draw the terrain;
     // returns the MVP so the caller can hand it to the active mode's overlay.
@@ -63,7 +73,9 @@ private:
 
     Shader     m_sceneShader;
     TerrainGpu m_terrain;
-    // SEAM (Mode 2, not implemented yet): a second m_pickShader + a pickVertex()
-    // offscreen pass for color picking, and a ghost-terrain path (uniform
-    // color/alpha on m_sceneShader). Both fit here without changing this surface.
+    // SEAM (Mode 2, not implemented yet): a ghost overlay (drawGhost, uniform
+    // color/alpha on m_sceneShader -- drawn through the surface above) and an
+    // offscreen color-pick pass (pickAt(x,y) using a private m_pickShader + an
+    // FBO + glReadPixels). Neither passes a shader out. The pick pass is a distinct
+    // responsibility -- extract it to a ColorPicker/PickPass when it lands, not here.
 };

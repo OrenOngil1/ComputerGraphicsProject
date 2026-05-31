@@ -4,14 +4,14 @@
 
 #include "../core/AppState.h"
 #include "../input/Movement.h"
-#include "../render/Overlay.h"
+#include "../render/Renderer.h"
 
 // Each mode's input + overlay behavior lives here, in its State. The only free
 // helpers left are genuinely shared: handleMovement (used by both NavigationState
 // and RecordState) and the Overlay drawing functions.
 //
-// The recorded-camera overlay highlights whichever record the player camera is
-// sitting on (matched by position) -- so the green marker always tracks the
+// The waypoint overlay highlights whichever waypoint the player camera is
+// sitting on (matched by position) -- so the green highlight always tracks the
 // camera, in any mode, with no separate cursor to keep in sync.
 
 // ── NavigationState ──────────────────────────────────────────
@@ -25,7 +25,7 @@ void RecordState::onEnter(AppState &appState)
 {
     // Start a fresh recording: drop the previous flight path and waypoints.
     appState.pathPoints.clear();
-    appState.cameraRecords.clear();
+    appState.waypoints.clear();
 }
 
 void RecordState::handleKey(AppState &appState, int key, int mods)
@@ -39,38 +39,38 @@ void RecordState::handleKey(AppState &appState, int key, int mods)
 
     // 'B' stores a camera waypoint (position + look-at target).
     if (key == GLFW_KEY_B)
-        appState.cameraRecords.push_back({ appState.playerCamera.position,
+        appState.waypoints.push_back({ appState.playerCamera.position,
                                            appState.playerCamera.target });
 }
 
-void RecordState::renderGlobalOverlay(const AppState &appState, Shader &shader,
+void RecordState::renderGlobalOverlay(const AppState &appState, Renderer &renderer,
                                       const glm::mat4 &mvp) const
 {
-    renderPath(appState.pathPoints, shader, mvp);
-    renderCameraRecords(appState.cameraRecords, appState.playerCamera.position, shader, mvp);
+    renderer.drawPath(appState.pathPoints, mvp);
+    renderer.drawWaypoints(appState.waypoints, appState.playerCamera.position, mvp);
 }
 
 // ── PlaybackState ────────────────────────────────────────────
 void PlaybackState::onEnter(AppState &appState)
 {
-    // Snap to the first record so PLAYBACK starts on a known pose. The records
+    // Snap to the first waypoint so PLAYBACK starts on a known pose. The waypoints
     // are guaranteed non-empty here: the transition guard requires them.
     m_index = 0;
-    appState.playerCamera.position = appState.cameraRecords[m_index].position;
-    appState.playerCamera.target   = appState.cameraRecords[m_index].target;
+    appState.playerCamera.position = appState.waypoints[m_index].position;
+    appState.playerCamera.target   = appState.waypoints[m_index].target;
 }
 
-// UP/DOWN step m_index through the records (wrapping), then the camera snaps to
-// the selected record. The overlay highlights by camera position, so the green
-// marker tracks the camera no matter how m_index moves.
+// UP/DOWN step m_index through the waypoints (wrapping), then the camera snaps to
+// the selected waypoint. The overlay highlights by camera position, so the green
+// highlight tracks the camera no matter how m_index moves.
 void PlaybackState::handleKey(AppState &appState, int key, int mods)
 {
     (void)mods;
-    const std::vector<CameraRecord> &records = appState.cameraRecords;
-    if (records.empty())
+    const std::vector<Waypoint> &waypoints = appState.waypoints;
+    if (waypoints.empty())
         return;
 
-    const size_t n = records.size();
+    const size_t n = waypoints.size();
     if (key == GLFW_KEY_UP)
         m_index = (m_index + 1) % n;
     else if (key == GLFW_KEY_DOWN)
@@ -78,15 +78,15 @@ void PlaybackState::handleKey(AppState &appState, int key, int mods)
     else
         return;
 
-    appState.playerCamera.position = records[m_index].position;
-    appState.playerCamera.target   = records[m_index].target;
+    appState.playerCamera.position = waypoints[m_index].position;
+    appState.playerCamera.target   = waypoints[m_index].target;
 }
 
-void PlaybackState::renderGlobalOverlay(const AppState &appState, Shader &shader,
+void PlaybackState::renderGlobalOverlay(const AppState &appState, Renderer &renderer,
                                         const glm::mat4 &mvp) const
 {
-    renderPath(appState.pathPoints, shader, mvp);
-    renderCameraRecords(appState.cameraRecords, appState.playerCamera.position, shader, mvp);
+    renderer.drawPath(appState.pathPoints, mvp);
+    renderer.drawWaypoints(appState.waypoints, appState.playerCamera.position, mvp);
 }
 
 // ── PickState ────────────────────────────────────────────────

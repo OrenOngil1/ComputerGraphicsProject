@@ -17,7 +17,7 @@ struct AppState {
     Camera globalCamera;
     Camera playerCamera;
     std::vector<glm::vec3> pathPoints;
-    std::vector<CameraRecord> cameraRecords;
+    std::vector<Waypoint> waypoints;
 
     // Out-of-line (AppState.cpp): a unique_ptr to the forward-declared State can
     // only be destroyed where State is a complete type.

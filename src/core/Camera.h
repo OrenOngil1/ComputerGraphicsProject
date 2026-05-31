@@ -26,8 +26,9 @@ struct Viewport {
     int height = 0;
 };
 
-// For recording camera positions and targets for later playback
-struct CameraRecord {
+// A recorded camera pose (position + look-at target) -- a waypoint along the
+// flight path, captured in RECORD mode for later playback.
+struct Waypoint {
     glm::vec3 position;
     glm::vec3 target;
 };

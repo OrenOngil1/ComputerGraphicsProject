@@ -34,10 +34,10 @@ only `Callbacks.cpp` constructs them. The base `State.h` stays **separate** so h
 code (`Renderer`) depends on the abstraction, not the concretes (Dependency Inversion).
 
 - **NavigationState** — `handleKey` → `handleMovement`. No overlay, no `onEnter`.
-- **RecordState** — `onEnter` clears `pathPoints` + `cameraRecords`; `handleKey` moves +
-  appends a path point on move + `B` appends a waypoint; overlay draws path + records.
-- **PlaybackState** — `onEnter` snaps camera to `records[0]` (`m_index = 0`); `handleKey`
-  steps `m_index` (advance-then-apply) and snaps the camera; overlay draws path + records.
+- **RecordState** — `onEnter` clears `pathPoints` + `waypoints`; `handleKey` moves +
+  appends a path point on move + `B` appends a waypoint; overlay draws path + waypoints.
+- **PlaybackState** — `onEnter` snaps camera to `waypoints[0]` (`m_index = 0`); `handleKey`
+  steps `m_index` (advance-then-apply) and snaps the camera; overlay draws path + waypoints.
   Owns a local `size_t m_index`.
 - **PickState** (stub) — `onEnter` clears `pathPoints`; `handleKey` empty.
 
@@ -59,11 +59,11 @@ with it); shared data stays in `AppState`.
 
 - **Mode-local:** `PlaybackState::m_index` (was `AppState.playbackIndex`); and, for PICK
   later, `pickedPoints` / `computedCamera`.
-- **Shared (`AppState`):** `mesh`, `terrainSize`, cameras, `pathPoints`, `cameraRecords`.
+- **Shared (`AppState`):** `mesh`, `terrainSize`, cameras, `pathPoints`, `waypoints`.
 
 This is why oren's scattered resets collapse: `pickedPoints.clear()` /
 `computedCamera = null` / `playbackIndex = 0` become **automatic** (mode-local
-construction/destruction); only the shared `pathPoints` / `cameraRecords` need explicit
+construction/destruction); only the shared `pathPoints` / `waypoints` need explicit
 `onEnter` clears.
 
 ## Transitions — guarded, in the context (not on the interface)
@@ -86,18 +86,18 @@ I'm current." No `onExit` — no customer, and a state's destructor covers its o
 
 ## Clearing matrix (matches oren)
 
-| Entering | `pathPoints` | `cameraRecords` | camera |
+| Entering | `pathPoints` | `waypoints` | camera |
 |----------|--------------|-----------------|--------|
 | RECORD   | clear        | clear           | — |
-| PLAYBACK | keep         | keep            | snap to `records[0]` |
-| PICK     | clear        | keep            | (seed from a record — with full PICK) |
+| PLAYBACK | keep         | keep            | snap to `waypoints[0]` |
+| PICK     | clear        | keep            | (seed from a waypoint — with full PICK) |
 
 ## Highlight — by camera position (oren), state-independent
 
-`renderCameraRecords(records, playerCamera.position)` greens the record whose position
+`drawWaypoints(waypoints, playerCamera.position)` greens the waypoint whose position
 matches the camera, red otherwise. The marker tracks the **camera** in any mode; `m_index`
 is never used for the highlight, so they cannot desync. The exact float compare is safe —
-PLAYBACK snaps the camera to an *exact copy* of a record's position. `m_index` is purely the
+PLAYBACK snaps the camera to an *exact copy* of a waypoint's position. `m_index` is purely the
 navigation cursor.
 
 ## Renderer
@@ -116,13 +116,13 @@ deleted.
 - **PICK is a stub.** Its real implementation adds: `handleMouseButton` (a mouse hook on
   `State`), the offscreen pick pass (Renderer `m_pickShader` seam, fixed-function → core
   reimplementation), the ghost overlay (`renderPlayerOverlay`, which needs renderer access
-  to the terrain), and seeding the camera from a record in `onEnter` (oren: a random
-  record). The guarded + parameterized entry it needs is already in place
+  to the terrain), and seeding the camera from a waypoint in `onEnter` (oren: a random
+  waypoint). The guarded + parameterized entry it needs is already in place
   (`requireRecords` guard + `onEnter`).
 
 ## Verification
 
 `make` clean; `R` records (`B` adds waypoints, green when the camera is on one); `Ctrl+R`
-requires records, snaps to record 0, `UP`/`DOWN` step; `P` requires records, clears the
-path; navigation arrows / `<` `>` in NONE. With no records, PLAYBACK/PICK are refused with
+requires waypoints, snaps to waypoint 0, `UP`/`DOWN` step; `P` requires waypoints, clears the
+path; navigation arrows / `<` `>` in NONE. With no waypoints, PLAYBACK/PICK are refused with
 a console message.

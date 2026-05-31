@@ -92,7 +92,7 @@ Ordering matters because these refactors depend on each other:
      `unique_ptr<State> currentState` (the enum was dropped, not kept). See
      `state-pattern-refactor.md`.
    - **AppState decomposition: NOT done.** `AppState` still bundles scene (`mesh`,
-     `terrainSize`), view (two cameras), recording (`pathPoints`, `cameraRecords`) and mode
+     `terrainSize`), view (two cameras), recording (`pathPoints`, `waypoints`) and mode
      (`currentState`) in one context object passed by reference everywhere. It remains a god
      object — the name is accurate, not aspirational.
 
