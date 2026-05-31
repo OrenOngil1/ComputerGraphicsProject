@@ -145,3 +145,39 @@ void renderPlayerOverlay(const AppState &appState, Shader &shader, const glm::ma
 {
     (void)appState; (void)shader; (void)mvp;
 }
+
+// ── Renderer ──────────────────────────────────────────────────
+// A thin owner over the free helpers above. The constructor acquires the GPU
+// resources (compile shader + upload terrain); renderView sequences the same
+// four steps the duplicated viewport blocks in main() used to repeat by hand.
+
+Renderer::Renderer(const Mesh &terrain)
+    : m_sceneShader("assets/shaders/terrain.shader"),
+      m_terrain(uploadTerrain(terrain))
+{
+}
+
+void Renderer::clear() const
+{
+    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+}
+
+void Renderer::loadTerrain(const Mesh &terrain)
+{
+    // Move-assign the new buffers in; the old TerrainGpu's unique_ptrs free the
+    // previous VAO/VBO/IBO. The compiled shader is untouched -- no recompile.
+    m_terrain = uploadTerrain(terrain);
+}
+
+void Renderer::renderView(const Camera &camera, const Viewport &viewport,
+                          const AppState &appState, Overlay overlay)
+{
+    setupViewport(viewport);
+    glm::mat4 mvp = computeViewProjection(camera, viewport);
+    renderTerrain(m_terrain, m_sceneShader, mvp);
+
+    switch (overlay) {
+        case Overlay::Global: renderGlobalOverlay(appState, m_sceneShader, mvp); break;
+        case Overlay::Player: renderPlayerOverlay(appState, m_sceneShader, mvp); break;
+    }
+}

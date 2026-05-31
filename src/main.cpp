@@ -100,41 +100,30 @@ int main()
         .far      = appState.terrainSize * 3.0f
     };
 
-    // Scope ensures GPU resources (Shader, TerrainGpu) are destroyed while the
-    // OpenGL context is still alive. glfwTerminate() tears down the context, so
-    // any gl* call after it (including destructors) would be a null-ptr crash.
+    // Scope ensures the Renderer's GPU resources (Shader, TerrainGpu) are
+    // destroyed while the OpenGL context is still alive. glfwTerminate() below
+    // tears down the context, so any gl* call after it (including the Renderer's
+    // destructor) would be a null-ptr crash.
     {
-        Shader sceneShader("assets/shaders/terrain.shader");
-        TerrainGpu terrainGpu = uploadTerrain(appState.mesh);
+        Renderer renderer(appState.mesh);
 
         while (!glfwWindowShouldClose(window)) {
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            renderer.clear();
 
             // Viewports are derived from the live window size each frame, so
             // resizing the window keeps both halves correct for free.
             int windowWidth, windowHeight;
             glfwGetWindowSize(window, &windowWidth, &windowHeight);
 
-            Viewport globalViewport = leftHalf(windowWidth, windowHeight);
-            setupViewport(globalViewport);
-            {
-                glm::mat4 mvp = computeViewProjection(appState.globalCamera, globalViewport);
-                renderTerrain(terrainGpu, sceneShader, mvp);
-                renderGlobalOverlay(appState, sceneShader, mvp);
-            }
-
-            Viewport playerViewport = rightHalf(windowWidth, windowHeight);
-            setupViewport(playerViewport);
-            {
-                glm::mat4 mvp = computeViewProjection(appState.playerCamera, playerViewport);
-                renderTerrain(terrainGpu, sceneShader, mvp);
-                renderPlayerOverlay(appState, sceneShader, mvp);
-            }
+            renderer.renderView(appState.globalCamera, leftHalf(windowWidth, windowHeight),
+                                appState, Renderer::Overlay::Global);
+            renderer.renderView(appState.playerCamera, rightHalf(windowWidth, windowHeight),
+                                appState, Renderer::Overlay::Player);
 
             glfwSwapBuffers(window);
             glfwPollEvents();
         }
-    } // glDeleteProgram, glDeleteBuffers, etc. called here — context still alive
+    } // Renderer destroyed here (glDeleteProgram/glDeleteBuffers) — context still alive
 
     glfwTerminate();
 
