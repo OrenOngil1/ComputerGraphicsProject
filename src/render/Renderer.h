@@ -22,12 +22,6 @@ struct TerrainGpu {
     unsigned int indexCount = 0;
 };
 
-// Window-layout helpers: the two viewports are pure functions of the current
-// window size, so we compute them on demand each frame rather than storing them.
-// They have no dependency on renderer state, so they stay free functions.
-Viewport leftHalf(int windowWidth, int windowHeight);
-Viewport rightHalf(int windowWidth, int windowHeight);
-
 // Owns the GPU resources needed to draw the scene (the scene shader plus the
 // terrain buffers) and exposes a single per-view draw call.
 //
@@ -56,8 +50,8 @@ public:
     // Two methods rather than a flag parameter, so the overlay can never be
     // mismatched with the view -- the global view draws the global overlay, the
     // player view draws the player overlay.
-    void renderGlobalView(const Camera &camera, const Viewport &viewport, const AppState &appState);
-    void renderPlayerView(const Camera &camera, const Viewport &viewport, const AppState &appState);
+    void renderGlobalView(const View &view, const AppState &appState);
+    void renderPlayerView(const View &view, const AppState &appState);
 
     // Overlay drawing surface: a mode's render*Overlay draws *through* the Renderer
     // (it is handed `*this`, not a Shader), so m_sceneShader never leaves its owner.

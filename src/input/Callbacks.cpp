@@ -59,6 +59,24 @@ static bool tryTransition(AppState &appState, int key, int mods)
     return false;
 }
 
+// On resize GLFW hands us the new framebuffer size in PIXELS (the units
+// glViewport wants -- unlike window size, which is screen coordinates that
+// differ from pixels under HiDPI scaling). We recompute the split-screen layout
+// here, once per resize, and store each viewport in its View; the render loop
+// just reads them. Reaches AppState through the window user pointer, exactly
+// like keyCallback below.
+void framebufferSizeCallback(GLFWwindow *window, int width, int height)
+{
+    AppState *appState = static_cast<AppState *>(glfwGetWindowUserPointer(window));
+    if (!appState) {
+        std::cerr << "Error: No AppState associated with window" << std::endl;
+        return;
+    }
+
+    appState->globalView.viewport = leftHalf(width, height);
+    appState->playerView.viewport = rightHalf(width, height);
+}
+
 void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
 {
     (void)scancode;

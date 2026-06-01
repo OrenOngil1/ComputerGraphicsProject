@@ -17,7 +17,7 @@
 // ── NavigationState ──────────────────────────────────────────
 void NavigationState::handleKey(AppState &appState, int key, int mods)
 {
-    handleMovement(appState.playerCamera, appState.terrainSize, key, mods);
+    handleMovement(appState.playerView.camera, appState.terrainSize, key, mods);
 }
 
 // ── RecordState ──────────────────────────────────────────────
@@ -30,24 +30,26 @@ void RecordState::onEnter(AppState &appState)
 
 void RecordState::handleKey(AppState &appState, int key, int mods)
 {
-    const glm::vec3 prevPosition = appState.playerCamera.position;
-    handleMovement(appState.playerCamera, appState.terrainSize, key, mods);
+    Camera &playerCamera = appState.playerView.camera;
+    const glm::vec3 prevPosition = playerCamera.position;
+
+    handleMovement(playerCamera, appState.terrainSize, key, mods);
 
     // Capture the new position as a path point whenever the camera actually moved.
-    if (appState.playerCamera.position != prevPosition)
-        appState.pathPoints.push_back(appState.playerCamera.position);
+    if (playerCamera.position != prevPosition)
+        appState.pathPoints.push_back(playerCamera.position);
 
     // 'B' stores a camera waypoint (position + look-at target).
     if (key == GLFW_KEY_B)
-        appState.waypoints.push_back({ appState.playerCamera.position,
-                                           appState.playerCamera.target });
+        appState.waypoints.push_back({ playerCamera.position,
+                                           playerCamera.target });
 }
 
 void RecordState::renderGlobalOverlay(const AppState &appState, Renderer &renderer,
                                       const glm::mat4 &mvp) const
 {
     renderer.drawPath(appState.pathPoints, mvp);
-    renderer.drawWaypoints(appState.waypoints, appState.playerCamera.position, mvp);
+    renderer.drawWaypoints(appState.waypoints, appState.playerView.camera.position, mvp);
 }
 
 // ── PlaybackState ────────────────────────────────────────────
@@ -56,8 +58,8 @@ void PlaybackState::onEnter(AppState &appState)
     // Snap to the first waypoint so PLAYBACK starts on a known pose. The waypoints
     // are guaranteed non-empty here: the transition guard requires them.
     m_index = 0;
-    appState.playerCamera.position = appState.waypoints[m_index].position;
-    appState.playerCamera.target   = appState.waypoints[m_index].target;
+    appState.playerView.camera.position = appState.waypoints[m_index].position;
+    appState.playerView.camera.target   = appState.waypoints[m_index].target;
 }
 
 // UP/DOWN step m_index through the waypoints (wrapping), then the camera snaps to
@@ -66,6 +68,7 @@ void PlaybackState::onEnter(AppState &appState)
 void PlaybackState::handleKey(AppState &appState, int key, int mods)
 {
     (void)mods;
+
     const std::vector<Waypoint> &waypoints = appState.waypoints;
     if (waypoints.empty())
         return;
@@ -78,15 +81,15 @@ void PlaybackState::handleKey(AppState &appState, int key, int mods)
     else
         return;
 
-    appState.playerCamera.position = waypoints[m_index].position;
-    appState.playerCamera.target   = waypoints[m_index].target;
+    appState.playerView.camera.position = waypoints[m_index].position;
+    appState.playerView.camera.target   = waypoints[m_index].target;
 }
 
 void PlaybackState::renderGlobalOverlay(const AppState &appState, Renderer &renderer,
                                         const glm::mat4 &mvp) const
 {
     renderer.drawPath(appState.pathPoints, mvp);
-    renderer.drawWaypoints(appState.waypoints, appState.playerCamera.position, mvp);
+    renderer.drawWaypoints(appState.waypoints, appState.playerView.camera.position, mvp);
 }
 
 // ── PickState ────────────────────────────────────────────────

@@ -1,13 +1,13 @@
 # State Pattern Refactor — As-Built
 
-Refactor #4 from `docs/renderer-class-refactor.md`. **Implemented** on branch `oop`.
-This documents what was actually built (the design evolved during implementation).
+Refactor #4 from `renderer-class-refactor.md`. **Implemented** on branch `oop`. Documents what
+was built (the design evolved during implementation).
 
-## Problem (recap)
+## Problem
 
-"What a mode does" was spread across two `switch (mode)` statements — input dispatch in
-`Callbacks.cpp` and overlay rendering in `Renderer.cpp`. Each new mode meant editing both
-(shotgun surgery). Replaced with one polymorphic `State` per mode.
+"What a mode does" was split across two `switch (mode)` statements — input in `Callbacks.cpp`,
+overlay rendering in `Renderer.cpp`. Each new mode meant editing both (shotgun surgery). Replaced
+with one polymorphic `State` per mode.
 
 ## The interface — `src/state/State.h`
 
@@ -15,114 +15,86 @@ This documents what was actually built (the design evolved during implementation
 class State {
 public:
     virtual ~State() = default;
-    virtual void onEnter(AppState &) {}                       // entry action (post-swap)
+    virtual void onEnter(AppState &) {}                                  // entry action (post-swap)
     virtual void handleKey(AppState &, int key, int mods) = 0;
-    virtual void renderGlobalOverlay(const AppState &, Shader &, const glm::mat4 &) const {}
-    virtual void renderPlayerOverlay(const AppState &, Shader &, const glm::mat4 &) const {}
+    virtual void renderGlobalOverlay(const AppState &, Renderer &, const glm::mat4 &) const {}
+    virtual void renderPlayerOverlay(const AppState &, Renderer &, const glm::mat4 &) const {}
 };
 ```
 
-Deliberately **no `Mode`/`id()` tag** — a per-class enum constant is a type label that
-invites `switch (state->id())`, reintroducing exactly what the pattern removes. "Which
-modes exist" is answered by "which `State` subclasses exist." Pure interface: depends only
-on forward declarations of `AppState`/`Shader` + glm.
+- **No `Mode`/`id()` tag** — a per-class enum invites `switch (state->id())`, the very thing the
+  pattern removes. "Which modes exist" = "which `State` subclasses exist."
+- Overlays take **`Renderer &`, not `Shader &`**: the mode draws *through* the Renderer
+  (`drawPath`/`drawWaypoints`), so `m_sceneShader` never leaves its owner. Depends only on forward
+  declarations of `AppState`/`Renderer` + glm.
 
 ## Concrete states — `src/state/States.{h,cpp}`
 
-Grouped in one `.h`/`.cpp`: each is tiny, they form one cohesive set, they co-change, and
-only `Callbacks.cpp` constructs them. The base `State.h` stays **separate** so high-level
-code (`Renderer`) depends on the abstraction, not the concretes (Dependency Inversion).
+Grouped in one `.h`/`.cpp` (each tiny, one cohesive set, co-change, only `Callbacks.cpp`
+constructs them). `State.h` stays separate so `Renderer` depends on the abstraction (DIP).
 
-- **NavigationState** — `handleKey` → `handleMovement`. No overlay, no `onEnter`.
-- **RecordState** — `onEnter` clears `pathPoints` + `waypoints`; `handleKey` moves +
-  appends a path point on move + `B` appends a waypoint; overlay draws path + waypoints.
-- **PlaybackState** — `onEnter` snaps camera to `waypoints[0]` (`m_index = 0`); `handleKey`
-  steps `m_index` (advance-then-apply) and snaps the camera; overlay draws path + waypoints.
-  Owns a local `size_t m_index`.
+- **NavigationState** — `handleKey` → `handleMovement`. No overlay.
+- **RecordState** — `onEnter` clears `pathPoints`+`waypoints`; `handleKey` moves, appends a path
+  point on move, `B` appends a waypoint; overlay draws path + waypoints.
+- **PlaybackState** — `onEnter` snaps camera to `waypoints[0]` (`m_index = 0`); `handleKey` steps
+  `m_index` and snaps; overlay draws path + waypoints. Owns a local `size_t m_index`.
 - **PickState** (stub) — `onEnter` clears `pathPoints`; `handleKey` empty.
 
-Mode logic was **folded in**: deleted `RecordInput`, `PlaybackInput`, `Recording`. Kept
-`Movement` free — `handleMovement` is shared by Navigation *and* Record, so folding it into
-one would break the other. (That's the line: fold per-mode dispatchers, keep shared helpers.)
+Folded in (deleted `RecordInput`/`PlaybackInput`/`Recording`). Kept `Movement` free —
+`handleMovement` is shared by Navigation *and* Record. (The line: fold per-mode dispatchers, keep
+shared helpers.)
 
-## Ownership — `AppState` holds the current state
+## Ownership — by lifetime, not usage
 
-`std::unique_ptr<State> currentState` replaced `Mode mode`. Forward-declared in
-`AppState.h`; out-of-line `~AppState()` in `AppState.cpp` (a `unique_ptr` to an incomplete
-type needs the destructor where `State` is complete). Seeded to `NavigationState` in
-`main.cpp` before the loop. The global `appState` is retained (Application deferred).
+`std::unique_ptr<State> currentState` replaced `Mode mode`. Forward-declared in `AppState.h`;
+out-of-line `~AppState()` in `AppState.cpp` (a `unique_ptr` to an incomplete type needs its
+destructor where `State` is complete). Seeded to `NavigationState` in `main.cpp`. `appState` is a
+`main()` local (the global was retired; Application still deferred).
 
-## Data ownership — mode-local data lives in the state
+- **Mode-local** (lives in the state): `PlaybackState::m_index`; later PICK's
+  `pickedPoints`/`computedCamera`. Their resets become **automatic** via construction/destruction.
+- **Shared** (`AppState`): `mesh`, `terrainSize`, cameras, `pathPoints`, `waypoints` — only these
+  need explicit `onEnter` clears.
 
-Ownership follows **lifetime**, not usage. Mode-local scratch lives in the state (born/dies
-with it); shared data stays in `AppState`.
+## Transitions — guarded, in the context (not on the interface) — `Callbacks.cpp`
 
-- **Mode-local:** `PlaybackState::m_index` (was `AppState.playbackIndex`); and, for PICK
-  later, `pickedPoints` / `computedCamera`.
-- **Shared (`AppState`):** `mesh`, `terrainSize`, cameras, `pathPoints`, `waypoints`.
+- `setState(appState, next)` — swaps `currentState`, then `next->onEnter(appState)`.
+- `requireWaypoints(appState)` — PLAYBACK and PICK require ≥1 waypoint; checked **before** the
+  swap (a precondition is a property of the *transition*; `onEnter` runs after, too late to refuse).
+- `tryTransition(appState, key, mods)` — global hotkeys `R` / `Ctrl+R` / `P`; returns true if
+  handled (performed **or** refused). `keyCallback`: `if (tryTransition(...)) return; else
+  currentState->handleKey(...)`.
 
-This is why oren's scattered resets collapse: `pickedPoints.clear()` /
-`computedCamera = null` / `playbackIndex = 0` become **automatic** (mode-local
-construction/destruction); only the shared `pathPoints` / `waypoints` need explicit
-`onEnter` clears.
-
-## Transitions — guarded, in the context (not on the interface)
-
-In `Callbacks.cpp`:
-- `setState(appState, next)` — swaps `currentState`, then calls `next->onEnter(appState)`.
-- `requireRecords(appState)` — PLAYBACK and PICK require ≥1 recorded camera; checked
-  **before** the swap (a precondition is a property of the *transition*; `onEnter` runs
-  after the swap and is too late to refuse).
-- `tryTransition(appState, key, mods)` — global hotkeys `R` / `Ctrl+R` / `P`; returns true
-  if handled (performed **or** refused).
-- `keyCallback`: `if (tryTransition(...)) return; else currentState->handleKey(...)`.
-
-No `changeMode()` on the `State` interface — transitions are global app commands, not
-per-mode behavior. Running them before/separately from `handleKey` also dodges the
-self-deletion hazard (a state reassigning the pointer that owns it mid-method).
-
-**The split:** guard (pre-swap) = "may I enter?"; `onEnter` (post-swap) = "set up now that
-I'm current." No `onExit` — no customer, and a state's destructor covers its own teardown.
+No `changeMode()` on the interface — transitions are global app commands, not per-mode behavior.
+Running them separately from `handleKey` also dodges the self-deletion hazard (a state reassigning
+the pointer that owns it mid-method). **Split:** guard (pre-swap) = "may I enter?"; `onEnter`
+(post-swap) = "set up now that I'm current." No `onExit` (the destructor covers teardown).
 
 ## Clearing matrix (matches oren)
 
 | Entering | `pathPoints` | `waypoints` | camera |
-|----------|--------------|-----------------|--------|
-| RECORD   | clear        | clear           | — |
-| PLAYBACK | keep         | keep            | snap to `waypoints[0]` |
-| PICK     | clear        | keep            | (seed from a waypoint — with full PICK) |
+|----------|--------------|-------------|--------|
+| RECORD   | clear        | clear       | — |
+| PLAYBACK | keep         | keep        | snap to `waypoints[0]` |
+| PICK     | clear        | keep        | (seed from a waypoint — with full PICK) |
 
-## Highlight — by camera position (oren), state-independent
+## Highlight — by camera position, state-independent
 
-`drawWaypoints(waypoints, playerCamera.position)` greens the waypoint whose position
-matches the camera, red otherwise. The marker tracks the **camera** in any mode; `m_index`
-is never used for the highlight, so they cannot desync. The exact float compare is safe —
-PLAYBACK snaps the camera to an *exact copy* of a waypoint's position. `m_index` is purely the
-navigation cursor.
-
-## Renderer
-
-`Renderer::renderGlobalView` / `renderPlayerView` each draw the terrain (via a shared
-private `renderScene`) and then delegate the overlay to `currentState` (`renderGlobalOverlay`
-/ `renderPlayerOverlay` respectively); `Renderer` no longer knows about `Mode`, and there is
-no overlay flag/enum that could be mismatched with the view. The old free
-`renderGlobalOverlay` / `renderPlayerOverlay` free functions (with `switch (mode)`) were
-deleted.
+`drawWaypoints(waypoints, playerCamera.position)` greens the waypoint whose position matches the
+camera, red otherwise — so the highlight tracks the **camera** in any mode and can't desync from
+`m_index` (the float compare is exact because PLAYBACK snaps the camera to an exact copy of a
+waypoint). `m_index` is purely the navigation cursor.
 
 ## Known follow-ups
 
-- **PLAYBACK entry-snap** is a deliberate deviation from oren (which snapped on the first
-  key); chosen for cleaner UX.
-- **PICK is a stub.** Its real implementation adds: `handleMouseButton` (a mouse hook on
-  `State`), the offscreen pick pass (Renderer `m_pickShader` seam, fixed-function → core
-  reimplementation), the ghost overlay (`renderPlayerOverlay`, which needs renderer access
-  to the terrain), and seeding the camera from a waypoint in `onEnter` (oren: a random
-  waypoint). The guarded + parameterized entry it needs is already in place
-  (`requireRecords` guard + `onEnter`).
+- **PLAYBACK entry-snap** is a deliberate deviation from oren (snap on enter, not on first key).
+- **PICK is a stub.** Real impl adds: `handleMouseButton` (a mouse hook on `State`), the offscreen
+  pick pass (Renderer `m_pickShader` seam, fixed-function → core), the ghost overlay
+  (`renderPlayerOverlay`), and seeding the camera from a waypoint in `onEnter`. Its guarded +
+  parameterized entry is already in place (`requireWaypoints` + `onEnter`).
 
 ## Verification
 
-`make` clean; `R` records (`B` adds waypoints, green when the camera is on one); `Ctrl+R`
-requires waypoints, snaps to waypoint 0, `UP`/`DOWN` step; `P` requires waypoints, clears the
-path; navigation arrows / `<` `>` in NONE. With no waypoints, PLAYBACK/PICK are refused with
-a console message.
+`make` clean; `R` records (`B` adds waypoints, green when the camera is on one); `Ctrl+R` requires
+waypoints, snaps to waypoint 0, `UP`/`DOWN` step; `P` requires waypoints, clears the path; arrows /
+`<` `>` navigate. With no waypoints, PLAYBACK/PICK are refused with a console message.

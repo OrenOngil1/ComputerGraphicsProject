@@ -80,18 +80,6 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
     return gpu;
 }
 
-// The two halves of a split-screen window. Pure functions of the window size:
-// no stored state, evaluated wherever a viewport is needed.
-Viewport leftHalf(int windowWidth, int windowHeight)
-{
-    return Viewport{ 0, 0, windowWidth / 2, windowHeight };
-}
-
-Viewport rightHalf(int windowWidth, int windowHeight)
-{
-    return Viewport{ windowWidth / 2, 0, windowWidth / 2, windowHeight };
-}
-
 // Tell GL which rectangle of the framebuffer subsequent draws land in.
 void setupViewport(const Viewport &viewport)
 {
@@ -159,16 +147,16 @@ glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport)
 
 // The overlay is the active mode's responsibility: Renderer no longer knows about
 // Mode, it just asks the State to decorate the view it drew.
-void Renderer::renderGlobalView(const Camera &camera, const Viewport &viewport, const AppState &appState)
+void Renderer::renderGlobalView(const View &view, const AppState &appState)
 {
-    glm::mat4 mvp = renderScene(camera, viewport);
+    glm::mat4 mvp = renderScene(view.camera, view.viewport);
     if (appState.currentState)
         appState.currentState->renderGlobalOverlay(appState, *this, mvp);
 }
 
-void Renderer::renderPlayerView(const Camera &camera, const Viewport &viewport, const AppState &appState)
+void Renderer::renderPlayerView(const View &view, const AppState &appState)
 {
-    glm::mat4 mvp = renderScene(camera, viewport);
+    glm::mat4 mvp = renderScene(view.camera, view.viewport);
     if (appState.currentState)
         appState.currentState->renderPlayerOverlay(appState, *this, mvp);
 }

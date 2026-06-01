@@ -17,14 +17,38 @@ struct Camera {
 };
 
 // A viewport answers "which rectangle of the window do I paint into?" -- pure
-// render configuration. It is derived from the window size each frame (see
-// leftHalf/rightHalf in Renderer.h), so nothing needs to store it.
+// render configuration. Recomputed on resize (see leftHalf/rightHalf below) and
+// stored inside the View it belongs to.
 struct Viewport {
     int x = 0;
     int y = 0;
     int width = 0;
     int height = 0;
 };
+
+// A View pairs an eye (Camera) with the screen rectangle it paints into
+// (Viewport). The two always travel together; bundling them into one object
+// prevents handing a camera one viewport and accidentally drawing it into
+// another, and gives the resize callback a single place to update the layout.
+struct View {
+    Camera   camera;
+    Viewport viewport;
+};
+
+// Window-layout helpers: the two viewports are pure functions of the current
+// framebuffer size. They live here (next to Viewport) rather thadiscard the ultra plann in Renderer.h
+// because they're pure layout with no renderer dependency -- the resize callback
+// computes layout without pulling in the renderer. `inline` lets the definitions
+// sit in this widely-included header without an ODR/multiple-definition link error.
+inline Viewport leftHalf(int windowWidth, int windowHeight)
+{
+    return Viewport{ 0, 0, windowWidth / 2, windowHeight };
+}
+
+inline Viewport rightHalf(int windowWidth, int windowHeight)
+{
+    return Viewport{ windowWidth / 2, 0, windowWidth / 2, windowHeight };
+}
 
 // A recorded camera pose (position + look-at target) -- a waypoint along the
 // flight path, captured in RECORD mode for later playback.

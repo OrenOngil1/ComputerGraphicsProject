@@ -1,120 +1,80 @@
 # Renderer Class Refactor — Decision Note
 
-> **Status (updated):** Implemented on branch `oop`. The decision below stands; the build
-> added `loadTerrain()` (a menu seam), and `renderGlobalView` / `renderPlayerView` (two
-> intent-revealing methods, not a flag) delegate the overlay to the active `State` — the #4
-> prediction came true. Companion
-> docs: `state-pattern-refactor.md` (#4, done) and `application-class-refactor.md`
-> (#3, deferred — YAGNI).
+> **Status:** Implemented on branch `oop`. Companion docs: `state-pattern-refactor.md`
+> (#4, done) and `application-class-refactor.md` (#3, deferred — YAGNI).
 
-## The Prompt (original question)
+## Original question
 
-> In another session, you recommended the following changes to the codebase:
-> separating camera and viewport, decomposing AppState, implementing the State
-> pattern, and creating an Application class. I have considered a 5th addition: a
-> renderer class that abstracts away the different loop of computing viewport, mvp
-> and rendering the terrain and the appropriate overlay. What do you think: does it
-> worth it, the benefit outweighing the time spent on the refactor, or is it
-> over-engineering? If it is worth it, where should I add this refactor? And for
-> all, explain WHY.
+Worth adding a Renderer class that abstracts the per-viewport loop (viewport → MVP → terrain →
+overlay), or is it over-engineering? If worth it, where, and why?
 
----
+## Verdict: worth it — the *concrete* version, not a polymorphic hierarchy
 
-## Verdict: Worth it — but only the *concrete* version, not a polymorphic hierarchy
+The pre-existing free-function style (`uploadTerrain`, `computeViewProjection`, `drawTerrain`,
+…) was fine. The class solves **ownership and duplication**, not function style:
 
-Right now `src/render/Renderer.{h,cpp}` is a **module of free functions** over plain
-data (`uploadTerrain`, `computeViewProjection`, `renderTerrain`, `renderGlobalOverlay`,
-`renderPlayerOverlay`). That functional style is genuinely good and is *not* the
-problem. The problem the class solves is **ownership and duplication**, visible in
-`main.cpp:106-137`:
+1. **Unowned GPU-resource lifetime.** `Shader` + `TerrainGpu` used to live in a bare `{ }`
+   scope in `main()` with a load-bearing comment ("destroying after `glfwTerminate()` crashes").
+   A `Renderer` that *owns* them makes the lifetime a property of an object, not a comment.
+2. **Duplicated per-viewport block.** The same four steps ran twice in `main()`; collapsed into
+   one call site per view.
+3. **No home for future overlays.** Modes 2–4 (picking spheres, trackers, ghost) each add scene
+   geometry; without a Renderer they bolt onto `main()`'s loop.
 
-1. **Unowned GPU resource lifetime.** `Shader sceneShader` and `TerrainGpu terrainGpu`
-   live in a bare `{ }` scope in `main()` with a load-bearing comment warning that
-   destroying them after `glfwTerminate()` crashes. That hazard is real but invisible —
-   nothing in the type system enforces it. A `Renderer` object that *owns* the shader +
-   terrain GPU buffers makes the lifetime a property of an object, not a comment.
+**Where it stops being worth it:** a `Renderer` *interface* with virtual subclasses
+(`GlobalRenderer`, …) is over-engineering — there's one way to draw the scene; only the *overlay*
+varies, and that varies by mode, not renderer type. So: **one concrete class, no virtuals.**
 
-2. **Duplicated per-viewport block.** Lines 118-124 and 126-132 are the same four steps
-   twice (setupViewport → computeViewProjection → renderTerrain → render*Overlay). A
-   `renderView(camera, viewport, appState)` method collapses both into one call site.
-
-3. **No home for future overlays.** Modes 2-4 (picking spheres, trackers, ghost camera)
-   each add scene geometry. Without a Renderer they get bolted onto `main()`'s loop,
-   which is exactly the "messy state separation" the project wants to avoid.
-
-**Where it stops being worth it:** a `Renderer` *interface* with virtual methods and
-subclasses (`GlobalRenderer`, `PlayerRenderer`, …) would be over-engineering for a
-two-viewport app. There is one way to draw the scene; the only variation is *which
-overlay*, and that varies by Mode, not by renderer type. So: one concrete class, no
-virtuals.
-
-## Recommended shape
-
-A single concrete class in `src/render/Renderer.{h,cpp}`, absorbing the existing free
-functions as private helpers / implementation detail:
+## As-built shape (`src/render/Renderer.{h,cpp}`)
 
 ```cpp
 class Renderer {
 public:
-    Renderer(const Mesh& terrain);          // owns Shader + TerrainGpu (RAII)
-    void clear() const;                      // glClear
-    void renderView(const Camera& camera,
-                    const Viewport& viewport,
-                    const AppState& appState); // setup + MVP + terrain + overlay
+    explicit Renderer(const Mesh &terrain);   // owns Shader + TerrainGpu (RAII)
+    void clear() const;
+    void loadTerrain(const Mesh &terrain);    // menu DEM swap (reuses the shader)
+    void renderGlobalView(const Camera &, const Viewport &, const AppState &);
+    void renderPlayerView(const Camera &, const Viewport &, const AppState &);
+    // overlay drawing surface — modes draw *through* these, shader never leaves Renderer:
+    void drawPath(const std::vector<glm::vec3> &, const glm::mat4 &);
+    void drawWaypoints(const std::vector<Waypoint> &, const glm::vec3 &camPos, const glm::mat4 &);
 private:
-    Shader  m_shader;
+    glm::mat4 renderScene(const Camera &, const Viewport &);  // viewport + MVP + terrain
+    Shader     m_sceneShader;
     TerrainGpu m_terrain;
 };
 ```
+- **Two view methods, not a flag.** `renderGlobalView`/`renderPlayerView` each draw the terrain
+  (shared private `renderScene`) then delegate the overlay to `currentState` — the view can never
+  be mismatched with its overlay, and `Renderer` no longer knows `Mode`.
+- `uploadTerrain`/`computeViewProjection`/`drawTerrain` are free helpers in the `.cpp`;
+  `leftHalf`/`rightHalf`/`setupViewport` stay free (pure window geometry, no renderer state).
 
-- `uploadTerrain`, `computeViewProjection`, `renderTerrain` become implementation
-  details behind the class (keep them as free functions in the .cpp, or private methods).
-- `leftHalf` / `rightHalf` / `setupViewport` stay free functions — they are pure
-  window-geometry helpers with no dependency on renderer state.
-- `main()`'s loop shrinks to: `renderer.clear(); renderer.renderView(globalCam, left, st);
-  renderer.renderView(playerCam, right, st);`
-
-## Where it fits among the other four refactors — and why
-
-Ordering matters because these refactors depend on each other:
+## Where it fits among the five refactors
 
 1. **Camera/Viewport split** — ✅ done.
-2. **Renderer class (this one)** — ✅ done. Owns `Shader` + `TerrainGpu` (RAII); collapsed
-   the duplicated per-viewport block into `renderView`; added `loadTerrain()` for the menu.
-3. **Application class** — ⏸️ deferred (YAGNI). Its dependency on Renderer is satisfied, but
-   it isn't urgent: its only concrete win is retiring the global `appState`, and `State`
-   objects own no GL resources, so the global's static destruction stays safe. Build it
-   when the menu or PICK forces it. See `application-class-refactor.md`.
-4. **State pattern for Mode + AppState decomposition** — ⚠️ *partly* done.
-   - **State pattern: done.** The `switch (appState.mode)` moved into the State objects (each
-     draws its own overlay, `Renderer::renderGlobalView` / `renderPlayerView` call
-     `state.render*Overlay(...)`, Renderer no longer knows `Mode`); `Mode mode` became
-     `unique_ptr<State> currentState` (the enum was dropped, not kept). See
-     `state-pattern-refactor.md`.
-   - **AppState decomposition: NOT done.** `AppState` still bundles scene (`mesh`,
-     `terrainSize`), view (two cameras), recording (`pathPoints`, `waypoints`) and mode
-     (`currentState`) in one context object passed by reference everywhere. It remains a god
-     object — the name is accurate, not aspirational.
+2. **Renderer class (this)** — ✅ done. RAII over `Shader`+`TerrainGpu`; collapsed the duplicated
+   block; added `loadTerrain()`.
+3. **Application class** — ⏸️ deferred (YAGNI). Its one concrete win, retiring the global, was
+   since achieved another way; the rest is a coordination seam. See `application-class-refactor.md`.
+4. **State pattern** — ✅ done. The two `switch (mode)` statements moved into `State` objects;
+   `Mode mode` → `unique_ptr<State> currentState`. See `state-pattern-refactor.md`.
+5. **AppState decomposition** — ⚠️ partial. The global is **retired** (`appState` is now a `main()`
+   local), but the struct still bundles scene (`mesh`, `terrainSize`), two cameras, recording
+   (`pathPoints`, `waypoints`) and mode (`currentState`) flat. A cohesion regroup into
+   `Scene`/`Recording` sub-structs is the remaining tidy — deferred, not a god *object* (no behavior).
 
-**Why this order (as it played out):** each step compiles and runs on its own, matching the
-project's collaborative, incremental pace. Renderer went first (dependency-free, immediate
-payoff: lifetime safety + dedup). Application was then *deferred* rather than built, so the
-State pattern was done on top of Renderer alone — it turned out not to need Application, only
-somewhere for `currentState` to live (it went on `AppState` for now, and migrates into
-`Application` if/when that lands). State last because it was the broadest change.
+**Why this order:** each step compiles and runs alone (collaborative, incremental pace). Renderer
+first (dependency-free, immediate lifetime-safety + dedup payoff); Application deferred; State built
+on Renderer alone — it needed only somewhere for `currentState` to live (`AppState`, for now).
 
 ## What this is NOT
 
-- Not a render-graph, not a material/pipeline abstraction, not virtual dispatch. Those
-  are real patterns but unjustified at this scale — adding them now is the over-engineering
-  failure mode.
-- Renderer should not own the window or poll events (that is `Application`'s job) and
-  should not know about `Mode` semantics (that is the State's job). Keep it to: "given a
-  camera, a viewport, and what to draw, paint one view."
+Not a render-graph / material / pipeline abstraction or virtual dispatch — unjustified at this
+scale. Renderer must not own the window or poll events (`Application`'s job) nor know `Mode`
+semantics (the State's job). Its remit: "given a camera, a viewport, and what to draw, paint one view."
 
 ## Verification
 
-After implementing: `make` must build clean, `./bin/drone_sim` must render the same
-two-viewport scene as today, and RECORD/PLAYBACK overlays must still appear in the left
-view. No behavior change — this is a pure structural refactor, so the visual output is
-the test.
+`make` clean; `./bin/drone_sim` renders the same two-viewport scene; RECORD/PLAYBACK overlays still
+appear in the left view. Pure structural refactor — the visual output is the test.

@@ -14,8 +14,8 @@ struct AppState {
     std::unique_ptr<State> currentState;   // the active mode (replaces `Mode mode`)
     float terrainSize = 0.0f;
     Mesh mesh;
-    Camera globalCamera;
-    Camera playerCamera;
+    View globalView;   // left half:  global camera + its viewport
+    View playerView;   // right half: player camera + its viewport
     std::vector<glm::vec3> pathPoints;
     std::vector<Waypoint> waypoints;
 
@@ -23,5 +23,3 @@ struct AppState {
     // only be destroyed where State is a complete type.
     ~AppState();
 };
-
-extern AppState appState;
