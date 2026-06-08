@@ -7,17 +7,24 @@
 #include "../render/Renderer.h"
 
 // Each mode's input + overlay behavior lives here, in its State. The only free
-// helpers left are genuinely shared: handleMovement (used by both NavigationState
-// and RecordState) and the Overlay drawing functions.
+// helper left that is genuinely shared is moveCamera (called by both NavigationState
+// and RecordState each frame).
 //
 // The waypoint overlay highlights whichever waypoint the player camera is
 // sitting on (matched by position) -- so the green highlight always tracks the
 // camera, in any mode, with no separate cursor to keep in sync.
 
-// ── NavigationState ──────────────────────────────────────────
-void NavigationState::handleKey(AppState &appState, int key, int mods)
+// Has the camera moved at least `minDist` since the previous sample? Used to thin out
+// path recording so a steady glide doesn't append a near-duplicate point every frame.
+static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float minDist)
 {
-    handleMovement(appState.playerView.camera, appState.terrainSize, key, mods);
+    return glm::distance(from, to) > minDist;
+}
+
+// ── NavigationState ──────────────────────────────────────────
+void NavigationState::tick(AppState &appState, GLFWwindow *window, float dt)
+{
+    moveCamera(appState.playerView.camera, appState.terrainSize, window, dt);
 }
 
 // ── RecordState ──────────────────────────────────────────────
@@ -28,21 +35,28 @@ void RecordState::onEnter(AppState &appState)
     appState.waypoints.clear();
 }
 
-void RecordState::handleKey(AppState &appState, int key, int mods)
+void RecordState::tick(AppState &appState, GLFWwindow *window, float dt)
 {
     Camera &playerCamera = appState.playerView.camera;
     const glm::vec3 prevPosition = playerCamera.position;
 
-    handleMovement(playerCamera, appState.terrainSize, key, mods);
+    moveCamera(playerCamera, appState.terrainSize, window, dt);
 
-    // Capture the new position as a path point whenever the camera actually moved.
-    if (playerCamera.position != prevPosition)
+    // Capture the new position as a path point once it has drifted far enough from the
+    // last one (threshold scales with terrain size so it is resolution-independent).
+    float threshold = appState.terrainSize * 0.001f;
+    if (movedFarEnough(prevPosition, playerCamera.position, threshold))
         appState.pathPoints.push_back(playerCamera.position);
+}
+
+void RecordState::handleKey(AppState &appState, int key, int mods)
+{
+    (void)mods;
 
     // 'B' stores a camera waypoint (position + look-at target).
     if (key == GLFW_KEY_B)
-        appState.waypoints.push_back({ playerCamera.position,
-                                           playerCamera.target });
+        appState.waypoints.push_back({ appState.playerView.camera.position,
+                                       appState.playerView.camera.target });
 }
 
 void RecordState::renderGlobalOverlay(const AppState &appState, Renderer &renderer,

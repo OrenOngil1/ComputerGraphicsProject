@@ -85,7 +85,7 @@ int main()
     // it into the GLFW window via the user pointer), and tears it down on return.
     AppState appState;
 
-    std::string image_path = "assets/terrain1.jpg";
+    std::string image_path = "assets/terrains/terrain1.jpg";
 
     appState.mesh = readTerrain(image_path);
     appState.terrainSize = std::max(appState.mesh.width, appState.mesh.height);
@@ -129,7 +129,20 @@ int main()
     {
         Renderer renderer(appState.mesh);
 
+        // Continuous movement integrates over the time since the last frame, so motion
+        // is frame-rate independent. Seed `last` before the loop so the first dt is tiny.
+        float last = (float)glfwGetTime();
+
         while (!glfwWindowShouldClose(window)) {
+            const float now = (float)glfwGetTime();
+            const float dt = now - last;
+            last = now;
+
+            // Per-frame step: the active mode advances itself (the moving modes poll
+            // held keys to fly the player camera; Playback/Pick inherit a no-op).
+            if (appState.currentState)
+                appState.currentState->tick(appState, window, dt);
+
             renderer.clear();
 
             // The split-screen layout is maintained by framebufferSizeCallback

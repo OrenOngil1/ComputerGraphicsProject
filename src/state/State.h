@@ -4,6 +4,7 @@
 
 struct AppState;
 class Renderer;
+struct GLFWwindow;   // only a pointer is needed here -- keep GLFW out of this header
 
 // One State object per mode. It encapsulates the two things that vary by mode:
 // how the mode reacts to input, and what it draws as an overlay. States hold no
@@ -25,7 +26,17 @@ public:
     // Default: nothing. (No onExit: a state's destructor covers what it owns.)
     virtual void onEnter(AppState &) {}
 
-    virtual void handleKey(AppState &appState, int key, int mods) = 0;
+    // Discrete key events (press/repeat), routed from keyCallback. Default: nothing,
+    // so a mode with no discrete keys (e.g. NavigationState, now that arrows became
+    // continuous "look") need not carry an empty override -- matching the other hooks.
+    virtual void handleKey(AppState &, int /*key*/, int /*mods*/) {}
+
+    // Per-frame step, called once every frame from the main loop with dt = seconds
+    // since the last frame (so time-based work is frame-rate independent). The
+    // engine-standard update/tick, as opposed to handleKey's discrete events: here the
+    // moving modes poll held keys (via moveCamera) to fly the player camera. Default:
+    // nothing (e.g. Playback/Pick don't move).
+    virtual void tick(AppState &, GLFWwindow *, float /*dt*/) {}
 
     // Default to drawing nothing; a mode overrides only the view(s) it decorates.
     // The mode draws *through* the Renderer (it is handed a Renderer&, not a Shader),

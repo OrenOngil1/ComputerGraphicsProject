@@ -9,19 +9,21 @@
 // Split a mode into its own file once it grows substantial -- PickState and
 // TrackersState likely will, once Modes 2/3 land.
 
-// Free navigation (the old Mode::NONE): arrow keys move the player camera,
-// '<' / '>' change altitude. No overlay.
+// Free navigation (the old Mode::NONE): continuous FPS flight of the player camera
+// (WASD to move, arrows to look, Shift+>/< for altitude). No discrete keys, no overlay.
 class NavigationState : public State {
 public:
-    void handleKey(AppState &appState, int key, int mods) override;
+    void tick(AppState &appState, GLFWwindow *window, float dt) override;
 };
 
-// Records the player's flight: movement is captured as path points, and 'B'
-// stores a camera waypoint. The global view overlays the path and waypoints.
+// Records the player's flight: the same continuous movement, with each new position
+// captured as a path point, and 'B' storing a camera waypoint. The global view overlays
+// the path and waypoints.
 class RecordState : public State {
 public:
     void onEnter(AppState &appState) override;   // start a fresh recording
-    void handleKey(AppState &appState, int key, int mods) override;
+    void handleKey(AppState &appState, int key, int mods) override;             // 'B'
+    void tick(AppState &appState, GLFWwindow *window, float dt) override;
     void renderGlobalOverlay(const AppState &appState, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
 };
