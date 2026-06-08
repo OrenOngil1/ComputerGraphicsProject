@@ -36,7 +36,7 @@ struct View {
 };
 
 // Window-layout helpers: the two viewports are pure functions of the current
-// framebuffer size. They live here (next to Viewport) rather thadiscard the ultra plann in Renderer.h
+// framebuffer size. They live here (next to Viewport) rather than in Renderer.h
 // because they're pure layout with no renderer dependency -- the resize callback
 // computes layout without pulling in the renderer. `inline` lets the definitions
 // sit in this widely-included header without an ODR/multiple-definition link error.
