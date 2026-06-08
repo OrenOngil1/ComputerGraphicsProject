@@ -6,9 +6,11 @@
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <VertexArray.h>
+#include <VertexBuffer.h>
 #include <VertexBufferLayout.h>
 
-#include "Overlay.h"
+#include "../state/State.h"
 
 // Builds the terrain's GPU buffers ONCE at startup. After this returns, the
 // vertex and index data live in GPU memory and stay there for the rest of the
@@ -78,30 +80,21 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
     return gpu;
 }
 
-// Selects which half of the window this camera draws into and updates the
-// camera's stored width/height in case the window has been resized.
-void setupCamera(Camera &camera)
+// Tell GL which rectangle of the framebuffer subsequent draws land in.
+void setupViewport(const Viewport &viewport)
 {
-    glfwGetWindowSize(glfwGetCurrentContext(), &camera.width, &camera.height);
-
-    // TODO(phase3-cleanup): split viewport x-position from camera state; the
-    // `camera.x == 0 ? 0 : width` flag-as-coordinate hack should become an
-    // explicit left/right enum on the Camera or a separate Viewport struct.
-    camera.width /= 2.0f;
-    camera.x = camera.x == 0 ? 0 : camera.width;
-
-    glViewport(camera.x, camera.y, camera.width, camera.height);
+    glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
 }
 
 // Build the projection*view matrix on the CPU. The vertex shader will
 // multiply it by each vertex position to get the final clip-space coordinate.
-// No model matrix yet -- the centering offset is baked into the vertices and
-// nothing else moves.
-glm::mat4 computeViewProjection(const Camera &camera)
+// The aspect ratio comes from the viewport, not the camera. No model matrix
+// yet -- the centering offset is baked into the vertices and nothing else moves.
+glm::mat4 computeViewProjection(const Camera &camera, const Viewport &viewport)
 {
     glm::mat4 proj = glm::perspective(
         glm::radians(camera.fov),
-        (float)camera.width / (float)camera.height,
+        (float)viewport.width / (float)viewport.height,
         camera.near,
         camera.far);
     glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
@@ -110,7 +103,7 @@ glm::mat4 computeViewProjection(const Camera &camera)
 
 // One draw call: bind the shader, push the MVP uniform, bind the pre-uploaded
 // VAO+IBO, and let the GPU rasterize. No vertex data crosses the bus here.
-void renderTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
+void drawTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
 {
     shader.Bind();
     shader.SetUniformMat4f("u_MVP", mvp);
@@ -119,26 +112,116 @@ void renderTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
     GLCall(glDrawElements(GL_TRIANGLES, gpu.indexCount, GL_UNSIGNED_INT, nullptr));
 }
 
-// Overlay for the global (overhead) view: shows the recorded flight path and
-// the camera waypoints. Only drawn in RECORD / PLAYBACK modes.
-void renderGlobalOverlay(const AppState &appState, Shader &shader, const glm::mat4 &mvp)
+// ── Renderer ──────────────────────────────────────────────────
+// A thin owner over the free helpers above. The constructor acquires the GPU
+// resources (compile shader + upload terrain); renderView sequences the same
+// four steps the duplicated viewport blocks in main() used to repeat by hand.
+
+Renderer::Renderer(const Mesh &terrain)
+    : m_sceneShader("assets/shaders/terrain.shader"),
+      m_terrain(uploadTerrain(terrain))
 {
-    switch (appState.mode) {
-        case Mode::NONE:
-            return;
-        case Mode::RECORD:
-        case Mode::PLAYBACK:
-            renderPath(appState.pathPoints, shader, mvp);
-            renderCameraRecords(appState.cameraRecords, appState.playbackIndex, shader, mvp);
-            break;
-        default:
-            break;
-    }
 }
 
-// Overlay for the player (first-person) view -- placeholder for a future HUD
-// (crosshair, altitude readout, attitude indicator, etc.).
-void renderPlayerOverlay(const AppState &appState, Shader &shader, const glm::mat4 &mvp)
+void Renderer::clear() const
 {
-    (void)appState; (void)shader; (void)mvp;
+    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+}
+
+void Renderer::loadTerrain(const Mesh &terrain)
+{
+    // Move-assign the new buffers in; the old TerrainGpu's unique_ptrs free the
+    // previous VAO/VBO/IBO. The compiled shader is untouched -- no recompile.
+    m_terrain = uploadTerrain(terrain);
+}
+
+// Shared scene pass: set the viewport, build the MVP, draw the terrain. Returns
+// the MVP so the view methods can hand it to the active mode's overlay.
+glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport)
+{
+    setupViewport(viewport);
+    glm::mat4 mvp = computeViewProjection(camera, viewport);
+    drawTerrain(m_terrain, m_sceneShader, mvp);
+    return mvp;
+}
+
+// The overlay is the active mode's responsibility: Renderer no longer knows about
+// Mode, it just asks the State to decorate the view it drew.
+void Renderer::renderGlobalView(const View &view, const AppState &appState)
+{
+    glm::mat4 mvp = renderScene(view.camera, view.viewport);
+    if (appState.currentState)
+        appState.currentState->renderGlobalOverlay(appState, *this, mvp);
+}
+
+void Renderer::renderPlayerView(const View &view, const AppState &appState)
+{
+    glm::mat4 mvp = renderScene(view.camera, view.viewport);
+    if (appState.currentState)
+        appState.currentState->renderPlayerOverlay(appState, *this, mvp);
+}
+
+// ── Overlay drawing ───────────────────────────────────────────
+// Moved in from the old Overlay.{h,cpp}: the mode draws through these methods,
+// which supply m_sceneShader themselves, so the shader never leaves the Renderer.
+
+// Overlays differ from terrain in one important way: their contents CHANGE
+// every frame (the recorded path grows, the highlighted waypoint moves). So instead
+// of building a long-lived VAO/VBO like the terrain does, we build a throwaway
+// pair each call -- upload the latest data, draw it, and let the destructors
+// free the GPU buffers when the function returns. Cheap for hundreds of points.
+static void drawVertexBatch(const std::vector<float> &verts, GLenum primitive, Shader &shader, const glm::mat4 &mvp)
+{
+    VertexArray va;
+    VertexBuffer vb(verts.data(), verts.size() * sizeof(float));
+
+    VertexBufferLayout layout;
+    layout.Push<float>(3);  // position
+    layout.Push<float>(3);  // color
+    va.AddBuffer(vb, layout);
+
+    shader.Bind();
+    shader.SetUniformMat4f("u_MVP", mvp);
+    va.Bind();
+    // verts.size() / 6 because each vertex is 6 floats (xyz + rgb).
+    GLCall(glDrawArrays(primitive, 0, (GLsizei)(verts.size() / 6)));
+}
+
+// Flight path: a blue line strip connecting all recorded positions in order.
+void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::mat4 &mvp)
+{
+    if (pathPoints.empty()) return;
+
+    std::vector<float> verts;
+    verts.reserve(pathPoints.size() * 6);
+    for (const glm::vec3 &p : pathPoints) {
+        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
+        verts.push_back(0.0f); verts.push_back(0.0f); verts.push_back(1.0f); // blue
+    }
+
+    GLCall(glLineWidth(3.0f));
+    drawVertexBatch(verts, GL_LINE_STRIP, m_sceneShader, mvp);
+}
+
+// Camera waypoints: green for the waypoint the player camera is on (position
+// match), red for the rest. The highlight tracks the camera, not any cursor.
+void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
+                             const glm::vec3 &cameraPos, const glm::mat4 &mvp)
+{
+    if (waypoints.empty()) return;
+
+    std::vector<float> verts;
+    verts.reserve(waypoints.size() * 6);
+    for (const Waypoint &waypoint : waypoints) {
+        const glm::vec3 &p = waypoint.position;
+        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
+        if (p == cameraPos) {
+            verts.push_back(0.0f); verts.push_back(1.0f); verts.push_back(0.0f); // green
+        } else {
+            verts.push_back(1.0f); verts.push_back(0.0f); verts.push_back(0.0f); // red
+        }
+    }
+
+    GLCall(glPointSize(5.0f));
+    drawVertexBatch(verts, GL_POINTS, m_sceneShader, mvp);
 }

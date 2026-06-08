@@ -1,67 +1,100 @@
 #include "Callbacks.h"
 
 #include <iostream>
+#include <memory>
 
-#include "RecordInput.h"
-#include "PlaybackInput.h"
-#include "Movement.h"
+#include "../core/AppState.h"
+#include "../state/States.h"
 
-int changeMode(AppState &appState, int key, int mods)
+// The one place a transition is performed -- so a state never has to know about
+// the states it can transition to -- and the new mode's entry action (onEnter)
+// runs in exactly one spot, right after it becomes current.
+static void setState(AppState &appState, std::unique_ptr<State> next)
 {
-    switch (key) {
-
-        case GLFW_KEY_R:
-        
-            if (mods & GLFW_MOD_CONTROL) {
-                appState.mode = Mode::PLAYBACK;
-                std::cout << "Switched to PLAYBACK mode" << std::endl;
-            } else {
-                appState.mode = Mode::RECORD;
-                std::cout << "Switched to RECORD mode" << std::endl;
-            }   
-
-            return 1;
-
-        case GLFW_KEY_P:
-
-            appState.mode = Mode::PICK;
-            appState.pathPoints.clear();
-            std::cout << "Switched to PICK mode" << std::endl;
-            
-            return 1;
-    }
-
-    return 0;
+    appState.currentState = std::move(next);
+    appState.currentState->onEnter(appState);
 }
 
-void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+// PLAYBACK and PICK both require at least one recorded waypoint. The precondition
+// is a property of the transition (you may only enter if waypoints exist), so it
+// is checked here, before the swap is committed -- not in onEnter, which runs
+// after the swap and so would be too late to refuse.
+static bool requireWaypoints(const AppState &appState)
+{
+    if (appState.waypoints.empty()) {
+        std::cout << "Record camera waypoints in RECORD mode first" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// Global, app-level hotkeys that switch mode from anywhere. Returns true if it
+// handled the key (transition performed OR refused), so the caller skips in-mode
+// handling this event. Running before and separately from the current state's
+// handleKey also avoids the self-deletion hazard of a state reassigning the
+// pointer that owns it mid-method.
+static bool tryTransition(AppState &appState, int key, int mods)
+{
+    switch (key) {
+        case GLFW_KEY_R:
+            if (mods & GLFW_MOD_CONTROL) {
+                if (!requireWaypoints(appState))
+                    return true;
+                setState(appState, std::make_unique<PlaybackState>());
+                std::cout << "Switched to PLAYBACK mode" << std::endl;
+            } else {
+                setState(appState, std::make_unique<RecordState>());
+                std::cout << "Switched to RECORD mode" << std::endl;
+            }
+            return true;
+
+        case GLFW_KEY_P:
+            if (!requireWaypoints(appState))
+                return true;
+            setState(appState, std::make_unique<PickState>());
+            std::cout << "Switched to PICK mode" << std::endl;
+            return true;
+    }
+
+    return false;
+}
+
+// On resize GLFW hands us the new framebuffer size in PIXELS (the units
+// glViewport wants -- unlike window size, which is screen coordinates that
+// differ from pixels under HiDPI scaling). We recompute the split-screen layout
+// here, once per resize, and store each viewport in its View; the render loop
+// just reads them. Reaches AppState through the window user pointer, exactly
+// like keyCallback below.
+void framebufferSizeCallback(GLFWwindow *window, int width, int height)
 {
     AppState *appState = static_cast<AppState *>(glfwGetWindowUserPointer(window));
-    if(!appState) {
+    if (!appState) {
         std::cerr << "Error: No AppState associated with window" << std::endl;
         return;
     }
 
-    // Only handle key presses and repeats, ignore releases
-    if(action != GLFW_PRESS && action != GLFW_REPEAT)
-        return;
+    appState->globalView.viewport = leftHalf(width, height);
+    appState->playerView.viewport = rightHalf(width, height);
+}
 
-    // if we handled a mode change
-    // don't handle it as a regular key press in the current mode
-    if(changeMode(*appState, key, mods))
-        return;
+void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+    (void)scancode;
 
-    switch (appState->mode) {
-        case Mode::NONE:
-            handleMovement(appState->playerCamera, appState->terrainSize, key, mods);
-            break;
-        case Mode::RECORD:
-            handleKeyRecord(*appState, key, mods);
-            break;
-        case Mode::PLAYBACK:
-            handleKeyPlayback(*appState, key);
-            break;
-        default:
-            break;
+    AppState *appState = static_cast<AppState *>(glfwGetWindowUserPointer(window));
+    if (!appState) {
+        std::cerr << "Error: No AppState associated with window" << std::endl;
+        return;
     }
+
+    // Only handle key presses and repeats, ignore releases.
+    if (action != GLFW_PRESS && action != GLFW_REPEAT)
+        return;
+
+    // A global mode-switch hotkey takes precedence over in-mode handling.
+    if (tryTransition(*appState, key, mods))
+        return;
+
+    if (appState->currentState)
+        appState->currentState->handleKey(*appState, key, mods);
 }
