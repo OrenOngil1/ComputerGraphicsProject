@@ -65,6 +65,7 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
     gpu.vb = std::make_unique<VertexBuffer>(verts.data(), verts.size() * sizeof(float));
     gpu.ib = std::make_unique<IndexBuffer>(indices.data(), indices.size() * sizeof(unsigned int));
     gpu.indexCount = (unsigned int)indices.size();
+    gpu.vertexCount = mesh.vertices.size();
 
     // The VAO records "how to read the VBO's bytes" -- not the bytes themselves.
     // Push order maps to shader attribute locations: 0 = position, 1 = color.
@@ -96,7 +97,8 @@ glm::mat4 computeViewProjection(const Camera &camera, const Viewport &viewport)
         glm::radians(camera.fov),
         (float)viewport.width / (float)viewport.height,
         camera.near,
-        camera.far);
+        camera.far
+    );
     glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
     return proj * view;
 }
@@ -118,7 +120,9 @@ void drawTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
 // four steps the duplicated viewport blocks in main() used to repeat by hand.
 
 Renderer::Renderer(const Mesh &terrain)
-    : m_sceneShader("assets/shaders/terrain.shader"),
+    : m_sceneShader("assets/shaders/terrainShader.glsl"),
+      m_pickShader("assets/shaders/pickShader.glsl"),
+      m_pointShader("assets/shaders/pointShader.glsl"),
       m_terrain(uploadTerrain(terrain))
 {
 }
@@ -200,7 +204,9 @@ void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::mat
     }
 
     GLCall(glLineWidth(3.0f));
+    GLCall(glDisable(GL_DEPTH_TEST));
     drawVertexBatch(verts, GL_LINE_STRIP, m_sceneShader, mvp);
+    GLCall(glEnable(GL_DEPTH_TEST));
 }
 
 // Camera waypoints: green for the waypoint the player camera is on (position
@@ -223,5 +229,87 @@ void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
     }
 
     GLCall(glPointSize(5.0f));
-    drawVertexBatch(verts, GL_POINTS, m_sceneShader, mvp);
+    drawVertexBatch(verts, GL_POINTS, m_pointShader, mvp);
+}
+
+// ── PICK mode (Mode 2) ────────────────────────────────────────
+
+// Render the terrain with the flat per-vertex-id shader and read back the pixel
+// under the cursor to learn which vertex was clicked. The image goes to the back
+// buffer and is never swapped, so the next loop iteration paints over it.
+int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
+{
+    const Viewport &viewport = playerView.viewport;
+
+    // Save the persistent clear color so the visible frame is unaffected.
+    GLfloat prevClear[4];
+    GLCall(glGetFloatv(GL_COLOR_CLEAR_VALUE, prevClear));
+
+    // White background: a click hitting no geometry decodes to 0xFFFFFF (a miss).
+    GLCall(glClearColor(1.0f, 1.0f, 1.0f, 1.0f));
+    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+
+    setupViewport(viewport);
+    drawTerrain(m_terrain, m_pickShader, computeViewProjection(playerView.camera, viewport));
+
+    // glReadPixels uses framebuffer coords (origin bottom-left); the cursor is
+    // top-left. viewport.y is 0 and viewport.height is the full framebuffer height,
+    // so the flip is (height-1 - mouseY); mouseX is already an absolute fb x.
+    unsigned char px[3];
+    GLCall(glReadPixels(mouseX, viewport.height - 1 - mouseY, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, px));
+
+    // Restore the clear color for the normal render path.
+    GLCall(glClearColor(prevClear[0], prevClear[1], prevClear[2], prevClear[3]));
+
+    unsigned int id = px[0] | (px[1] << 8) | (px[2] << 16);
+    return id < m_terrain.vertexCount ? (int)id : -1;
+}
+
+// Redraw the terrain from an estimated pose in one translucent color, overlaid on
+// the current view -- the PnP "ghost" the user compares against the real terrain.
+void Renderer::drawGhost(const Camera &estimatedCamera, const Viewport &viewport,
+                         const glm::vec3 &color, float alpha, float tintStrength)
+{
+    // Set the override uniforms while m_sceneShader is bound; they persist through
+    // drawTerrain's (redundant, same-program) re-bind below.
+    m_sceneShader.Bind();
+    m_sceneShader.SetUniform1i("u_UseOverride", 1);
+    glm::vec4 overrideColor(color, alpha);
+    m_sceneShader.SetUniform4f("u_OverrideColor", overrideColor);
+    m_sceneShader.SetUniform1f("u_TintStrength", tintStrength);
+
+    // See-through overlay: don't write or test depth, so the ghost sits over the
+    // real terrain instead of z-fighting with or being occluded by it.
+    GLCall(glDepthMask(GL_FALSE));
+    GLCall(glDisable(GL_DEPTH_TEST));
+
+    drawTerrain(m_terrain, m_sceneShader, computeViewProjection(estimatedCamera, viewport));
+
+    GLCall(glEnable(GL_DEPTH_TEST));
+    GLCall(glDepthMask(GL_TRUE));
+    m_sceneShader.SetUniform1i("u_UseOverride", 0);   // reset for subsequent draws
+}
+
+// Colored point markers (picked correspondence points, the estimated camera, ...),
+// one color per position. Drawn on top (depth test off) so markers on the terrain
+// surface stay visible.
+void Renderer::drawPoints(const std::vector<glm::vec3> &positions,
+                          const std::vector<glm::vec3> &colors,
+                          float size, const glm::mat4 &mvp)
+{
+    if (positions.empty()) return;
+
+    std::vector<float> verts;
+    verts.reserve(positions.size() * 6);
+    for (size_t i = 0; i < positions.size(); i++) {
+        const glm::vec3 &p = positions[i];
+        const glm::vec3 &c = colors[i];
+        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
+        verts.push_back(c.r); verts.push_back(c.g); verts.push_back(c.b);
+    }
+
+    GLCall(glDisable(GL_DEPTH_TEST));
+    GLCall(glPointSize(size));
+    drawVertexBatch(verts, GL_POINTS, m_pointShader, mvp);
+    GLCall(glEnable(GL_DEPTH_TEST));
 }
