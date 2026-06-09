@@ -67,11 +67,12 @@ static bool tryTransition(AppState &appState, int key, int mods)
 // like keyCallback below.
 void framebufferSizeCallback(GLFWwindow *window, int width, int height)
 {
-    AppState *appState = static_cast<AppState *>(glfwGetWindowUserPointer(window));
-    if (!appState) {
-        std::cerr << "Error: No AppState associated with window" << std::endl;
+    AppContext *ctx = static_cast<AppContext *>(glfwGetWindowUserPointer(window));
+    if (!ctx || !ctx->appState) {
+        std::cerr << "Error: No AppContext associated with window" << std::endl;
         return;
     }
+    AppState *appState = ctx->appState;
 
     appState->globalView.viewport = leftHalf(width, height);
     appState->playerView.viewport = rightHalf(width, height);
@@ -81,15 +82,23 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
 {
     (void)scancode;
 
-    AppState *appState = static_cast<AppState *>(glfwGetWindowUserPointer(window));
-    if (!appState) {
-        std::cerr << "Error: No AppState associated with window" << std::endl;
+    AppContext *ctx = static_cast<AppContext *>(glfwGetWindowUserPointer(window));
+    if (!ctx || !ctx->appState) {
+        std::cerr << "Error: No AppContext associated with window" << std::endl;
         return;
     }
+    AppState *appState = ctx->appState;
 
     // Only handle key presses and repeats, ignore releases.
     if (action != GLFW_PRESS && action != GLFW_REPEAT)
         return;
+
+    // Escape closes the window, which ends the render loop and returns to the
+    // terrain menu (the outer loop in main re-enters it).
+    if (key == GLFW_KEY_ESCAPE) {
+        glfwSetWindowShouldClose(window, true);
+        return;
+    }
 
     // A global mode-switch hotkey takes precedence over in-mode handling.
     if (tryTransition(*appState, key, mods))
@@ -97,4 +106,23 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
 
     if (appState->currentState)
         appState->currentState->handleKey(*appState, key, mods);
+}
+
+// Mouse buttons are routed to the active state unconditionally; the state decides
+// whether it cares (only PickState reacts, to a left-click). The Renderer is handed
+// through so PICK can run its color-pick render pass in response.
+void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+{
+    (void)mods;
+
+    AppContext *ctx = static_cast<AppContext *>(glfwGetWindowUserPointer(window));
+    if (!ctx || !ctx->appState) {
+        std::cerr << "Error: No AppContext associated with window" << std::endl;
+        return;
+    }
+
+    AppState *appState = ctx->appState;
+    if (appState->currentState)
+        appState->currentState->handleMouseButton(*appState, *ctx->renderer,
+                                                  window, button, action);
 }

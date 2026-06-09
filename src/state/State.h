@@ -38,6 +38,12 @@ public:
     // nothing (e.g. Playback/Pick don't move).
     virtual void tick(AppState &, GLFWwindow *, float /*dt*/) {}
 
+    // Discrete mouse-button events, routed from mouseButtonCallback. Receives the
+    // Renderer because a mode may need to trigger a render pass in response (PICK
+    // runs the color-pick pass here). Default: nothing.
+    virtual void handleMouseButton(AppState &, Renderer &, GLFWwindow *,
+                                   int /*button*/, int /*action*/) {}
+
     // Default to drawing nothing; a mode overrides only the view(s) it decorates.
     // The mode draws *through* the Renderer (it is handed a Renderer&, not a Shader),
     // so the scene shader never leaves its owner.

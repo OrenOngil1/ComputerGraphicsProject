@@ -33,7 +33,23 @@ layout(location = 0) out vec4 FragColor;
 // Interpolated from the vertex shader -- one value per rasterized pixel.
 in vec3 v_Color;
 
+// Ghost overlay path: when u_UseOverride is set, paint the whole mesh in one
+// translucent color (rgb + alpha) instead of its per-vertex colors. Normal draws
+// leave it false (uniforms default to 0/false), so terrain renders as before.
+uniform bool u_UseOverride;
+uniform vec4 u_OverrideColor;   // rgb tint + alpha; used only when u_UseOverride
+uniform float u_TintStrength;   // 0 = keep terrain colors, 1 = flat override fill
+
 void main()
 {
-    FragColor = vec4(v_Color, 1.0);
+    if (u_UseOverride) {
+        // Ghost overlay: tint the terrain's own colors toward the override hue so the
+        // relief stays visible, then apply the override alpha -- not a flat color fill.
+        // u_TintStrength is independent of alpha: it shapes the surface color, alpha
+        // controls how the result blends over the framebuffer.
+        vec3 tinted = mix(v_Color, u_OverrideColor.rgb, u_TintStrength);
+        FragColor = vec4(tinted, u_OverrideColor.a);
+    } else {
+        FragColor = vec4(v_Color, 1.0);
+    }
 }

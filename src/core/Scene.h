@@ -3,12 +3,17 @@
 #include <vector>
 #include <glm/glm.hpp>
 
-typedef struct {
+struct Vertex {
     glm::vec3 position;
     glm::vec3 color;
-} Vertex;
+};
 
-typedef  struct {
+struct PickedPoint {
+    glm::vec3 worldPos;
+    glm::vec2 imagePos;
+};
+
+struct Mesh {
     int width, height;
     std::vector<Vertex> vertices;
-} Mesh;
+};

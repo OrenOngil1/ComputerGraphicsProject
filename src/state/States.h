@@ -1,6 +1,11 @@
 #pragma once
 
+#include <vector>
+#include <optional>
+
 #include "State.h"
+#include "../core/Scene.h"    // PickedPoint
+#include "../core/Camera.h"   // Waypoint
 
 // The concrete application modes, grouped deliberately: each is tiny, they form
 // one cohesive set (the mode space), they change together, and only the
@@ -42,12 +47,25 @@ private:
     size_t m_index = 0;
 };
 
-// Mode 2 stub: for now only its entry action (clear the path, matching oren).
-// The real implementation adds mouse picking (handleMouseButton), the ghost
-// overlay (renderPlayerOverlay), an offscreen pick pass on the Renderer, and
-// seeds the camera from a recorded pose. See docs/state-pattern-refactor.md.
+// Mode 2: pose estimation by color picking. The player camera is seeded at a random
+// recorded waypoint (the "unknown" pose); the user left-clicks terrain points to build
+// 2D-3D correspondences, then presses 'C' to solve PnP. The global view shows the
+// picked points + estimated camera; the player view overlays a translucent ghost of
+// the terrain from the estimated pose, for visual comparison against the true view.
 class PickState : public State {
 public:
-    void onEnter(AppState &appState) override;   // clear the path for a clean view
-    void handleKey(AppState &, int, int) override {}
+    void onEnter(AppState &appState) override;                      // seed pose, reset picks
+    void handleKey(AppState &appState, int key, int mods) override; // 'C' -> solve PnP
+    void handleMouseButton(AppState &appState, Renderer &renderer, GLFWwindow *window,
+                           int button, int action) override;        // left-click -> pick
+    void renderGlobalOverlay(const AppState &appState, Renderer &renderer,
+                             const glm::mat4 &mvp) const override;
+    void renderPlayerOverlay(const AppState &appState, Renderer &renderer,
+                             const glm::mat4 &mvp) const override;
+private:
+    // Draw the picked correspondences as palette-colored markers (shared by both views).
+    void drawPickedPoints(Renderer &renderer, const glm::mat4 &mvp) const;
+
+    std::vector<PickedPoint> m_pickedPoints;
+    std::optional<Waypoint>  m_computedCamera;   // PnP result; empty until 'C' succeeds
 };

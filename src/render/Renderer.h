@@ -19,7 +19,8 @@ struct TerrainGpu {
     std::unique_ptr<VertexArray> va;
     std::unique_ptr<VertexBuffer> vb;
     std::unique_ptr<IndexBuffer> ib;
-    unsigned int indexCount = 0;
+    unsigned int indexCount = 0;    // fed to glDrawElements (GLsizei)
+    size_t vertexCount = 0;         // pure count, for validating picked vertex ids
 };
 
 // Owns the GPU resources needed to draw the scene (the scene shader plus the
@@ -60,16 +61,36 @@ public:
     void drawWaypoints(const std::vector<Waypoint> &waypoints,
                        const glm::vec3 &cameraPos, const glm::mat4 &mvp);
 
+    // PICK mode (Mode 2): render the terrain with per-vertex id-colors (flat) and
+    // read back the clicked pixel, returning the vertex id under (mouseX, mouseY) or
+    // -1 on a miss. Draws into the back buffer and never swaps, so it isn't shown.
+    int pickVertex(int mouseX, int mouseY, const View &playerView);
+
+    // Redraw the terrain from an estimated pose in one translucent color, overlaid
+    // without depth on the current view -- the PnP "ghost" for visual comparison.
+    void drawGhost(const Camera &estimatedCamera, const Viewport &viewport,
+                   const glm::vec3 &color, float alpha, float tintStrength);
+
+    // Colored point markers (picked correspondence points, estimated camera, ...),
+    // one color per position. Drawn on top of the scene (depth test off) so a marker
+    // sitting on the terrain surface is never hidden behind it.
+    void drawPoints(const std::vector<glm::vec3> &positions,
+                    const std::vector<glm::vec3> &colors,
+                    float size, const glm::mat4 &mvp);
+
 private:
     // Shared by both views: set the viewport, build the MVP, draw the terrain;
     // returns the MVP so the caller can hand it to the active mode's overlay.
     glm::mat4 renderScene(const Camera &camera, const Viewport &viewport);
 
     Shader     m_sceneShader;
+    // Flat per-vertex-id program for the color-pick pass (pickVertex). Kept here
+    // for now; if the pick pass grows (FBO, depth read-back), extract it to a
+    // dedicated ColorPicker/PickPass rather than expanding the Renderer.
+    Shader     m_pickShader;
+    // Disc-carving program for GL_POINTS markers (drawPoints / drawWaypoints):
+    // discards the sprite corners so points render round, not square -- the
+    // Core-profile replacement for the deprecated GL_POINT_SMOOTH.
+    Shader     m_pointShader;
     TerrainGpu m_terrain;
-    // SEAM (Mode 2, not implemented yet): a ghost overlay (drawGhost, uniform
-    // color/alpha on m_sceneShader -- drawn through the surface above) and an
-    // offscreen color-pick pass (pickAt(x,y) using a private m_pickShader + an
-    // FBO + glReadPixels). Neither passes a shader out. The pick pass is a distinct
-    // responsibility -- extract it to a ColorPicker/PickPass when it lands, not here.
 };
