@@ -75,13 +75,13 @@ float sampleHeight(cv::Mat& img, int i, int j) {
     return sum / 4.0f;
 }
 
-Mesh readTerrain(const std::string& filename)
+std::optional<Mesh> readTerrain(const std::string& filename)
 {
 
     cv::Mat image = cv::imread(filename, cv::IMREAD_GRAYSCALE);
     if (image.empty()) {
         std::cerr << "Failed to load image: " << filename << std::endl;
-        return {0, 0, std::vector<Vertex>()};
+        return std::nullopt;
     }
 
     Mesh mesh = { image.cols + 1, image.rows + 1, std::vector<Vertex>() };
@@ -106,12 +106,6 @@ Mesh readTerrain(const std::string& filename)
 
     // After all vertices are created, assign colors based on height
     getColors(mesh);
-
-    // Check if the mesh is valid
-    if(mesh.vertices.empty() || mesh.vertices[0].color == glm::vec3(-1.0f)) {
-        std::cerr << "Failed to create valid mesh from image: " << filename << std::endl;
-        return {0, 0, std::vector<Vertex>()};
-    }
 
     return mesh;
 }

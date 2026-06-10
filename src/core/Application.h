@@ -28,7 +28,7 @@ public:
     Application &operator=(const Application &) = delete;
 
 private:
-    void loadTerrain(const std::string &path);   // read mesh, swap it in, reset per-terrain state
+    bool loadTerrain(const std::string &path);   // read mesh, swap it in, reset per-terrain state; false => load failed
     void runSession();                            // one terrain's frame loop, until Escape/close
 
     Window     m_window;     // (1) GL context goes live           -- destroyed LAST

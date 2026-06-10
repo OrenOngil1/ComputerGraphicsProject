@@ -1,7 +1,10 @@
 #include "Application.h"
 
 #include <algorithm>
+#include <iostream>
 #include <memory>
+#include <optional>
+#include <utility>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -85,9 +88,13 @@ Application::Application()
 // the cameras, and reset the per-terrain state. The last step matters because
 // m_sim is now long-lived -- the "fresh per terrain" guarantee the old
 // in-loop local gave for free must be made explicit here.
-void Application::loadTerrain(const std::string &path)
+bool Application::loadTerrain(const std::string &path)
 {
-    m_sim.mesh = readTerrain(path);
+    std::optional<Mesh> mesh = readTerrain(path);
+    if (!mesh)
+        return false;   // load failed; nothing mutated yet, so the caller can retry
+
+    m_sim.mesh = std::move(*mesh);
     m_sim.terrainSize = std::max(m_sim.mesh.width, m_sim.mesh.height);
 
     m_renderer.loadTerrain(m_sim.mesh);
@@ -97,6 +104,7 @@ void Application::loadTerrain(const std::string &path)
     m_sim.pathPoints.clear();
     m_sim.waypoints.clear();
     m_sim.currentState = std::make_unique<NavigationState>();
+    return true;
 }
 
 // One terrain's frame loop. Continuous movement integrates over the time since the
@@ -142,7 +150,11 @@ int Application::run()
     glfwSetWindowUserPointer(window, &context);
 
     while (true) {
-        loadTerrain(selectTerrain("assets/terrains/"));
+        // Re-prompt until a terrain actually loads -- selectTerrain already loops
+        // back to the menu, so a failed load just sends the user around again.
+        while (!loadTerrain(selectTerrain("assets/terrains/")))
+            std::cerr << "Could not load that terrain -- pick another." << std::endl;
+
         runSession();
 
         // Esc set returnToMenu -> next menu pass. Ctrl+Q or the OS close button quit
