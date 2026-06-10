@@ -11,7 +11,7 @@
 #include <VertexBuffer.h>
 #include <IndexBuffer.h>
 
-#include "../core/AppState.h"
+#include "../core/Simulation.h"
 
 // GPU-side terrain buffers. Owned by Renderer and rebuilt whenever the terrain
 // is swapped (e.g. the menu loading a different DEM).
@@ -28,13 +28,18 @@ struct TerrainGpu {
 //
 // One concrete class, no virtuals: there is exactly one way to draw the scene;
 // only the overlay varies, and it is selected per call. The real win is
-// lifetime safety -- as a stack object whose destructor runs while the GL
-// context is still alive, a Renderer replaces the hand-managed { } scope that
-// used to guard Shader/TerrainGpu in main(). It also gives the upcoming menu a
-// cheap terrain swap (loadTerrain) and leaves a home for Mode-2 picking/ghost.
+// lifetime safety -- owned as an Application member declared after the Window, so
+// member-init order destroys it (glDelete*) while the GL context is still alive,
+// without the hand-managed { } scope main() used to need. loadTerrain gives the
+// menu a cheap in-place terrain swap and leaves a home for Mode-2 picking/ghost.
 class Renderer {
 public:
-    explicit Renderer(const Mesh &terrain);   // compile scene shader + upload terrain
+    // Compiles the shader programs only -- no terrain yet. Splitting "compile the
+    // pipeline" (needs just a live context) from "upload a mesh" (mutable content,
+    // via loadTerrain) lets a Renderer be a plain member constructed once, with
+    // every terrain arriving through loadTerrain. Render paths assume a terrain has
+    // been loaded; the session always calls loadTerrain before drawing.
+    Renderer();
 
     // Owns a Shader (raw GL program id, no safe copy), so the Renderer is
     // non-copyable. It is constructed once on the stack and never duplicated.
@@ -51,8 +56,8 @@ public:
     // Two methods rather than a flag parameter, so the overlay can never be
     // mismatched with the view -- the global view draws the global overlay, the
     // player view draws the player overlay.
-    void renderGlobalView(const View &view, const AppState &appState);
-    void renderPlayerView(const View &view, const AppState &appState);
+    void renderGlobalView(const View &view, const Simulation &sim);
+    void renderPlayerView(const View &view, const Simulation &sim);
 
     // Overlay drawing surface: a mode's render*Overlay draws *through* the Renderer
     // (it is handed `*this`, not a Shader), so m_sceneShader never leaves its owner.

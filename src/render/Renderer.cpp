@@ -12,9 +12,9 @@
 
 #include "../state/State.h"
 
-// Builds the terrain's GPU buffers ONCE at startup. After this returns, the
-// vertex and index data live in GPU memory and stay there for the rest of the
-// program; every frame just issues a single draw call referencing them.
+// Builds the terrain's GPU buffers from a mesh. After this returns, the vertex and
+// index data live in GPU memory; every frame just issues a single draw call
+// referencing them. Called by loadTerrain -- once per terrain, reused across frames.
 TerrainGpu uploadTerrain(const Mesh &mesh)
 {
     // Bake the centering translation into vertex positions instead of doing it
@@ -115,16 +115,18 @@ void drawTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
 }
 
 // ── Renderer ──────────────────────────────────────────────────
-// A thin owner over the free helpers above. The constructor acquires the GPU
-// resources (compile shader + upload terrain); renderView sequences the same
-// four steps the duplicated viewport blocks in main() used to repeat by hand.
+// A thin owner over the free helpers above. The constructor compiles the shader
+// programs only (no terrain yet -- that arrives via loadTerrain); the renderView
+// methods sequence the same four steps the duplicated viewport blocks in main()
+// used to repeat by hand.
 
-Renderer::Renderer(const Mesh &terrain)
+Renderer::Renderer()
     : m_sceneShader("assets/shaders/terrainShader.glsl"),
       m_pickShader("assets/shaders/pickShader.glsl"),
-      m_pointShader("assets/shaders/pointShader.glsl"),
-      m_terrain(uploadTerrain(terrain))
+      m_pointShader("assets/shaders/pointShader.glsl")
 {
+    // m_terrain is left default-constructed (empty buffers); loadTerrain uploads
+    // the first mesh. The compiled shaders above only need a live GL context.
 }
 
 void Renderer::clear() const
@@ -151,18 +153,18 @@ glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport)
 
 // The overlay is the active mode's responsibility: Renderer no longer knows about
 // Mode, it just asks the State to decorate the view it drew.
-void Renderer::renderGlobalView(const View &view, const AppState &appState)
+void Renderer::renderGlobalView(const View &view, const Simulation &sim)
 {
     glm::mat4 mvp = renderScene(view.camera, view.viewport);
-    if (appState.currentState)
-        appState.currentState->renderGlobalOverlay(appState, *this, mvp);
+    if (sim.currentState)
+        sim.currentState->renderGlobalOverlay(sim, *this, mvp);
 }
 
-void Renderer::renderPlayerView(const View &view, const AppState &appState)
+void Renderer::renderPlayerView(const View &view, const Simulation &sim)
 {
     glm::mat4 mvp = renderScene(view.camera, view.viewport);
-    if (appState.currentState)
-        appState.currentState->renderPlayerOverlay(appState, *this, mvp);
+    if (sim.currentState)
+        sim.currentState->renderPlayerOverlay(sim, *this, mvp);
 }
 
 // ── Overlay drawing ───────────────────────────────────────────

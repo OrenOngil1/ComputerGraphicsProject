@@ -1,6 +1,10 @@
-# main.cpp decomposition (proposal — discussion only, not yet implemented)
+# main.cpp decomposition (RESOLVED → unified loop)
 
-Status: **proposed / awaiting decision** — recorded for review.
+Status: **resolved.** The loop fork below was decided in favor of the **unified** loop,
+so the answer became the `Application` class, not these standalone free functions — see
+`application-class-refactor.md` (implemented). `main.cpp` is now a 3-line entry point and
+the helpers proposed here became `Application`'s ctor body / private methods. Kept for the
+decision rationale.
 
 ## The problem
 
@@ -20,6 +24,39 @@ this" with "our app needs this" so you can't tell the two apart line-by-line.
 
 This isn't a mess — the pieces are sound and well-commented. It's muddy
 separation-of-concerns at the one file every reader opens first.
+
+## Which refactor? (this one vs. the Application class)
+
+There are two documents that both answer "main is bloated": **this** one (free
+functions) and `application-class-refactor.md` (an `Application` class). They look
+like rival answers — they are not. They sit on opposite sides of one **upstream
+choice: the loop.**
+
+| | Primitive loop (today) | Unified loop (deferred) |
+| --- | --- | --- |
+| What it is | recreate window + `Renderer` + context per terrain | create once, swap the mesh via `loadTerrain` |
+| The right main refactor | **free functions** (this doc) | **`Application` class** |
+| New abstraction | none | a stateful object (+ `GLContext` guard, mesh-less `Renderer`) |
+| Status | do-now, low-risk | deferred until the unified loop is adopted |
+
+**They compose, they don't conflict.** The five free functions extracted here
+(`createWindow`, `configureGLState`, `attachContext`, `configureViews`,
+`runFrameLoop`) are exactly what an `Application` would later absorb as private
+methods (`initWindow`, `runSession`). Doing this refactor now does **not**
+foreclose the class — it's the decomposition the class would internalize anyway;
+if we go unified later, these functions just move inside it. Nothing is wasted.
+
+So the real fork is not "which main refactor" but **"which loop,"** and the main
+refactor follows from it:
+
+- **Primitive** (the deliberate current choice — see
+  `application-class-refactor.md`) ⇒ the free-function refactor is the whole answer.
+- **Unified** (someday, for flicker-free terrain swap) ⇒ the `Application` class
+  becomes the answer, and these free functions become its body.
+
+**Current call:** primitive stands, so **this free-function refactor is "the" main
+refactor for now**; the `Application` class stays designed-but-deferred, unlocked
+only by a future decision to unify the loop.
 
 ## Proposed shape: five free functions
 

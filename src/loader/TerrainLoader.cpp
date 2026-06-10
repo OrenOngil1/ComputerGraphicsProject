@@ -58,19 +58,20 @@ void getColors(Mesh &mesh)
     }
 }
 
-// Sample the height at a corner by averaging the surrounding pixels, clamping to image bounds
+// Sample the height at a corner: the mean of the (up to 4) surrounding pixels.
+// Corner vertices sit between pixels, so each averages the four pixels around it;
+// near an edge the clamps make some of the four coincide, which the mean absorbs.
 float sampleHeight(cv::Mat& img, int i, int j) {
 
-    // i,j is a corner
-    // clamp to image bounds
+    // i,j is a corner; clamp the four surrounding pixel coords to image bounds.
+    // OpenCV is row-major, so j (rows) is y and i (cols) is x.
     int x0 = std::max(i-1, 0),        x1 = std::min(i, img.cols-1);
     int y0 = std::max(j-1, 0),        y1 = std::min(j, img.rows-1);
 
-    // OpenCV uses row-major order
-    // so j is the y-coordinate and i is the x-coordinate
-    float sum = (img.at<uchar>(y0, x0) + img.at<uchar>(y0, x1)
-                + img.at<uchar>(y1, x0) + img.at<uchar>(y1, x1)) / 4.0f;
-
+    // Plain mean of the four samples -- the /4 is "4 pixels", nothing more. Terrain
+    // amplitude is NOT tuned here; that lives in the heightScale knob in readTerrain.
+    int sum = img.at<uchar>(y0, x0) + img.at<uchar>(y0, x1)
+            + img.at<uchar>(y1, x0) + img.at<uchar>(y1, x1);
     return sum / 4.0f;
 }
 
@@ -84,7 +85,13 @@ Mesh readTerrain(const std::string& filename)
     }
 
     Mesh mesh = { image.cols + 1, image.rows + 1, std::vector<Vertex>() };
-    float heightScale = std::max(image.rows, image.cols) * 0.2f;
+
+    // The one amplitude knob: peak-to-trough relief as a fraction of the terrain's
+    // width. sampleHeight now yields a true mean over [0,255], so the - 0.5f below
+    // centers the terrain symmetrically about y = 0; heightScale scales that
+    // [-0.5, 0.5] band. Tune reliefFraction to taste (lower = flatter).
+    const float reliefFraction = 0.1f;
+    float heightScale = std::max(image.rows, image.cols) * reliefFraction;
 
     for(int j = 0; j <= image.rows; j++) {
         for(int i = 0; i <= image.cols; i++) {

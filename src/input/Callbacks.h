@@ -3,14 +3,14 @@
 #include <GLFW/glfw3.h>
 
 // Non-owning bundle of the collaborators a GLFW callback needs. The window's single
-// user pointer points at one of these; main owns the actual AppState and Renderer on
-// the stack (so GPU resources still die before glfwTerminate) -- AppContext only refers
-// to them. Lets a callback reach a service (Renderer) without a global/singleton.
-struct AppState;
+// user pointer points at one of these; the Application owns the actual Simulation and
+// Renderer (as members) -- CallbackContext only refers to them. Lets a callback reach a
+// service (Renderer) without a global/singleton.
+struct Simulation;
 class Renderer;
 
-struct AppContext {
-    AppState *appState = nullptr;
+struct CallbackContext {
+    Simulation *sim = nullptr;
     Renderer *renderer = nullptr;
 };
 
