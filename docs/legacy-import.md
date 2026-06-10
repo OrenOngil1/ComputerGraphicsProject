@@ -9,7 +9,8 @@ original refactor story see `refactor-summary.md`.
 Run `./bin/drone_sim` and you get a console menu of terrains (DEM images). Pick
 one and a split-screen window opens: **global view** (left) watching the terrain
 from above, **player view** (right) from a camera you fly. Escape returns to the
-menu; the menu's "Exit" quits.
+menu (picking another terrain swaps it in place — the window and shaders persist);
+`Ctrl+Q`, the menu's "Exit", or the window's OS close button quit the program.
 
 Four things work end to end:
 
@@ -40,11 +41,16 @@ Four things work end to end:
 - `wslg-ghost-window.md` — a stuck run can leave a ghost window under WSLg; fix is
   `wsl --shutdown` (no reboot needed).
 
-## Open design proposal
+## Architecture refactor (shipped)
 
-- `main-refactor.md` — `main.cpp` got bloated after the menu loop landed. Proposal
-  to split a few free functions out of it (no `Application` class). Discussion
-  stage; not yet implemented.
+- The bloated `main.cpp` was resolved by moving to a **unified session loop** behind
+  an **`Application` class** (`src/core/Application.{h,cpp}`) + a `Window` RAII wrapper
+  (`src/core/Window.{h,cpp}`). Window + shaders are created once; terrain swaps in
+  place via `Renderer::loadTerrain` (now mesh-less ctor). Member declaration order
+  encodes GL teardown ordering, so the old load-bearing `{ }` scope and the proposed
+  `optional<Renderer>` are both gone. Two-signal exit: Escape (`returnToMenu`) → menu,
+  OS close → quit. See `application-class-refactor.md` (implemented) and
+  `main-refactor.md` (the fork that resolved to "unified ⇒ class").
 
 ## Build
 

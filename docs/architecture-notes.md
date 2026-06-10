@@ -8,31 +8,45 @@
 
 ## Mental model
 
-`main.cpp` is the **composition root**, wrapped in an **outer menu/session loop**:
-each pass picks a terrain (console menu), brings up GL, runs the frame loop until
-the window closes (Escape or OS close), tears GL down, and re-enters the menu.
-`AppState` is a **fresh local per terrain** (so recordings don't bleed across
-terrains); callbacks reach it through an `AppContext { AppState*, Renderer* }`
-stored on the GLFW user pointer. There is **no global state** and (deliberately)
-**no `Application` class** — see Deferred below.
+`main.cpp` is a 3-line entry point; the **composition root is `Application`**
+(`src/core/Application.{h,cpp}`). It runs a **unified menu/session loop**: the window
++ shaders are created **once** (a `Window` RAII member + a mesh-less `Renderer`), then
+each menu pass swaps the terrain in place via `Renderer::loadTerrain` and runs the
+frame loop until the session ends. `Simulation` is a **long-lived `Application` member**,
+reset per terrain in `loadTerrain` (so recordings don't bleed across terrains);
+callbacks reach it through a `CallbackContext { Simulation*, Renderer* }` (defined in
+`input/Callbacks.h`) that is a **local in `run()`** — set on the GLFW user pointer there,
+so `Application` holds no pointer into its own members (no self-reference). **Exit:**
+Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close button trip
+`glfwWindowShouldClose` (→ quit the program). No global state.
 
 ## Module map & ownership
 
-- `src/main.cpp`
-  - `initGL(AppContext&)` → `GLFWwindow*`: GLFW init → 3.3 core window → GLAD →
-    persistent GL state. Wires the GLFW **user pointer** to the `AppContext` and
-    sets `keyCallback` / `mouseButtonCallback` / `framebufferSizeCallback`.
-  - `main()`: an **outer `while(true)`** session loop — `selectTerrain` (menu) →
-    `readTerrain` → build `AppState` (two `View`s, initial `NavigationState`) →
-    `initGL` → an **inner `{ }` scope** constructs `Renderer` and loops
-    `tick → clear → renderGlobalView → renderPlayerView → swap/poll` → `glfwTerminate`.
-    The menu's "Exit" entry (`exit(0)`) is the only program exit.
+- `src/main.cpp` — 3 lines: `Application app; return app.run();`.
+- `src/core/Application.{h,cpp}` — the composition root. Three members in **load-bearing
+  declaration order**: `Window m_window` (context goes live) → `Simulation m_sim`
+  → `Renderer m_renderer` (mesh-less ctor compiles shaders). Ctor registers the 3
+  callbacks, seeds the viewports directly (`leftHalf`/`rightHalf`, no user pointer
+  needed), and sets persistent GL state. `loadTerrain(path)`: `readTerrain` →
+  `m_renderer.loadTerrain` → reposition cameras → reset `pathPoints`/`waypoints` +
+  `NavigationState`. `runSession()`: the frame loop
+  `tick → clear → renderGlobalView → renderPlayerView → swap/poll`, until
+  `glfwWindowShouldClose || returnToMenu`. `run()`: builds the `CallbackContext` **local**,
+  points the GLFW user pointer at it, then loops
+  `loadTerrain(selectTerrain(...)) → runSession()`, breaking on window-close (quit);
+  the menu's "Exit" entry (`exit(0)`) is the other program exit.
+- `src/core/Window.{h,cpp}` — RAII platform owner: ctor does glfwInit → 3.3-core
+  window → GLAD (throws on failure); dtor does `glfwTerminate`. Declared before
+  `Renderer` so the context is live at shader compile and torn down only after
+  `~Renderer`.
 - `src/core/`
-  - `AppState.h` — `struct AppState`: `unique_ptr<State> currentState`,
+  - `Simulation.h` — `struct Simulation`: `unique_ptr<State> currentState`,
     `terrainSize`, `Mesh mesh`, `View globalView`/`playerView`,
-    `vector<glm::vec3> pathPoints`, `vector<Waypoint> waypoints`. Out-of-line
-    `~AppState()` (needs complete `State`). `AppContext { AppState*, Renderer* }`
-    (the non-owning bundle on the window user pointer) lives here too.
+    `vector<glm::vec3> pathPoints`, `vector<Waypoint> waypoints`, and
+    `bool returnToMenu` (Escape sets it; the session loop checks it). Out-of-line
+    `~Simulation()` (needs complete `State`). The non-owning `CallbackContext { Simulation*,
+    Renderer* }` bundle on the window user pointer is defined in `input/Callbacks.h`,
+    not here.
   - `Camera.h` — `Camera` (position/target/up + fov/near/far), `Viewport`
     (x/y/w/h), `View {Camera; Viewport;}`, free `leftHalf`/`rightHalf` layout
     helpers, and `Waypoint` (recorded pose: position + target).
@@ -44,9 +58,10 @@ stored on the GLFW user pointer. There is **no global state** and (deliberately)
     conversions, and `getCameraIntrinsicMatrix(fov,w,h)` (the pinhole **K** for PnP).
 - `src/render/Renderer.h/.cpp` — **sole owner of GPU resources**: three `Shader`s
   (`m_sceneShader`, `m_pickShader`, `m_pointShader`) + `TerrainGpu m_terrain`
-  (VA/VB/IB). Non-copyable.
+  (VA/VB/IB). Non-copyable. **Mesh-less ctor** compiles the shaders only;
+  `loadTerrain` is the sole terrain-upload path.
   - Public: `clear()`, `loadTerrain(Mesh)` (swap buffers, reuse shader),
-    `renderGlobalView(View, AppState)`, `renderPlayerView(View, AppState)`;
+    `renderGlobalView(View, Simulation)`, `renderPlayerView(View, Simulation)`;
     overlay surface `drawPath` / `drawWaypoints` / `drawPoints`; PICK support
     `pickVertex(x,y,View) → id` (offscreen id-color pass + `glReadPixels`) and
     `drawGhost(...)` (terrain re-drawn translucent from an estimated pose).
@@ -54,8 +69,8 @@ stored on the GLFW user pointer. There is **no global state** and (deliberately)
     terrain; returns the MVP for the active mode's overlay.
 - `src/state/` — the State pattern (see below).
 - `src/input/`
-  - `Callbacks.cpp` — `keyCallback` (Escape → close window; else `tryTransition`
-    then `currentState->handleKey`), `mouseButtonCallback` (→ `currentState`),
+  - `Callbacks.cpp` — `keyCallback` (Escape → `returnToMenu`; `Ctrl+Q` → quit; else
+    `tryTransition` then `currentState->handleKey`), `mouseButtonCallback` (→ `currentState`),
     `framebufferSizeCallback`, and the transition machinery (`setState`,
     `requireWaypoints`, `tryTransition`).
   - `Movement.*` — `moveCamera(camera, terrainSize, window, dt)`: continuous,
@@ -71,15 +86,16 @@ stored on the GLFW user pointer. There is **no global state** and (deliberately)
 
 ## Control flow
 
-- **Frame loop** (`main`): `currentState->tick(appState, window, dt)` (continuous
+- **Frame loop** (`Application::runSession`): `currentState->tick(sim, window, dt)` (continuous
   movement, dt-scaled), then `renderer.clear()`, then `renderGlobalView` then
   `renderPlayerView`, each: set viewport → build MVP → draw terrain → call the
-  current state's `render*Overlay(appState, *this, mvp)`.
-- **Key input** (`keyCallback`): ignores releases; **Escape** closes the window
-  (ends the loop → back to the menu); `tryTransition` (global mode hotkeys) runs
-  next and short-circuits; otherwise `currentState->handleKey`.
+  current state's `render*Overlay(sim, *this, mvp)`.
+- **Key input** (`keyCallback`): ignores releases; **Escape** sets
+  `sim.returnToMenu` (ends the session → back to the menu) and **`Ctrl+Q`** quits the
+  program (`glfwWindowShouldClose`); then `tryTransition` (global mode hotkeys) runs
+  and short-circuits; otherwise `currentState->handleKey`.
 - **Mouse input** (`mouseButtonCallback`): routed unconditionally to
-  `currentState->handleMouseButton(appState, *renderer, window, button, action)`
+  `currentState->handleMouseButton(sim, *renderer, window, button, action)`
   — only `PickState` reacts (left-click → pick a vertex).
 - **Transitions** (`tryTransition` in `Callbacks.cpp`): `R`→Record,
   `Ctrl+R`→Playback, `P`→Pick. Playback/Pick are guarded by `requireWaypoints`.
@@ -115,10 +131,11 @@ stored on the GLFW user pointer. There is **no global state** and (deliberately)
 
 1. **`Renderer` owns all GPU resources.** Overlays draw *through* the Renderer;
    the scene shader never leaves its owner.
-2. **Teardown order.** `Renderer` lives in an inner scope in `main()` so
-   `~Renderer` (calls `glDelete*`) runs **before** `glfwTerminate()`. `AppState`
-   is destroyed *after* `glfwTerminate()` — safe only because it owns no GL
-   handles. Keep it that way (see tripwire below).
+2. **Teardown order via member order.** In `Application`, `Window` is declared
+   **before** `Renderer`, so reverse-order destruction runs `~Renderer` (`glDelete*`)
+   before `~Window` (`glfwTerminate()`). `Simulation` owns no GL handles, so its member
+   position is safe. Keep it that way (see tripwire below) — and keep `Window`
+   declared before `Renderer`.
 3. **Transitions live in `Callbacks.cpp`,** not inside states; states never name
    other states.
 4. **Camera is read-only render input; Viewport is pure layout.**
@@ -133,35 +150,38 @@ stored on the GLFW user pointer. There is **no global state** and (deliberately)
 - **Modes 3/4 (Trackers / 2D feature matching): NEXT.** New `State` subclasses;
   reuse `vision/Pnp` + `Utils.h` intrinsics; keep OpenCV/CV pipeline code
   decoupled from rendering (the `vision/` boundary).
-- **Terrain swap:** the menu currently recreates the window/`Renderer` per terrain
-  (the "primitive" loop). `Renderer::loadTerrain(newMesh)` exists for the
-  alternative in-place swap, if the session loop is later unified.
+- **Terrain swap:** the session loop is **unified** — `Application::loadTerrain`
+  calls `Renderer::loadTerrain(newMesh)` to swap the mesh in place; the window and
+  compiled shaders persist across menu picks.
 
 ## Gotchas / tripwires
 
-- **GL-handle-outside-Renderer tripwire:** the moment a `State` or `AppState`
-  member owns a raw GL handle, invariant #2 breaks (it'd be destroyed after
-  `glfwTerminate()`). Then either route it through the `Renderer` facade, or
-  introduce a minimal RAII window/context guard *then* (constructed before
-  `Renderer`). This is exactly why the `GLContext`/`Application` classes are
-  deferred — see `docs/application-class-refactor.md` (deferred).
+- **GL-handle-outside-Renderer tripwire:** the moment a `State` or `Simulation`
+  member owns a raw GL handle, invariant #2's safety for `Simulation` breaks (its
+  destruction relative to `~Window`/`glfwTerminate()` is governed by member position).
+  Route GL handles through the `Renderer` facade, or give the owner a position after
+  `Window` in `Application`. The `Window` RAII guard that makes this tractable now
+  exists (`src/core/Window.{h,cpp}`).
 
 
 ## Refactor direction (current)
 
-- **The active proposal is `docs/main-refactor.md`** — extract a few free
-  functions out of the now-bloated `main.cpp` (createWindow / configureGLState /
-  attachContext / configureViews / runFrameLoop). Small, no new class.
-- **`docs/application-class-refactor.md` is deprecated/deferred — do NOT pitch it.**
-  An `Application` (and `GLContext` window guard) would be over-engineering at this
-  scale; `Renderer` remains the sole GPU owner so no lifetime bomb forces it.
-- Also deferred: regrouping scene/recording fields off `AppState`.
+- **Shipped:** the unified session loop + `Application` class + mesh-less `Renderer`
+  (the `application-class-refactor.md` design, with its `optional`-removing
+  refinement). `main-refactor.md`'s fork resolved to "unified ⇒ class"; the free
+  functions it proposed became `Application`'s ctor body / private methods.
+- **Deferred — `Simulation` split (Axis B):** at this size every `State` legitimately
+  uses cross-cutting slices (camera + terrainSize + recording at once), so extracting
+  a `Recording` struct doesn't narrow signatures. Revisit when Mode 3 adds
+  correspondence data with real consumers.
+- **Deferred — `Renderer` pick-pass / `ColorPicker` extraction (Axis C):** single
+  dispatch is correct as-is; defer until Modes 3/4 press on it.
 
 ## Cross-references
 
 - `docs/legacy-import.md` — human-facing end-of-branch snapshot ("where the project is now").
 - `docs/refactor-summary.md` — the earlier `oop`-refactor overview.
-- `docs/main-refactor.md` — **active** main.cpp decomposition proposal.
+- `docs/main-refactor.md` — the main.cpp decomposition fork (resolved → unified).
 - `docs/renderer-class-refactor.md`, `state-pattern-refactor.md` — per-refactor
-  decision notes. `application-class-refactor.md` — deferred (see above).
+  decision notes. `application-class-refactor.md` — **implemented** (see above).
 - `docs/picking-click-drift.md`, `wslg-ghost-window.md` — known issues / env notes.

@@ -28,10 +28,9 @@ std::optional<Waypoint> computeCameraPose(const std::vector<PickedPoint> &picked
     }
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
-    cv::Mat distCoeffs = cv::Mat::zeros(4, 1, CV_64F);   // our render has no lens distortion
 
     cv::Mat rvec, tvec;
-    bool ok = cv::solvePnP(objectPoints, imagePoints, K, distCoeffs,
+    bool ok = cv::solvePnP(objectPoints, imagePoints, K, cv::Mat(),
                            rvec, tvec, false, cv::SOLVEPNP_EPNP);
     if (!ok) {
         std::cerr << "cv::solvePnP failed" << std::endl;
