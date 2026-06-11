@@ -62,7 +62,8 @@ public:
     // Overlay drawing surface: a mode's render*Overlay draws *through* the Renderer
     // (it is handed `*this`, not a Shader), so m_sceneShader never leaves its owner.
     // Throwaway buffers each call -- overlay geometry changes every frame.
-    void drawPath(const std::vector<glm::vec3> &pathPoints, const glm::mat4 &mvp);
+    void drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec3 &color,
+                  const glm::mat4 &mvp);
     void drawWaypoints(const std::vector<Waypoint> &waypoints,
                        const glm::vec3 &cameraPos, const glm::mat4 &mvp);
 

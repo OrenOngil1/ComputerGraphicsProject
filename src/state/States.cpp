@@ -25,6 +25,9 @@ static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float min
     return glm::distance(from, to) > minDist;
 }
 
+// The recorded flight path's color, shared by every mode that overlays it.
+static const glm::vec3 recordedPathColor(0.0f, 0.0f, 1.0f);   // blue
+
 // ── NavigationState ──────────────────────────────────────────
 void NavigationState::tick(Simulation &sim, GLFWwindow *window, float dt)
 {
@@ -66,7 +69,7 @@ void RecordState::handleKey(Simulation &sim, Renderer &renderer, int key, int mo
 void RecordState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                                       const glm::mat4 &mvp) const
 {
-    renderer.drawPath(sim.pathPoints, mvp);
+    renderer.drawPath(sim.pathPoints, recordedPathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
 }
 
@@ -106,7 +109,7 @@ void PlaybackState::handleKey(Simulation &sim, Renderer &renderer, int key, int 
 void PlaybackState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                                         const glm::mat4 &mvp) const
 {
-    renderer.drawPath(sim.pathPoints, mvp);
+    renderer.drawPath(sim.pathPoints, recordedPathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
 }
 
@@ -206,7 +209,7 @@ void PickState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
     // Keep the flight context visible while picking -- same as RECORD/PLAYBACK. The
     // seed waypoint the player camera snapped to shows green (the true pose to
     // recover); the red estimate marker below is the PnP guess against it.
-    renderer.drawPath(sim.pathPoints, mvp);
+    renderer.drawPath(sim.pathPoints, recordedPathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
 
     drawPickedPoints(renderer, mvp);

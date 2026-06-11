@@ -193,8 +193,11 @@ static void drawVertexBatch(const std::vector<float> &verts, GLenum primitive, S
     GLCall(glDrawArrays(primitive, 0, (GLsizei)(verts.size() / 6)));
 }
 
-// Flight path: a blue line strip connecting all recorded positions in order.
-void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::mat4 &mvp)
+// Flight path: a line strip connecting all positions in order, in one caller-
+// chosen color -- the pose-comparison modes draw two paths (true vs computed)
+// side by side, so the color identifies which is which.
+void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec3 &color,
+                        const glm::mat4 &mvp)
 {
     if (pathPoints.empty()) return;
 
@@ -202,7 +205,7 @@ void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::mat
     verts.reserve(pathPoints.size() * 6);
     for (const glm::vec3 &p : pathPoints) {
         verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
-        verts.push_back(0.0f); verts.push_back(0.0f); verts.push_back(1.0f); // blue
+        verts.push_back(color.r); verts.push_back(color.g); verts.push_back(color.b);
     }
 
     GLCall(glLineWidth(3.0f));
