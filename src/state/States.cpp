@@ -164,7 +164,7 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
     // World position: recenter the picked vertex to match the rendered (centered)
     // world the camera lives in -- mesh.vertices are stored uncentered.
     const Mesh &mesh = sim.mesh;
-    glm::vec3 center(mesh.width / 2.0f, 0.0f, mesh.height / 2.0f);
+    glm::vec3 center(mesh.cols / 2.0f, 0.0f, mesh.rows / 2.0f);
     glm::vec3 worldPos = mesh.vertices[id].position - center;
 
     // Image position: cursor in viewport-local pixels (origin at the viewport corner).

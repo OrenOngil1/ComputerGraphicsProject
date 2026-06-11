@@ -19,8 +19,8 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
 {
     // Bake the centering translation into vertex positions instead of doing it
     // every frame with a model matrix. Origin = middle of the terrain.
-    const float cx = mesh.width  / 2.0f;
-    const float cz = mesh.height / 2.0f;
+    const float cx = mesh.cols / 2.0f;
+    const float cz = mesh.rows / 2.0f;
 
     // Interleaved layout: [x,y,z, r,g,b, x,y,z, r,g,b, ...] -- 6 floats per vertex.
     // The shader reads attribute 0 (position) from offset 0 and attribute 1
@@ -45,13 +45,13 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
     // Using indices lets a vertex be reused by up to 6 surrounding triangles
     // instead of being duplicated, which keeps the VBO small.
     std::vector<unsigned int> indices;
-    indices.reserve((mesh.width - 1) * (mesh.height - 1) * 6);
-    for (int z = 0; z < mesh.height - 1; z++) {
-        for (int x = 0; x < mesh.width - 1; x++) {
-            unsigned int i00 = z       * mesh.width + x;
-            unsigned int i10 = (z + 1) * mesh.width + x;
-            unsigned int i01 = z       * mesh.width + (x + 1);
-            unsigned int i11 = (z + 1) * mesh.width + (x + 1);
+    indices.reserve((mesh.cols - 1) * (mesh.rows - 1) * 6);
+    for (int z = 0; z < mesh.rows - 1; z++) {
+        for (int x = 0; x < mesh.cols - 1; x++) {
+            unsigned int i00 = z       * mesh.cols + x;
+            unsigned int i10 = (z + 1) * mesh.cols + x;
+            unsigned int i01 = z       * mesh.cols + (x + 1);
+            unsigned int i11 = (z + 1) * mesh.cols + (x + 1);
             indices.push_back(i00); indices.push_back(i10); indices.push_back(i01);
             indices.push_back(i01); indices.push_back(i10); indices.push_back(i11);
         }

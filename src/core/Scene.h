@@ -13,7 +13,9 @@ struct PickedPoint {
     glm::vec2 imagePos;
 };
 
+// Grid dimensions are VERTEX COUNTS (cols along x, rows along z), not world
+// sizes -- vertices[z * cols + x] is the vertex at grid cell (x, z).
 struct Mesh {
-    int width, height;
+    int cols, rows;
     std::vector<Vertex> vertices;
 };
