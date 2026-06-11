@@ -15,7 +15,7 @@
 // Builds the terrain's GPU buffers from a mesh. After this returns, the vertex and
 // index data live in GPU memory; every frame just issues a single draw call
 // referencing them. Called by loadTerrain -- once per terrain, reused across frames.
-TerrainGpu uploadTerrain(const Mesh &mesh)
+GpuMesh uploadTerrain(const Mesh &mesh)
 {
     // Bake the centering translation into vertex positions instead of doing it
     // every frame with a model matrix. Origin = middle of the terrain.
@@ -60,7 +60,7 @@ TerrainGpu uploadTerrain(const Mesh &mesh)
     // VertexBuffer / IndexBuffer constructors call glBufferData, which is the
     // actual CPU -> GPU memory transfer. The CPU-side `verts`/`indices` vectors
     // can be freed after this; the GPU has its own copy.
-    TerrainGpu gpu;
+    GpuMesh gpu;
     gpu.va = std::make_unique<VertexArray>();
     gpu.vb = std::make_unique<VertexBuffer>(verts.data(), verts.size() * sizeof(float));
     gpu.ib = std::make_unique<IndexBuffer>(indices.data(), indices.size() * sizeof(unsigned int));
@@ -105,7 +105,7 @@ glm::mat4 computeViewProjection(const Camera &camera, const Viewport &viewport)
 
 // One draw call: bind the shader, push the MVP uniform, bind the pre-uploaded
 // VAO+IBO, and let the GPU rasterize. No vertex data crosses the bus here.
-void drawTerrain(const TerrainGpu &gpu, Shader &shader, const glm::mat4 &mvp)
+void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
 {
     shader.Bind();
     shader.SetUniformMat4f("u_MVP", mvp);
@@ -147,7 +147,7 @@ glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport)
 {
     setupViewport(viewport);
     glm::mat4 mvp = computeViewProjection(camera, viewport);
-    drawTerrain(m_terrain, m_sceneShader, mvp);
+    drawMesh(m_terrain, m_sceneShader, mvp);
     return mvp;
 }
 
@@ -255,7 +255,7 @@ int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
     GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     setupViewport(viewport);
-    drawTerrain(m_terrain, m_pickShader, computeViewProjection(playerView.camera, viewport));
+    drawMesh(m_terrain, m_pickShader, computeViewProjection(playerView.camera, viewport));
 
     // glReadPixels uses framebuffer coords (origin bottom-left); the cursor is
     // top-left. viewport.y is 0 and viewport.height is the full framebuffer height,
@@ -276,7 +276,7 @@ void Renderer::drawGhost(const Camera &estimatedCamera, const Viewport &viewport
                          const glm::vec3 &color, float alpha, float tintStrength)
 {
     // Set the override uniforms while m_sceneShader is bound; they persist through
-    // drawTerrain's (redundant, same-program) re-bind below.
+    // drawMesh's (redundant, same-program) re-bind below.
     m_sceneShader.Bind();
     m_sceneShader.SetUniform1i("u_UseOverride", 1);
     glm::vec4 overrideColor(color, alpha);
@@ -288,7 +288,7 @@ void Renderer::drawGhost(const Camera &estimatedCamera, const Viewport &viewport
     GLCall(glDepthMask(GL_FALSE));
     GLCall(glDisable(GL_DEPTH_TEST));
 
-    drawTerrain(m_terrain, m_sceneShader, computeViewProjection(estimatedCamera, viewport));
+    drawMesh(m_terrain, m_sceneShader, computeViewProjection(estimatedCamera, viewport));
 
     GLCall(glEnable(GL_DEPTH_TEST));
     GLCall(glDepthMask(GL_TRUE));

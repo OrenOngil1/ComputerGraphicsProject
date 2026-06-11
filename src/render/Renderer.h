@@ -13,9 +13,10 @@
 
 #include "../core/Simulation.h"
 
-// GPU-side terrain buffers. Owned by Renderer and rebuilt whenever the terrain
-// is swapped (e.g. the menu loading a different DEM).
-struct TerrainGpu {
+// A GPU-resident indexed mesh (VAO + VBO + IBO). Owned by Renderer: the
+// terrain (rebuilt whenever the menu swaps DEMs) and the shared tracker
+// sphere (built once) are both instances of this.
+struct GpuMesh {
     std::unique_ptr<VertexArray> va;
     std::unique_ptr<VertexBuffer> vb;
     std::unique_ptr<IndexBuffer> ib;
@@ -98,5 +99,5 @@ private:
     // discards the sprite corners so points render round, not square -- the
     // Core-profile replacement for the deprecated GL_POINT_SMOOTH.
     Shader     m_pointShader;
-    TerrainGpu m_terrain;
+    GpuMesh    m_terrain;
 };
