@@ -4,6 +4,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include "OverlayStyle.h"
 #include "../core/Simulation.h"
 #include "../core/Utils.h"        // randomIndex
 #include "../input/Movement.h"
@@ -24,9 +25,6 @@ static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float min
 {
     return glm::distance(from, to) > minDist;
 }
-
-// The recorded flight path's color, shared by every mode that overlays it.
-static const glm::vec3 recordedPathColor(0.0f, 0.0f, 1.0f);   // blue
 
 // ── NavigationState ──────────────────────────────────────────
 void NavigationState::tick(Simulation &sim, GLFWwindow *window, float dt)
@@ -69,7 +67,7 @@ void RecordState::handleKey(Simulation &sim, Renderer &renderer, int key, int mo
 void RecordState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                                       const glm::mat4 &mvp) const
 {
-    renderer.drawPath(sim.pathPoints, recordedPathColor, mvp);
+    renderer.drawPath(sim.pathPoints, overlay::truePathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
 }
 
@@ -109,18 +107,11 @@ void PlaybackState::handleKey(Simulation &sim, Renderer &renderer, int key, int 
 void PlaybackState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                                         const glm::mat4 &mvp) const
 {
-    renderer.drawPath(sim.pathPoints, recordedPathColor, mvp);
+    renderer.drawPath(sim.pathPoints, overlay::truePathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
 }
 
 // ── PickState ────────────────────────────────────────────────
-
-// Signature shade of the PnP estimate: the translucent "ghost" terrain (player
-// view) and its position marker (global view) share it, so the dot reads as the
-// same thing as the ghost. One constant keeps the two from drifting apart.
-static const glm::vec3 estimateColor(1.0f, 0.5f, 0.0f);   // orange (unique to the estimate)
-static const float     estimateGhostAlpha = 0.6f;         // ghost blend transparency
-static const float     estimateGhostTint  = 0.6f;         // how far the ghost tints toward orange
 
 // Distinct colors so each picked correspondence is identifiable, and the same index
 // shows the same color in both views. Cycles if there are more points than entries.
@@ -209,7 +200,7 @@ void PickState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
     // Keep the flight context visible while picking -- same as RECORD/PLAYBACK. The
     // seed waypoint the player camera snapped to shows green (the true pose to
     // recover); the red estimate marker below is the PnP guess against it.
-    renderer.drawPath(sim.pathPoints, recordedPathColor, mvp);
+    renderer.drawPath(sim.pathPoints, overlay::truePathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
 
     drawPickedPoints(renderer, mvp);
@@ -218,7 +209,7 @@ void PickState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
     // shade so it stands apart from the red waypoint dots.
     if (m_computedCamera)
         renderer.drawPoints({ m_computedCamera->position },
-                            { estimateColor }, 5.0f, mvp);
+                            { overlay::estimateColor }, 5.0f, mvp);
 }
 
 void PickState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
@@ -231,7 +222,8 @@ void PickState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
         estimated.position = m_computedCamera->position;
         estimated.target   = m_computedCamera->target;
         renderer.drawGhost(estimated, sim.playerView.viewport,
-                           estimateColor, estimateGhostAlpha, estimateGhostTint);
+                           overlay::estimateColor, overlay::estimateGhostAlpha,
+                           overlay::estimateGhostTint);
     } else {
         drawPickedPoints(renderer, mvp);
     }
