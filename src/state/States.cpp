@@ -53,9 +53,9 @@ void RecordState::tick(Simulation &sim, GLFWwindow *window, float dt)
         sim.pathPoints.push_back(playerCamera.position);
 }
 
-void RecordState::handleKey(Simulation &sim, int key, int mods)
+void RecordState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
 {
-    (void)mods;
+    (void)renderer; (void)mods;
 
     // 'B' stores a camera waypoint (position + look-at target).
     if (key == GLFW_KEY_B)
@@ -83,9 +83,9 @@ void PlaybackState::onEnter(Simulation &sim)
 // UP/DOWN step m_index through the waypoints (wrapping), then the camera snaps to
 // the selected waypoint. The overlay highlights by camera position, so the green
 // highlight tracks the camera no matter how m_index moves.
-void PlaybackState::handleKey(Simulation &sim, int key, int mods)
+void PlaybackState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
 {
-    (void)mods;
+    (void)renderer; (void)mods;
 
     const std::vector<Waypoint> &waypoints = sim.waypoints;
     if (waypoints.empty())
@@ -177,9 +177,9 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
               << " image(" << imagePos.x << ", " << imagePos.y << ")" << std::endl;
 }
 
-void PickState::handleKey(Simulation &sim, int key, int mods)
+void PickState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
 {
-    (void)mods;
+    (void)renderer; (void)mods;
     if (key != GLFW_KEY_C)
         return;
 

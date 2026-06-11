@@ -112,7 +112,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         return;
 
     if (sim->currentState)
-        sim->currentState->handleKey(*sim, key, mods);
+        sim->currentState->handleKey(*sim, *ctx->renderer, key, mods);
 }
 
 // Mouse buttons are routed to the active state unconditionally; the state decides

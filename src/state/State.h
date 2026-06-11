@@ -26,10 +26,13 @@ public:
     // Default: nothing. (No onExit: a state's destructor covers what it owns.)
     virtual void onEnter(Simulation &) {}
 
-    // Discrete key events (press/repeat), routed from keyCallback. Default: nothing,
-    // so a mode with no discrete keys (e.g. NavigationState, now that arrows became
-    // continuous "look") need not carry an empty override -- matching the other hooks.
-    virtual void handleKey(Simulation &, int /*key*/, int /*mods*/) {}
+    // Discrete key events (press/repeat), routed from keyCallback. Receives the
+    // Renderer for the same reason handleMouseButton does: a mode may trigger a
+    // render pass in response (TRACKERS/feature matching capture the player view
+    // on 'B'). Default: nothing, so a mode with no discrete keys (e.g.
+    // NavigationState, now that arrows became continuous "look") need not carry
+    // an empty override -- matching the other hooks.
+    virtual void handleKey(Simulation &, Renderer &, int /*key*/, int /*mods*/) {}
 
     // Per-frame step, called once every frame from the main loop with dt = seconds
     // since the last frame (so time-based work is frame-rate independent). The

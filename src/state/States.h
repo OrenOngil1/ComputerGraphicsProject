@@ -27,7 +27,7 @@ public:
 class RecordState : public State {
 public:
     void onEnter(Simulation &sim) override;   // start a fresh recording
-    void handleKey(Simulation &sim, int key, int mods) override;             // 'B'
+    void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override;  // 'B'
     void tick(Simulation &sim, GLFWwindow *window, float dt) override;
     void renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
@@ -38,7 +38,7 @@ public:
 class PlaybackState : public State {
 public:
     void onEnter(Simulation &sim) override;   // snap to the first waypoint
-    void handleKey(Simulation &sim, int key, int mods) override;
+    void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override;
     void renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
 private:
@@ -55,7 +55,7 @@ private:
 class PickState : public State {
 public:
     void onEnter(Simulation &sim) override;                      // seed pose, reset picks
-    void handleKey(Simulation &sim, int key, int mods) override; // 'C' -> solve PnP
+    void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override; // 'C' -> solve PnP
     void handleMouseButton(Simulation &sim, Renderer &renderer, GLFWwindow *window,
                            int button, int action) override;        // left-click -> pick
     void renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
