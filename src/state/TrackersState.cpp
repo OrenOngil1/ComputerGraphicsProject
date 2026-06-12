@@ -1,5 +1,6 @@
 #include "TrackersState.h"
 
+#include <algorithm>
 #include <iostream>
 
 #include "../core/Simulation.h"
@@ -8,11 +9,11 @@
 #include "../vision/Pnp.h"               // computeCameraPose
 #include "../vision/TrackerDetection.h"  // findTrackerCentroids
 
-// The tracker palette doubles as the tracker count. Every color differs from
-// every other in at least one full-intensity channel -- and from the capture
-// background (black) likewise -- so blob classification is unambiguous even
-// with the detector's tolerance. 7 trackers sits comfortably above the
-// 4-correspondence PnP minimum, leaving headroom for occlusion.
+// 20 perceptually distinct colors for tracker identification. The first 7 use
+// only 0/1 channel values (all binary primaries/secondaries except black); the
+// remaining 13 use 0.5 as a mid-step. Every pair differs by ≥0.5 (≈128/255)
+// in at least one channel -- far above the blob detector's channelTolerance=3,
+// so misclassification is impossible even with mild rendering imprecision.
 static const glm::vec3 trackerPalette[] = {
     { 1.0f, 0.0f, 0.0f },  // red
     { 0.0f, 1.0f, 0.0f },  // green
@@ -21,8 +22,25 @@ static const glm::vec3 trackerPalette[] = {
     { 1.0f, 0.0f, 1.0f },  // magenta
     { 0.0f, 1.0f, 1.0f },  // cyan
     { 1.0f, 1.0f, 1.0f },  // white
+    { 1.0f, 0.5f, 0.0f },  // orange
+    { 0.5f, 0.0f, 1.0f },  // violet
+    { 0.0f, 0.5f, 0.0f },  // dark green
+    { 1.0f, 0.0f, 0.5f },  // rose
+    { 0.0f, 1.0f, 0.5f },  // spring green
+    { 0.5f, 1.0f, 0.0f },  // lime
+    { 0.0f, 0.5f, 1.0f },  // sky blue
+    { 1.0f, 0.5f, 0.5f },  // salmon
+    { 0.5f, 1.0f, 0.5f },  // mint
+    { 0.5f, 0.5f, 1.0f },  // periwinkle
+    { 0.5f, 0.5f, 0.0f },  // olive
+    { 0.5f, 0.0f, 0.5f },  // plum
+    { 0.0f, 0.5f, 0.5f },  // teal
 };
-static const size_t trackerCount = sizeof(trackerPalette) / sizeof(trackerPalette[0]);
+static const size_t paletteSize = sizeof(trackerPalette) / sizeof(trackerPalette[0]);
+
+TrackersState::TrackersState(size_t count)
+    : m_count(std::clamp(count, size_t(1), paletteSize))
+{}
 
 void TrackersState::onEnter(Simulation &sim)
 {
@@ -36,7 +54,7 @@ void TrackersState::onEnter(Simulation &sim)
     const Mesh &mesh = sim.mesh;
     const glm::vec3 center(mesh.cols / 2.0f, 0.0f, mesh.rows / 2.0f);
 
-    for (size_t i = 0; i < trackerCount; i++) {
+    for (size_t i = 0; i < m_count; i++) {
         // Rest each sphere on a random terrain vertex: recentered to the world
         // the cameras live in, raised by the radius so it sits ON the surface.
         // Re-roll a bounded number of times to keep trackers apart -- clumped
@@ -60,7 +78,8 @@ void TrackersState::onEnter(Simulation &sim)
         m_trackers.push_back({ position, radius, trackerPalette[i] });
     }
 
-    std::cout << "TRACKERS: placed " << m_trackers.size() << " trackers. "
+    std::cout << "TRACKERS: placed " << m_trackers.size() << " of " << m_count
+              << " trackers (re-roll limit may reduce count on flat terrain). "
               << "Fly freely; B = capture timestep, N/M = step through timesteps"
               << std::endl;
 }

@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <memory>
+#include <string>
 
 #include "../core/Simulation.h"
 #include "../state/States.h"
@@ -59,10 +60,26 @@ static bool tryTransition(Simulation &sim, int key, int mods)
         // No waypoint guard: TRACKERS builds its own ground truth as the user
         // flies and captures, independent of any recording. (Pressing T again
         // re-enters the mode: fresh trackers, fresh log -- like R for RECORD.)
-        case GLFW_KEY_T:
-            setState(sim, std::make_unique<TrackersState>());
+        case GLFW_KEY_T: {
+            std::cout << "Number of trackers (1-20, Enter = 7): " << std::flush;
+            std::string line;
+            std::getline(std::cin >> std::ws, line);
+            size_t count = 7;
+            if (!line.empty()) {
+                try {
+                    int n = std::stoi(line);
+                    if (n >= 1 && n <= 20)
+                        count = (size_t)n;
+                    else
+                        std::cout << "Out of range -- using 7" << std::endl;
+                } catch (...) {
+                    std::cout << "Invalid input -- using 7" << std::endl;
+                }
+            }
+            setState(sim, std::make_unique<TrackersState>(count));
             std::cout << "Switched to TRACKERS mode" << std::endl;
             return true;
+        }
     }
 
     return false;

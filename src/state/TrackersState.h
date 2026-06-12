@@ -19,6 +19,7 @@
 // split out.
 class TrackersState : public PoseComparisonState {
 public:
+    explicit TrackersState(size_t count = 7);
     void onEnter(Simulation &sim) override;   // scatter the trackers
     void renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
@@ -31,5 +32,6 @@ protected:
     std::optional<Waypoint> computePose(Simulation &sim, Renderer &renderer) override;
 
 private:
-    std::vector<Tracker> m_trackers;   // placed once per mode entry
+    size_t                m_count;
+    std::vector<Tracker>  m_trackers;   // placed once per mode entry
 };
