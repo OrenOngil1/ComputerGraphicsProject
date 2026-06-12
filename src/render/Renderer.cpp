@@ -204,13 +204,29 @@ void Renderer::loadTerrain(const Mesh &terrain)
     m_terrain = uploadTerrain(terrain);
 }
 
-// Shared scene pass: set the viewport, build the MVP, draw the terrain. Returns
-// the MVP so the view methods can hand it to the active mode's overlay.
-glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport)
+// Shared scene pass: set the viewport, build the MVP, draw the terrain lit.
+// Returns the MVP so the view methods can hand it to the active mode's overlay.
+glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport,
+                                const DirectionalLight &light)
 {
     setupViewport(viewport);
     glm::mat4 mvp = computeViewProjection(camera, viewport);
+
+    // Lighting applies to the lit terrain pass ONLY: raise u_Lit while the
+    // scene shader is bound, then drop it after the draw, so every other draw
+    // through this program (paths, ghost, trackers, capture passes) keeps its
+    // exact unshaded colors -- the read-back pipelines depend on that.
+    m_sceneShader.Bind();
+    glm::vec4 lightDir(light.direction, 0.0f);
+    glm::vec4 lightColor(light.color, 1.0f);
+    m_sceneShader.SetUniform1i("u_Lit", 1);
+    m_sceneShader.SetUniform4f("u_LightDir", lightDir);
+    m_sceneShader.SetUniform4f("u_LightColor", lightColor);
+    m_sceneShader.SetUniform1f("u_Ambient", light.ambient);
+
     drawMesh(m_terrain, m_sceneShader, mvp);
+
+    m_sceneShader.SetUniform1i("u_Lit", 0);
     return mvp;
 }
 
@@ -218,14 +234,14 @@ glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport)
 // Mode, it just asks the State to decorate the view it drew.
 void Renderer::renderGlobalView(const View &view, const Simulation &sim)
 {
-    glm::mat4 mvp = renderScene(view.camera, view.viewport);
+    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light);
     if (sim.currentState)
         sim.currentState->renderGlobalOverlay(sim, *this, mvp);
 }
 
 void Renderer::renderPlayerView(const View &view, const Simulation &sim)
 {
-    glm::mat4 mvp = renderScene(view.camera, view.viewport);
+    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light);
     if (sim.currentState)
         sim.currentState->renderPlayerOverlay(sim, *this, mvp);
 }

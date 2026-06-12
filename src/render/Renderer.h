@@ -102,9 +102,11 @@ public:
                                      const std::vector<Tracker> &trackers);
 
 private:
-    // Shared by both views: set the viewport, build the MVP, draw the terrain;
-    // returns the MVP so the caller can hand it to the active mode's overlay.
-    glm::mat4 renderScene(const Camera &camera, const Viewport &viewport);
+    // Shared by both views: set the viewport, build the MVP, draw the terrain
+    // lit by the scene's sun; returns the MVP so the caller can hand it to the
+    // active mode's overlay.
+    glm::mat4 renderScene(const Camera &camera, const Viewport &viewport,
+                          const DirectionalLight &light);
 
     // Read the viewport's back-buffer pixels into image-convention RGB (rows
     // flipped to top-down, packing alignment forced tight). The shared tail of

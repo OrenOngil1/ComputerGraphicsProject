@@ -4,6 +4,7 @@
 
 #include "Scene.h"
 #include "Camera.h"
+#include "Lighting.h"
 
 // The active mode is a polymorphic State (see src/state/). Simulation only stores a
 // pointer to it, so a forward declaration suffices here; State's methods take this
@@ -18,6 +19,13 @@ struct Simulation {
     View playerView;   // right half: player camera + its viewport
     std::vector<glm::vec3> pathPoints;
     std::vector<Waypoint> waypoints;
+
+    // The scene's sun. Deliberately NOT reset per terrain (unlike the
+    // recording state above): a user-chosen lighting setup survives menu
+    // round-trips, which Mode 4's pre/run lighting experiment relies on.
+    // Default: white late-morning sun from the north-west, mild ambient.
+    DirectionalLight light{ glm::normalize(glm::vec3(-0.4f, -1.0f, -0.3f)),
+                            glm::vec3(1.0f), 0.35f };
 
     // Session exit: Escape sets this to leave the current terrain and return to the
     // menu. Quitting the program is the other signal -- glfwWindowShouldClose, raised
