@@ -6,6 +6,10 @@
 struct Vertex {
     glm::vec3 position;
     glm::vec3 color;
+    // Surface normal for lighting, computed by the loader from the height
+    // grid. Defaulted to straight up so partially built vertices (the loader
+    // fills positions first, normals in a later pass) are never garbage.
+    glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
 };
 
 struct PickedPoint {

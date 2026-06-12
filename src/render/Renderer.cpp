@@ -15,13 +15,20 @@
 
 #include "../state/State.h"
 
-// Upload interleaved [x,y,z, r,g,b] vertices + triangle indices to the GPU and
-// record the layout in a VAO. The shared tail of every long-lived mesh build
-// (terrain, tracker sphere). The CPU-side vectors can be freed after this; the
-// GPU has its own copy.
+// Upload interleaved vertices + triangle indices to the GPU and record the
+// layout in a VAO. The shared tail of every long-lived mesh build (terrain,
+// tracker sphere). attribSizes lists the float count of each attribute in
+// push order (push order maps to shader attribute locations: 0 = position,
+// 1 = color, 2 = normal where present). The CPU-side vectors can be freed
+// after this; the GPU has its own copy.
 static GpuMesh uploadBuffers(const std::vector<float> &verts,
-                             const std::vector<unsigned int> &indices)
+                             const std::vector<unsigned int> &indices,
+                             const std::vector<int> &attribSizes)
 {
+    int floatsPerVertex = 0;
+    for (int size : attribSizes)
+        floatsPerVertex += size;
+
     // VertexBuffer / IndexBuffer constructors call glBufferData, which is the
     // actual CPU -> GPU memory transfer.
     GpuMesh gpu;
@@ -29,13 +36,12 @@ static GpuMesh uploadBuffers(const std::vector<float> &verts,
     gpu.vb = std::make_unique<VertexBuffer>(verts.data(), verts.size() * sizeof(float));
     gpu.ib = std::make_unique<IndexBuffer>(indices.data(), indices.size() * sizeof(unsigned int));
     gpu.indexCount = (unsigned int)indices.size();
-    gpu.vertexCount = verts.size() / 6;   // 6 floats per vertex (xyz + rgb)
+    gpu.vertexCount = verts.size() / floatsPerVertex;
 
     // The VAO records "how to read the VBO's bytes" -- not the bytes themselves.
-    // Push order maps to shader attribute locations: 0 = position, 1 = color.
     VertexBufferLayout layout;
-    layout.Push<float>(3);  // position
-    layout.Push<float>(3);  // color
+    for (int size : attribSizes)
+        layout.Push<float>(size);
     gpu.va->AddBuffer(*gpu.vb, layout);
 
     // Defensive unbind so nothing else accidentally modifies these objects.
@@ -55,11 +61,12 @@ GpuMesh uploadTerrain(const Mesh &mesh)
     const float cx = mesh.cols / 2.0f;
     const float cz = mesh.rows / 2.0f;
 
-    // Interleaved layout: [x,y,z, r,g,b, x,y,z, r,g,b, ...] -- 6 floats per vertex.
-    // The shader reads attribute 0 (position) from offset 0 and attribute 1
-    // (color) from offset 12, with stride 24.
+    // Interleaved layout: [x,y,z, r,g,b, nx,ny,nz, ...] -- 9 floats per vertex.
+    // The shader reads attribute 0 (position), 1 (color), 2 (normal). Normals
+    // pass through untransformed: the only "model transform" is the centering
+    // translation baked in here, and translation doesn't change normals.
     std::vector<float> verts;
-    verts.reserve(mesh.vertices.size() * 6);
+    verts.reserve(mesh.vertices.size() * 9);
     for (const Vertex &v : mesh.vertices) {
         verts.push_back(v.position.x - cx);
         verts.push_back(v.position.y);
@@ -67,6 +74,9 @@ GpuMesh uploadTerrain(const Mesh &mesh)
         verts.push_back(v.color.r);
         verts.push_back(v.color.g);
         verts.push_back(v.color.b);
+        verts.push_back(v.normal.x);
+        verts.push_back(v.normal.y);
+        verts.push_back(v.normal.z);
     }
 
     // Each cell of the height-map grid is two triangles sharing a diagonal:
@@ -90,7 +100,7 @@ GpuMesh uploadTerrain(const Mesh &mesh)
         }
     }
 
-    return uploadBuffers(verts, indices);
+    return uploadBuffers(verts, indices, { 3, 3, 3 });   // position, color, normal
 }
 
 // Build the shared unit-radius UV sphere the trackers are drawn with. Built
@@ -127,7 +137,9 @@ static GpuMesh buildSphereMesh(int stacks, int sectors)
         }
     }
 
-    return uploadBuffers(verts, indices);
+    // No normal attribute: trackers draw flat through the override path, which
+    // never lights, so the sphere stays at the lean 6-float layout.
+    return uploadBuffers(verts, indices, { 3, 3 });   // position, color
 }
 
 // Tell GL which rectangle of the framebuffer subsequent draws land in.

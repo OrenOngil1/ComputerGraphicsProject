@@ -58,6 +58,30 @@ void getColors(Mesh &mesh)
     }
 }
 
+void computeNormals(Mesh &mesh)
+{
+    // Height lookup with clamped indices: stepping off the grid re-samples the
+    // border vertex, which turns the central difference into a one-sided one
+    // there -- no special-case branches.
+    auto heightAt = [&mesh](int x, int z) {
+        x = std::clamp(x, 0, mesh.cols - 1);
+        z = std::clamp(z, 0, mesh.rows - 1);
+        return mesh.vertices[z * mesh.cols + x].position.y;
+    };
+
+    for (int z = 0; z < mesh.rows; z++) {
+        for (int x = 0; x < mesh.cols; x++) {
+            // Cross product of the two grid tangents (1, dh/dx, 0) x (0, dh/dz, 1),
+            // flipped to point up and scaled by 2 (the central-difference span):
+            // normalize() eats the constant factor anyway.
+            float dydx = heightAt(x + 1, z) - heightAt(x - 1, z);
+            float dydz = heightAt(x, z + 1) - heightAt(x, z - 1);
+            mesh.vertices[z * mesh.cols + x].normal =
+                glm::normalize(glm::vec3(-dydx, 2.0f, -dydz));
+        }
+    }
+}
+
 // Sample the height at a corner: the mean of the (up to 4) surrounding pixels.
 // Corner vertices sit between pixels, so each averages the four pixels around it;
 // near an edge the clamps make some of the four coincide, which the mean absorbs.
@@ -104,8 +128,10 @@ std::optional<Mesh> readTerrain(const std::string& filename)
         }
     }
 
-    // After all vertices are created, assign colors based on height
+    // After all vertices are created, assign colors and normals from the
+    // finished height field (both need every neighbor's height in place).
     getColors(mesh);
+    computeNormals(mesh);
 
     return mesh;
 }
