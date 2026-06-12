@@ -101,6 +101,22 @@ public:
     FramePixels captureTrackersFrame(const View &playerView,
                                      const std::vector<Tracker> &trackers);
 
+    // FEATURE MATCH captures (Mode 4). Both render into the back buffer and
+    // never swap, like pickVertex, so nothing shows on screen.
+    //
+    // The lit scene exactly as the player view would draw it, minus overlays:
+    // the pixels feature detection runs on. Takes the light explicitly because
+    // lighting is part of the Mode 4 experiment -- the same view captured
+    // under a different preset must produce different pixels.
+    FramePixels captureSceneFrame(const View &view, const DirectionalLight &light);
+
+    // The same view through the pick shader, fully decoded: the terrain vertex
+    // id under each pixel (image convention, index y * width + x, matching
+    // FramePixels), or -1 where no terrain was hit. pickVertex's full-frame
+    // twin -- it answers "which 3D point is this keypoint sitting on?" for
+    // every pixel at once.
+    std::vector<int> captureVertexIdFrame(const View &view);
+
 private:
     // Shared by both views: set the viewport, build the MVP, draw the terrain
     // lit by the scene's sun; returns the MVP so the caller can hand it to the

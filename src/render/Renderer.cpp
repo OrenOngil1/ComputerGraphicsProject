@@ -318,6 +318,15 @@ void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
 
 // ── PICK mode (Mode 2) ────────────────────────────────────────
 
+// Decode one pick-pass pixel back into a vertex id: the pick shader packs the
+// id little-endian into RGB. Anything out of range -- the white background, or
+// a pixel that isn't from the pick pass at all -- maps to -1 (a miss).
+static int decodeVertexId(const unsigned char *px, size_t vertexCount)
+{
+    unsigned int id = px[0] | (px[1] << 8) | (px[2] << 16);
+    return id < vertexCount ? (int)id : -1;
+}
+
 // Render the terrain with the flat per-vertex-id shader and read back the pixel
 // under the cursor to learn which vertex was clicked. The image goes to the back
 // buffer and is never swapped, so the next loop iteration paints over it.
@@ -345,8 +354,7 @@ int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
     // Restore the clear color for the normal render path.
     GLCall(glClearColor(prevClear[0], prevClear[1], prevClear[2], prevClear[3]));
 
-    unsigned int id = px[0] | (px[1] << 8) | (px[2] << 16);
-    return id < m_terrain.vertexCount ? (int)id : -1;
+    return decodeVertexId(px, m_terrain.vertexCount);
 }
 
 // Redraw the terrain from an estimated pose in one translucent color, overlaid on
@@ -459,6 +467,44 @@ FramePixels Renderer::captureTrackersFrame(const View &playerView,
     // Restore the clear color for the normal render path.
     GLCall(glClearColor(prevClear[0], prevClear[1], prevClear[2], prevClear[3]));
     return frame;
+}
+
+// ── FEATURE MATCH captures (Mode 4) ───────────────────────────
+
+// Render the lit scene as the player view would show it (no overlays) and read
+// it back -- the frame feature detection sees. Back buffer only, never swapped.
+FramePixels Renderer::captureSceneFrame(const View &view, const DirectionalLight &light)
+{
+    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+    renderScene(view.camera, view.viewport, light);
+    return readViewportPixels(view.viewport);
+}
+
+// Render the pick pass over the whole viewport and decode every pixel. With
+// captureSceneFrame of the same View, pixel (x, y) in one is pixel (x, y) in
+// the other -- that alignment is what anchors a 2D keypoint to its 3D point.
+std::vector<int> Renderer::captureVertexIdFrame(const View &view)
+{
+    const Viewport &viewport = view.viewport;
+
+    // Save the persistent clear color so the visible frame is unaffected.
+    GLfloat prevClear[4];
+    GLCall(glGetFloatv(GL_COLOR_CLEAR_VALUE, prevClear));
+
+    // White background, as in pickVertex: a no-terrain pixel decodes to a miss.
+    GLCall(glClearColor(1.0f, 1.0f, 1.0f, 1.0f));
+    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+
+    setupViewport(viewport);
+    drawMesh(m_terrain, m_pickShader, computeViewProjection(view.camera, viewport));
+
+    FramePixels frame = readViewportPixels(viewport);
+    GLCall(glClearColor(prevClear[0], prevClear[1], prevClear[2], prevClear[3]));
+
+    std::vector<int> ids((size_t)frame.width * frame.height);
+    for (size_t i = 0; i < ids.size(); i++)
+        ids[i] = decodeVertexId(&frame.rgb[i * 3], m_terrain.vertexCount);
+    return ids;
 }
 
 // Colored point markers (picked correspondence points, the estimated camera, ...),
