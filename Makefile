@@ -38,4 +38,21 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 clean:
 	rm -rf $(OBJ_DIR) bin
 
-.PHONY: all clean
+# ── Headless checks ───────────────────────────────────────────
+# Sanity-checks the GL-free math (PnP solvers, blob centroids, terrain
+# normals) on synthetic inputs -- no window or GPU needed. The test binary
+# links the few object files it exercises rather than the whole app (main.cpp
+# defines main, and the GL-dependent objects would drag in a context).
+CHECK_TARGET := bin/headless_checks
+
+check: $(CHECK_TARGET)
+	./$(CHECK_TARGET)
+
+$(CHECK_TARGET): tests/headless_checks.cpp \
+                 $(OBJ_DIR)/vision/Pnp.o \
+                 $(OBJ_DIR)/vision/TrackerDetection.o \
+                 $(OBJ_DIR)/loader/TerrainLoader.o
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
+
+.PHONY: all clean check
