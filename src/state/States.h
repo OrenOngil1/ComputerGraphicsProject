@@ -11,8 +11,8 @@
 // one cohesive set (the mode space), they change together, and only the
 // transition logic (Callbacks.cpp) constructs them. The base interface lives in
 // State.h so dependents (Renderer) rely on the abstraction, not these concretes.
-// Split a mode into its own file once it grows substantial -- PickState and
-// TrackersState likely will, once Modes 2/3 land.
+// Split a mode into its own file once it grows substantial -- the pose-
+// comparison modes did exactly that (PoseComparisonState.h, TrackersState.h).
 
 // Free navigation (the old Mode::NONE): continuous FPS flight of the player camera
 // (WASD to move, arrows to look, Shift+>/< for altitude). No discrete keys, no overlay.

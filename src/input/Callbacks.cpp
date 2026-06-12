@@ -5,6 +5,7 @@
 
 #include "../core/Simulation.h"
 #include "../state/States.h"
+#include "../state/TrackersState.h"
 
 // The one place a transition is performed -- so a state never has to know about
 // the states it can transition to -- and the new mode's entry action (onEnter)
@@ -53,6 +54,14 @@ static bool tryTransition(Simulation &sim, int key, int mods)
                 return true;
             setState(sim, std::make_unique<PickState>());
             std::cout << "Switched to PICK mode" << std::endl;
+            return true;
+
+        // No waypoint guard: TRACKERS builds its own ground truth as the user
+        // flies and captures, independent of any recording. (Pressing T again
+        // re-enters the mode: fresh trackers, fresh log -- like R for RECORD.)
+        case GLFW_KEY_T:
+            setState(sim, std::make_unique<TrackersState>());
+            std::cout << "Switched to TRACKERS mode" << std::endl;
             return true;
     }
 
