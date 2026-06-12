@@ -7,6 +7,7 @@
 #include "../core/Simulation.h"
 #include "../state/States.h"
 #include "../state/TrackersState.h"
+#include "../state/FeatureMatchState.h"
 
 // The one place a transition is performed -- so a state never has to know about
 // the states it can transition to -- and the new mode's entry action (onEnter)
@@ -90,6 +91,16 @@ static bool tryTransition(Simulation &sim, int key, int mods)
             std::cout << "Switched to TRACKERS mode" << std::endl;
             return true;
         }
+
+        // Waypoint guard like PICK: the recorded waypoints are the pre-phase
+        // views the feature database is built from -- without a recording
+        // there would be nothing to match against.
+        case GLFW_KEY_F:
+            if (!requireWaypoints(sim))
+                return true;
+            setState(sim, std::make_unique<FeatureMatchState>());
+            std::cout << "Switched to FEATURE MATCH mode" << std::endl;
+            return true;
     }
 
     return false;
