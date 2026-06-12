@@ -40,6 +40,11 @@ protected:
     // the timelines stay aligned.
     virtual std::optional<Waypoint> computePose(Simulation &sim, Renderer &renderer) = 0;
 
+    // Help for the keys THIS class handles, for subclasses to append to their
+    // onEnter banners -- so when the base gains a key, the banners follow.
+    static constexpr const char *kCaptureHelp =
+        "B = capture timestep, N/M = step through timesteps";
+
     PoseLog m_log;
 
 private:

@@ -20,13 +20,22 @@ struct Simulation {
     std::vector<glm::vec3> pathPoints;
     std::vector<Waypoint> waypoints;
 
-    // The scene's sun. Deliberately NOT reset per terrain (unlike the
-    // recording state above): a user-chosen lighting setup survives menu
-    // round-trips, which Mode 4's pre/run lighting experiment relies on.
-    // The L key advances lightPreset through kLightPresets and copies the
-    // preset in here (keyCallback); index and light always move together.
+    // The scene's sun: always one of kLightPresets, stored as the index so a
+    // separate light copy can't drift from it. Deliberately NOT reset per
+    // terrain (unlike the recording state above): a user-chosen lighting
+    // setup survives menu round-trips, which Mode 4's pre/run lighting
+    // experiment relies on.
     size_t lightPreset = 0;
-    DirectionalLight light = kLightPresets[0].light;
+
+    const DirectionalLight &light() const { return kLightPresets[lightPreset].light; }
+
+    // Advance to the next preset (the L key) and return its display name, so
+    // every future writer of the light goes through the same one-liner.
+    const char *cycleLightPreset()
+    {
+        lightPreset = (lightPreset + 1) % kLightPresetCount;
+        return kLightPresets[lightPreset].name;
+    }
 
     // Session exit: Escape sets this to leave the current terrain and return to the
     // menu. Quitting the program is the other signal -- glfwWindowShouldClose, raised

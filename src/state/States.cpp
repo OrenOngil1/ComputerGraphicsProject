@@ -77,8 +77,7 @@ void PlaybackState::onEnter(Simulation &sim)
     // Snap to the first waypoint so PLAYBACK starts on a known pose. The waypoints
     // are guaranteed non-empty here: the transition guard requires them.
     m_index = 0;
-    sim.playerView.camera.position = sim.waypoints[m_index].position;
-    sim.playerView.camera.target   = sim.waypoints[m_index].target;
+    applyPose(sim.playerView.camera, sim.waypoints[m_index]);
 }
 
 // UP/DOWN step m_index through the waypoints (wrapping), then the camera snaps to
@@ -100,8 +99,7 @@ void PlaybackState::handleKey(Simulation &sim, Renderer &renderer, int key, int 
     else
         return;
 
-    sim.playerView.camera.position = waypoints[m_index].position;
-    sim.playerView.camera.target   = waypoints[m_index].target;
+    applyPose(sim.playerView.camera, waypoints[m_index]);
 }
 
 void PlaybackState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
@@ -138,8 +136,7 @@ void PickState::onEnter(Simulation &sim)
     // tries to recover by picking. PICK is only entered when waypoints exist (the
     // transition guard), so the vector is non-empty.
     const Waypoint &seed = sim.waypoints[randomIndex(sim.waypoints.size())];
-    sim.playerView.camera.position = seed.position;
-    sim.playerView.camera.target   = seed.target;
+    applyPose(sim.playerView.camera, seed);
 }
 
 void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
@@ -157,9 +154,7 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
 
     // World position: recenter the picked vertex to match the rendered (centered)
     // world the camera lives in -- mesh.vertices are stored uncentered.
-    const Mesh &mesh = sim.mesh;
-    glm::vec3 center(mesh.cols / 2.0f, 0.0f, mesh.rows / 2.0f);
-    glm::vec3 worldPos = mesh.vertices[id].position - center;
+    glm::vec3 worldPos = sim.mesh.worldPos(id);
 
     // Image position: cursor in viewport-local pixels (origin at the viewport corner).
     const Viewport &viewport = sim.playerView.viewport;
@@ -219,8 +214,7 @@ void PickState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
         // Terrain as seen from the estimated pose, translucent orange, over the true
         // player view -- the closer the alignment, the better the estimate.
         Camera estimated = sim.playerView.camera;   // inherit fov/near/far/up
-        estimated.position = m_computedCamera->position;
-        estimated.target   = m_computedCamera->target;
+        applyPose(estimated, *m_computedCamera);
         renderer.drawGhost(estimated, sim.playerView.viewport,
                            overlay::estimateColor, overlay::estimateGhostAlpha,
                            overlay::estimateGhostTint);

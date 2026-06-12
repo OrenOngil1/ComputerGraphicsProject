@@ -57,9 +57,9 @@ static GpuMesh uploadBuffers(const std::vector<float> &verts,
 GpuMesh uploadTerrain(const Mesh &mesh)
 {
     // Bake the centering translation into vertex positions instead of doing it
-    // every frame with a model matrix. Origin = middle of the terrain.
-    const float cx = mesh.cols / 2.0f;
-    const float cz = mesh.rows / 2.0f;
+    // every frame with a model matrix. Origin = middle of the terrain --
+    // Mesh::center() is the shared definition every vertex->world consumer uses.
+    const glm::vec3 center = mesh.center();
 
     // Interleaved layout: [x,y,z, r,g,b, nx,ny,nz, ...] -- 9 floats per vertex.
     // The shader reads attribute 0 (position), 1 (color), 2 (normal). Normals
@@ -68,9 +68,9 @@ GpuMesh uploadTerrain(const Mesh &mesh)
     std::vector<float> verts;
     verts.reserve(mesh.vertices.size() * 9);
     for (const Vertex &v : mesh.vertices) {
-        verts.push_back(v.position.x - cx);
+        verts.push_back(v.position.x - center.x);
         verts.push_back(v.position.y);
-        verts.push_back(v.position.z - cz);
+        verts.push_back(v.position.z - center.z);
         verts.push_back(v.color.r);
         verts.push_back(v.color.g);
         verts.push_back(v.color.b);
@@ -234,14 +234,14 @@ glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport,
 // Mode, it just asks the State to decorate the view it drew.
 void Renderer::renderGlobalView(const View &view, const Simulation &sim)
 {
-    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light);
+    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light());
     if (sim.currentState)
         sim.currentState->renderGlobalOverlay(sim, *this, mvp);
 }
 
 void Renderer::renderPlayerView(const View &view, const Simulation &sim)
 {
-    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light);
+    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light());
     if (sim.currentState)
         sim.currentState->renderPlayerOverlay(sim, *this, mvp);
 }
@@ -327,23 +327,41 @@ static int decodeVertexId(const unsigned char *px, size_t vertexCount)
     return id < vertexCount ? (int)id : -1;
 }
 
-// Render the terrain with the flat per-vertex-id shader and read back the pixel
-// under the cursor to learn which vertex was clicked. The image goes to the back
-// buffer and is never swapped, so the next loop iteration paints over it.
-int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
+// Swap in a pass-specific clear color, restoring the persistent one on scope
+// exit -- so no capture pass can leak its background into the visible frame,
+// however it returns. (Restoring the clear COLOR doesn't touch pixels already
+// cleared; it only matters for the next frame's clear.)
+struct ScopedClearColor {
+    GLfloat prev[4];
+    ScopedClearColor(float r, float g, float b, float a)
+    {
+        GLCall(glGetFloatv(GL_COLOR_CLEAR_VALUE, prev));
+        GLCall(glClearColor(r, g, b, a));
+    }
+    ~ScopedClearColor()
+    {
+        GLCall(glClearColor(prev[0], prev[1], prev[2], prev[3]));
+    }
+};
+
+// The shared id pass (see Renderer.h). White background: a pixel hitting no
+// geometry decodes to 0xFFFFFF, out of vertex range -- a miss.
+void Renderer::renderPickPass(const Camera &camera, const Viewport &viewport)
 {
-    const Viewport &viewport = playerView.viewport;
-
-    // Save the persistent clear color so the visible frame is unaffected.
-    GLfloat prevClear[4];
-    GLCall(glGetFloatv(GL_COLOR_CLEAR_VALUE, prevClear));
-
-    // White background: a click hitting no geometry decodes to 0xFFFFFF (a miss).
-    GLCall(glClearColor(1.0f, 1.0f, 1.0f, 1.0f));
+    ScopedClearColor white(1.0f, 1.0f, 1.0f, 1.0f);
     GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     setupViewport(viewport);
-    drawMesh(m_terrain, m_pickShader, computeViewProjection(playerView.camera, viewport));
+    drawMesh(m_terrain, m_pickShader, computeViewProjection(camera, viewport));
+}
+
+// Render the id pass and read back the pixel under the cursor to learn which
+// vertex was clicked. The image goes to the back buffer and is never swapped,
+// so the next loop iteration paints over it.
+int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
+{
+    const Viewport &viewport = playerView.viewport;
+    renderPickPass(playerView.camera, viewport);
 
     // glReadPixels uses framebuffer coords (origin bottom-left); the cursor is
     // top-left. viewport.y is 0 and viewport.height is the full framebuffer height,
@@ -351,10 +369,26 @@ int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
     unsigned char px[3];
     GLCall(glReadPixels(mouseX, viewport.height - 1 - mouseY, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, px));
 
-    // Restore the clear color for the normal render path.
-    GLCall(glClearColor(prevClear[0], prevClear[1], prevClear[2], prevClear[3]));
-
     return decodeVertexId(px, m_terrain.vertexCount);
+}
+
+// The override-path primitive (see Renderer.h): set the override uniforms
+// while m_sceneShader is bound (they persist through drawMesh's redundant,
+// same-program re-bind), draw, and ALWAYS drop the override again.
+void Renderer::drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tintStrength,
+                            const glm::mat4 &mvp)
+{
+    // Local copy: the vendored Shader::SetUniform4f takes a non-const reference.
+    glm::vec4 overrideColor = fill;
+
+    m_sceneShader.Bind();
+    m_sceneShader.SetUniform1i("u_UseOverride", 1);
+    m_sceneShader.SetUniform4f("u_OverrideColor", overrideColor);
+    m_sceneShader.SetUniform1f("u_TintStrength", tintStrength);
+
+    drawMesh(gpu, m_sceneShader, mvp);
+
+    m_sceneShader.SetUniform1i("u_UseOverride", 0);
 }
 
 // Redraw the terrain from an estimated pose in one translucent color, overlaid on
@@ -362,45 +396,31 @@ int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
 void Renderer::drawGhost(const Camera &estimatedCamera, const Viewport &viewport,
                          const glm::vec3 &color, float alpha, float tintStrength)
 {
-    // Set the override uniforms while m_sceneShader is bound; they persist through
-    // drawMesh's (redundant, same-program) re-bind below.
-    m_sceneShader.Bind();
-    m_sceneShader.SetUniform1i("u_UseOverride", 1);
-    glm::vec4 overrideColor(color, alpha);
-    m_sceneShader.SetUniform4f("u_OverrideColor", overrideColor);
-    m_sceneShader.SetUniform1f("u_TintStrength", tintStrength);
-
     // See-through overlay: don't write or test depth, so the ghost sits over the
     // real terrain instead of z-fighting with or being occluded by it.
     GLCall(glDepthMask(GL_FALSE));
     GLCall(glDisable(GL_DEPTH_TEST));
 
-    drawMesh(m_terrain, m_sceneShader, computeViewProjection(estimatedCamera, viewport));
+    drawMeshFlat(m_terrain, glm::vec4(color, alpha), tintStrength,
+                 computeViewProjection(estimatedCamera, viewport));
 
     GLCall(glEnable(GL_DEPTH_TEST));
     GLCall(glDepthMask(GL_TRUE));
-    m_sceneShader.SetUniform1i("u_UseOverride", 0);   // reset for subsequent draws
 }
 
-// Draw one tracker: the shared unit sphere through a model matrix (translate +
-// scale), filled flat with the tracker's color via the scene shader's override
-// path with full tint -- deliberately flat/unshaded, so the pixels land in the
-// framebuffer as the exact palette color the blob detector will look for.
-// Depth testing stays ON (unlike the overlay helpers): occluded trackers are
-// hidden, in the visible frame and the capture read-back alike.
-void Renderer::drawTracker(const Tracker &tracker, const glm::mat4 &viewProj)
+// Draw the trackers: the shared unit sphere through a model matrix (translate
+// + scale) per tracker, filled flat with its color -- deliberately unshaded,
+// so the pixels land in the framebuffer as the exact palette color the blob
+// detector will look for. Depth testing stays ON (unlike the overlay
+// helpers): occluded trackers are hidden, in the visible frame and the
+// capture read-back alike.
+void Renderer::drawTrackers(const std::vector<Tracker> &trackers, const glm::mat4 &viewProj)
 {
-    m_sceneShader.Bind();
-    m_sceneShader.SetUniform1i("u_UseOverride", 1);
-    glm::vec4 fill(tracker.color, 1.0f);
-    m_sceneShader.SetUniform4f("u_OverrideColor", fill);
-    m_sceneShader.SetUniform1f("u_TintStrength", 1.0f);   // flat fill, ignore vertex color
-
-    glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), tracker.center),
-                                 glm::vec3(tracker.radius));
-    drawMesh(m_sphere, m_sceneShader, viewProj * model);
-
-    m_sceneShader.SetUniform1i("u_UseOverride", 0);   // reset for subsequent draws
+    for (const Tracker &tracker : trackers) {
+        glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), tracker.center),
+                                     glm::vec3(tracker.radius));
+        drawMeshFlat(m_sphere, glm::vec4(tracker.color, 1.0f), 1.0f, viewProj * model);
+    }
 }
 
 // Pull the viewport's back-buffer pixels into image-convention RGB.
@@ -417,17 +437,23 @@ FramePixels Renderer::readViewportPixels(const Viewport &viewport)
     // this; full frames do.)
     GLCall(glPixelStorei(GL_PACK_ALIGNMENT, 1));
 
-    std::vector<unsigned char> raw(frame.rgb.size());
     GLCall(glReadPixels(viewport.x, viewport.y, viewport.width, viewport.height,
-                        GL_RGB, GL_UNSIGNED_BYTE, raw.data()));
+                        GL_RGB, GL_UNSIGNED_BYTE, frame.rgb.data()));
 
     // GL hands rows bottom-up; flip once here to image convention (row 0 = top)
-    // so every consumer indexes pixels the way cursor coordinates work.
+    // so every consumer indexes pixels the way cursor coordinates work. In
+    // place, swapping row pairs through one row-sized scratch buffer, so the
+    // capture never needs a second full-frame allocation.
     const size_t rowBytes = (size_t)viewport.width * 3;
-    for (int y = 0; y < viewport.height; y++)
-        std::memcpy(frame.rgb.data() + (size_t)y * rowBytes,
-                    raw.data() + (size_t)(viewport.height - 1 - y) * rowBytes,
-                    rowBytes);
+    std::vector<unsigned char> scratch(rowBytes);
+    for (int y = 0; y < viewport.height / 2; y++) {
+        unsigned char *top = frame.rgb.data() + (size_t)y * rowBytes;
+        unsigned char *bottom = frame.rgb.data()
+                              + (size_t)(viewport.height - 1 - y) * rowBytes;
+        std::memcpy(scratch.data(), top, rowBytes);
+        std::memcpy(top, bottom, rowBytes);
+        std::memcpy(bottom, scratch.data(), rowBytes);
+    }
     return frame;
 }
 
@@ -439,34 +465,18 @@ FramePixels Renderer::captureTrackersFrame(const View &playerView,
 {
     const Viewport &viewport = playerView.viewport;
 
-    // Save the persistent clear color so the visible frame is unaffected.
-    GLfloat prevClear[4];
-    GLCall(glGetFloatv(GL_COLOR_CLEAR_VALUE, prevClear));
-
-    GLCall(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
+    ScopedClearColor black(0.0f, 0.0f, 0.0f, 1.0f);
     GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     setupViewport(viewport);
     glm::mat4 viewProj = computeViewProjection(playerView.camera, viewport);
 
-    // Terrain through the override path: flat black, full tint -- shape and
-    // depth only, no color that could collide with a tracker's.
-    m_sceneShader.Bind();
-    m_sceneShader.SetUniform1i("u_UseOverride", 1);
-    glm::vec4 black(0.0f, 0.0f, 0.0f, 1.0f);
-    m_sceneShader.SetUniform4f("u_OverrideColor", black);
-    m_sceneShader.SetUniform1f("u_TintStrength", 1.0f);
-    drawMesh(m_terrain, m_sceneShader, viewProj);
-    m_sceneShader.SetUniform1i("u_UseOverride", 0);
+    // Terrain flat black, full tint: shape and depth only, no color that
+    // could collide with a tracker's.
+    drawMeshFlat(m_terrain, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, viewProj);
+    drawTrackers(trackers, viewProj);
 
-    for (const Tracker &tracker : trackers)
-        drawTracker(tracker, viewProj);
-
-    FramePixels frame = readViewportPixels(viewport);
-
-    // Restore the clear color for the normal render path.
-    GLCall(glClearColor(prevClear[0], prevClear[1], prevClear[2], prevClear[3]));
-    return frame;
+    return readViewportPixels(viewport);
 }
 
 // ── FEATURE MATCH captures (Mode 4) ───────────────────────────
@@ -485,21 +495,8 @@ FramePixels Renderer::captureSceneFrame(const View &view, const DirectionalLight
 // the other -- that alignment is what anchors a 2D keypoint to its 3D point.
 std::vector<int> Renderer::captureVertexIdFrame(const View &view)
 {
-    const Viewport &viewport = view.viewport;
-
-    // Save the persistent clear color so the visible frame is unaffected.
-    GLfloat prevClear[4];
-    GLCall(glGetFloatv(GL_COLOR_CLEAR_VALUE, prevClear));
-
-    // White background, as in pickVertex: a no-terrain pixel decodes to a miss.
-    GLCall(glClearColor(1.0f, 1.0f, 1.0f, 1.0f));
-    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
-
-    setupViewport(viewport);
-    drawMesh(m_terrain, m_pickShader, computeViewProjection(view.camera, viewport));
-
-    FramePixels frame = readViewportPixels(viewport);
-    GLCall(glClearColor(prevClear[0], prevClear[1], prevClear[2], prevClear[3]));
+    renderPickPass(view.camera, view.viewport);
+    FramePixels frame = readViewportPixels(view.viewport);
 
     std::vector<int> ids((size_t)frame.width * frame.height);
     for (size_t i = 0; i < ids.size(); i++)

@@ -33,6 +33,17 @@ struct Tracker {
 struct Mesh {
     int cols, rows;
     std::vector<Vertex> vertices;
+
+    // The rendered world is this mesh recentered on its middle: the renderer
+    // bakes the -center() translation into the uploaded vertices, so every
+    // consumer mapping a stored vertex into the world the cameras live in
+    // (picking, trackers, feature anchors) must subtract the SAME center.
+    // One authority here, so the render and vision sides can't drift apart.
+    glm::vec3 center() const { return { cols / 2.0f, 0.0f, rows / 2.0f }; }
+    glm::vec3 worldPos(size_t vertexId) const
+    {
+        return vertices[vertexId].position - center();
+    }
 };
 
 // A CPU-side copy of a rendered viewport, the renderer's hand-off to the

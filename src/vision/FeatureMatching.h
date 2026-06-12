@@ -17,7 +17,6 @@
 struct FeatureDb {
     cv::Mat descriptors;              // CV_8U, one 32-byte ORB descriptor per row
     std::vector<glm::vec3> anchors;   // centered world space, like PickedPoint::worldPos
-    int views = 0;                    // how many captures contributed
 
     bool empty() const { return anchors.empty(); }
 };
@@ -27,9 +26,9 @@ struct FeatureDb {
 // background pixels drop out), and append the survivors to the database.
 // frame and vertexIds must come from the same View (Renderer's
 // captureSceneFrame / captureVertexIdFrame) so pixel (x, y) means the same
-// surface point in both. Returns how many descriptors were kept.
-size_t harvestViewFeatures(FeatureDb &db, const FramePixels &frame,
-                           const std::vector<int> &vertexIds, const Mesh &mesh);
+// surface point in both.
+void harvestViewFeatures(FeatureDb &db, const FramePixels &frame,
+                         const std::vector<int> &vertexIds, const Mesh &mesh);
 
 // Run-phase: detect ORB features in the current frame, match them against the
 // database (brute-force Hamming + Lowe ratio test), and solve the surviving

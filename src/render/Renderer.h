@@ -85,13 +85,14 @@ public:
                     const std::vector<glm::vec3> &colors,
                     float size, const glm::mat4 &mvp);
 
-    // TRACKERS mode (Mode 3): draw one tracker as the shared unit sphere, scaled
-    // and translated into place, filled flat with the tracker's identifying color.
-    // Unlike the markers above this draws WITH depth testing, like the terrain:
-    // a tracker behind a hill is hidden -- and therefore absent from the capture
-    // read-back, which is exactly the occlusion semantics auto-correspondence
-    // wants. viewProj is the scene matrix the overlay was handed (no model part).
-    void drawTracker(const Tracker &tracker, const glm::mat4 &viewProj);
+    // TRACKERS mode (Mode 3): draw the trackers as the shared unit sphere,
+    // each scaled and translated into place and filled flat with its
+    // identifying color. Unlike the markers above this draws WITH depth
+    // testing, like the terrain: a tracker behind a hill is hidden -- and
+    // therefore absent from the capture read-back, which is exactly the
+    // occlusion semantics auto-correspondence wants. viewProj is the scene
+    // matrix the overlay was handed (no model part).
+    void drawTrackers(const std::vector<Tracker> &trackers, const glm::mat4 &viewProj);
 
     // TRACKERS capture pass: re-render the player view with the terrain flat
     // black and the trackers in their flat colors, and read the viewport back.
@@ -128,6 +129,21 @@ private:
     // flipped to top-down, packing alignment forced tight). The shared tail of
     // every full-frame capture.
     FramePixels readViewportPixels(const Viewport &viewport);
+
+    // The id pass both vertex readers share: terrain in flat per-vertex-id
+    // colors on a white background (white decodes to a miss), into the back
+    // buffer. pickVertex reads one pixel after it; captureVertexIdFrame reads
+    // the whole frame. One implementation, so the two can't drift apart.
+    void renderPickPass(const Camera &camera, const Viewport &viewport);
+
+    // Draw a mesh through the scene shader's override path: one flat fill
+    // (or a tint of the vertex colors, per tintStrength), never lit. Owns the
+    // raise/draw/drop of u_UseOverride -- the reset matters, because every
+    // other draw through the shared program (and the read-back pipelines)
+    // depends on the override being off. Ghost, trackers, and the capture
+    // passes all draw flat through here.
+    void drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tintStrength,
+                      const glm::mat4 &mvp);
 
     Shader     m_sceneShader;
     // Flat per-vertex-id program for the color-pick pass (pickVertex). Kept here

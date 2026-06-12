@@ -18,8 +18,8 @@ void FeatureMatchState::onEnter(Simulation &sim)
 {
     std::cout << "FEATURE MATCH: " << sim.waypoints.size()
               << " recorded views available. G = build the feature database "
-              << "(under the current light -- L to change it), B = capture "
-              << "timestep, N/M = step through timesteps" << std::endl;
+              << "(under the current light -- L to change it); "
+              << kCaptureHelp << std::endl;
 }
 
 // Pre-phase: one capture per recorded waypoint, rendered with the player
@@ -31,16 +31,16 @@ void FeatureMatchState::buildDatabase(Simulation &sim, Renderer &renderer)
 
     for (const Waypoint &waypoint : sim.waypoints) {
         View view = sim.playerView;   // lens + viewport; pose swapped in below
-        view.camera.position = waypoint.position;
-        view.camera.target   = waypoint.target;
+        applyPose(view.camera, waypoint);
 
-        FramePixels frame = renderer.captureSceneFrame(view, sim.light);
+        FramePixels frame = renderer.captureSceneFrame(view, sim.light());
         std::vector<int> vertexIds = renderer.captureVertexIdFrame(view);
         harvestViewFeatures(*m_db, frame, vertexIds, sim.mesh);
     }
 
-    std::cout << "FEATURES: database built from " << m_db->views << " views, "
-              << m_db->anchors.size() << " anchored descriptors" << std::endl;
+    std::cout << "FEATURES: database built from " << sim.waypoints.size()
+              << " views, " << m_db->anchors.size()
+              << " anchored descriptors" << std::endl;
 }
 
 void FeatureMatchState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
@@ -63,7 +63,7 @@ std::optional<Waypoint> FeatureMatchState::computePose(Simulation &sim, Renderer
         return std::nullopt;
     }
 
-    FramePixels frame = renderer.captureSceneFrame(sim.playerView, sim.light);
+    FramePixels frame = renderer.captureSceneFrame(sim.playerView, sim.light());
     const Viewport &viewport = sim.playerView.viewport;
     return estimatePoseFromFeatures(*m_db, frame, sim.playerView.camera.fov,
                                     viewport.width, viewport.height);

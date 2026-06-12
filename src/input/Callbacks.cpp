@@ -2,7 +2,6 @@
 
 #include <iostream>
 #include <memory>
-#include <string>
 
 #include "../core/Simulation.h"
 #include "../state/States.h"
@@ -61,36 +60,12 @@ static bool tryTransition(Simulation &sim, int key, int mods)
         // No waypoint guard: TRACKERS builds its own ground truth as the user
         // flies and captures, independent of any recording. (Pressing T again
         // re-enters the mode: fresh trackers, fresh log -- like R for RECORD.)
-        case GLFW_KEY_T: {
-            // Transition-time configuration, asked in the terminal like the
-            // terrain menu (and blocking the GL window while it waits, same
-            // as the menu after Escape). Plain getline is safe because every
-            // earlier cin reader discards its own trailing newline (see
-            // selectTerrain), so an empty line here really is the user
-            // pressing Enter for the default.
-            std::cout << "Number of trackers (1-" << TrackersState::kMaxCount
-                      << ", Enter = " << TrackersState::kDefaultCount << "): ";
-            std::string line;
-            std::getline(std::cin, line);
-
-            size_t count = TrackersState::kDefaultCount;
-            if (!line.empty()) {
-                try {
-                    const int n = std::stoi(line);
-                    if (n >= 1 && (size_t)n <= TrackersState::kMaxCount)
-                        count = (size_t)n;
-                    else
-                        std::cout << "Out of range -- using "
-                                  << TrackersState::kDefaultCount << std::endl;
-                } catch (...) {   // stoi: not a number at all
-                    std::cout << "Invalid input -- using "
-                              << TrackersState::kDefaultCount << std::endl;
-                }
-            }
-            setState(sim, std::make_unique<TrackersState>(count));
+        // The count prompt blocks in the terminal, like the terrain menu; its
+        // policy lives with the state, so this case stays a plain transition.
+        case GLFW_KEY_T:
+            setState(sim, std::make_unique<TrackersState>(TrackersState::promptCount()));
             std::cout << "Switched to TRACKERS mode" << std::endl;
             return true;
-        }
 
         // Waypoint guard like PICK: the recorded waypoints are the pre-phase
         // views the feature database is built from -- without a recording
@@ -158,9 +133,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     // mode transition: the light must be changeable at any moment in any mode
     // (Mode 4's experiment swaps it between its Pre and Run phases).
     if (key == GLFW_KEY_L) {
-        sim->lightPreset = (sim->lightPreset + 1) % kLightPresetCount;
-        sim->light = kLightPresets[sim->lightPreset].light;
-        std::cout << "Light: " << kLightPresets[sim->lightPreset].name << std::endl;
+        std::cout << "Light: " << sim->cycleLightPreset() << std::endl;
         return;
     }
 

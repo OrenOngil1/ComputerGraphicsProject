@@ -8,15 +8,6 @@
 
 #include "Pnp.h"   // computeCameraPoseRansac
 
-// One detector configuration for both phases: matching compares pre-phase and
-// run-phase descriptors, so they must be computed identically. 1000 features
-// per frame is plenty for a half-window viewport while keeping the pre-phase
-// capture loop quick.
-static cv::Ptr<cv::ORB> makeDetector()
-{
-    return cv::ORB::create(1000);
-}
-
 // ORB works on intensity; collapse the captured RGB to grayscale. The wrap
 // constructor shares frame's bytes (no copy) -- cvtColor writes a fresh gray
 // Mat, so the frame itself is never modified (the const_cast is only because
@@ -30,19 +21,25 @@ static cv::Mat toGray(const FramePixels &frame)
     return gray;
 }
 
-size_t harvestViewFeatures(FeatureDb &db, const FramePixels &frame,
-                           const std::vector<int> &vertexIds, const Mesh &mesh)
+// The one detection entry for both phases: matching compares pre-phase and
+// run-phase descriptors, so they must be computed identically -- routing
+// every detection through here makes that structural, not a convention. The
+// configuration never changes, so one detector instance serves all calls;
+// 1000 features per frame is plenty for a half-window viewport.
+static void detectFeatures(const FramePixels &frame,
+                           std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
+{
+    static const cv::Ptr<cv::ORB> orb = cv::ORB::create(1000);
+    orb->detectAndCompute(toGray(frame), cv::noArray(), keypoints, descriptors);
+}
+
+void harvestViewFeatures(FeatureDb &db, const FramePixels &frame,
+                         const std::vector<int> &vertexIds, const Mesh &mesh)
 {
     std::vector<cv::KeyPoint> keypoints;
     cv::Mat descriptors;
-    makeDetector()->detectAndCompute(toGray(frame), cv::noArray(),
-                                     keypoints, descriptors);
+    detectFeatures(frame, keypoints, descriptors);
 
-    // Same recentering as everywhere a mesh vertex meets the rendered world
-    // (terrain upload, PICK, TRACKERS): the cameras live in centered space.
-    const glm::vec3 center(mesh.cols / 2.0f, 0.0f, mesh.rows / 2.0f);
-
-    size_t kept = 0;
     for (size_t i = 0; i < keypoints.size(); i++) {
         // The keypoint's subpixel position rounds to the pixel whose vertex id
         // anchors it. Keypoints over the background (id -1) have no 3D point
@@ -56,11 +53,8 @@ size_t harvestViewFeatures(FeatureDb &db, const FramePixels &frame,
             continue;
 
         db.descriptors.push_back(descriptors.row((int)i));
-        db.anchors.push_back(mesh.vertices[id].position - center);
-        kept++;
+        db.anchors.push_back(mesh.worldPos(id));
     }
-    db.views++;
-    return kept;
 }
 
 std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
@@ -70,8 +64,7 @@ std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
 {
     std::vector<cv::KeyPoint> keypoints;
     cv::Mat descriptors;
-    makeDetector()->detectAndCompute(toGray(frame), cv::noArray(),
-                                     keypoints, descriptors);
+    detectFeatures(frame, keypoints, descriptors);
     if (descriptors.empty()) {
         std::cout << "FEATURES: no keypoints in the current view" << std::endl;
         return std::nullopt;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <string>
 
 #include "../core/Simulation.h"
 #include "../core/Utils.h"               // randomIndex
@@ -46,6 +47,29 @@ TrackersState::TrackersState(size_t count)
     : m_count(std::clamp(count, size_t(1), TrackersState::kMaxCount))
 {}
 
+// Reads one terminal line; anything that isn't a number in range falls back
+// to the default with a message. Relies on every earlier cin reader
+// discarding its own trailing newline (see selectTerrain), so an empty line
+// here really is the user pressing Enter for the default.
+size_t TrackersState::promptCount()
+{
+    std::cout << "Number of trackers (1-" << kMaxCount
+              << ", Enter = " << kDefaultCount << "): ";
+    std::string line;
+    std::getline(std::cin, line);
+
+    if (line.empty())
+        return kDefaultCount;
+    try {
+        const int n = std::stoi(line);
+        if (n >= 1 && (size_t)n <= kMaxCount)
+            return (size_t)n;
+    } catch (...) {}   // stoi: not a number at all
+
+    std::cout << "Invalid count -- using " << kDefaultCount << std::endl;
+    return kDefaultCount;
+}
+
 void TrackersState::onEnter(Simulation &sim)
 {
     m_trackers.clear();
@@ -56,7 +80,6 @@ void TrackersState::onEnter(Simulation &sim)
     const float minSeparation = sim.terrainSize * 0.08f;
 
     const Mesh &mesh = sim.mesh;
-    const glm::vec3 center(mesh.cols / 2.0f, 0.0f, mesh.rows / 2.0f);
 
     for (size_t i = 0; i < m_count; i++) {
         // Rest each sphere on a random terrain vertex: recentered to the world
@@ -66,8 +89,8 @@ void TrackersState::onEnter(Simulation &sim)
         // if the rolls run out, the last candidate stands rather than failing.
         glm::vec3 position(0.0f);
         for (int attempt = 0; attempt < 40; attempt++) {
-            const Vertex &v = mesh.vertices[randomIndex(mesh.vertices.size())];
-            position = v.position - center + glm::vec3(0.0f, radius, 0.0f);
+            position = mesh.worldPos(randomIndex(mesh.vertices.size()))
+                     + glm::vec3(0.0f, radius, 0.0f);
 
             bool farEnough = true;
             for (const Tracker &placed : m_trackers) {
@@ -83,8 +106,7 @@ void TrackersState::onEnter(Simulation &sim)
     }
 
     std::cout << "TRACKERS: placed " << m_trackers.size() << " trackers. "
-              << "Fly freely; B = capture timestep, N/M = step through timesteps"
-              << std::endl;
+              << "Fly freely; " << kCaptureHelp << std::endl;
 }
 
 std::optional<Waypoint> TrackersState::computePose(Simulation &sim, Renderer &renderer)
@@ -119,15 +141,13 @@ void TrackersState::renderGlobalOverlay(const Simulation &sim, Renderer &rendere
                                         const glm::mat4 &mvp) const
 {
     // Spheres first (depth-tested scene objects), comparison overlay on top.
-    for (const Tracker &tracker : m_trackers)
-        renderer.drawTracker(tracker, mvp);
+    renderer.drawTrackers(m_trackers, mvp);
     PoseComparisonState::renderGlobalOverlay(sim, renderer, mvp);
 }
 
 void TrackersState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
                                         const glm::mat4 &mvp) const
 {
-    for (const Tracker &tracker : m_trackers)
-        renderer.drawTracker(tracker, mvp);
+    renderer.drawTrackers(m_trackers, mvp);
     PoseComparisonState::renderPlayerOverlay(sim, renderer, mvp);   // ghost over all
 }

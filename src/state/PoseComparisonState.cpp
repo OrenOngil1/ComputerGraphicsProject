@@ -23,9 +23,7 @@ void PoseComparisonState::snapToCurrent(Simulation &sim) const
     if (m_log.entries.empty())
         return;
 
-    const Waypoint &pose = m_log.entries[m_log.current].truePose;
-    sim.playerView.camera.position = pose.position;
-    sim.playerView.camera.target   = pose.target;
+    applyPose(sim.playerView.camera, m_log.entries[m_log.current].truePose);
 }
 
 void PoseComparisonState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
@@ -79,16 +77,14 @@ void PoseComparisonState::renderGlobalOverlay(const Simulation &sim, Renderer &r
     // Split the log into the two trajectories. The computed one may be shorter
     // (skipped solves leave gaps); its path simply connects the poses that exist.
     std::vector<Waypoint>  truePoses;
-    std::vector<glm::vec3> truePositions, computedPositions, computedColors;
+    std::vector<glm::vec3> truePositions, computedPositions;
     truePoses.reserve(m_log.entries.size());
     truePositions.reserve(m_log.entries.size());
     for (const PoseEntry &entry : m_log.entries) {
         truePoses.push_back(entry.truePose);
         truePositions.push_back(entry.truePose.position);
-        if (entry.computedPose) {
+        if (entry.computedPose)
             computedPositions.push_back(entry.computedPose->position);
-            computedColors.push_back(overlay::estimateColor);
-        }
     }
 
     // True fly-through, in RECORD's visual language: blue path, red waypoint
@@ -98,7 +94,10 @@ void PoseComparisonState::renderGlobalOverlay(const Simulation &sim, Renderer &r
 
     // Computed fly-through, in the estimate's signature shade.
     renderer.drawPath(computedPositions, overlay::estimateColor, mvp);
-    renderer.drawPoints(computedPositions, computedColors, 5.0f, mvp);
+    renderer.drawPoints(computedPositions,
+                        std::vector<glm::vec3>(computedPositions.size(),
+                                               overlay::estimateColor),
+                        5.0f, mvp);
 }
 
 void PoseComparisonState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
@@ -121,8 +120,7 @@ void PoseComparisonState::renderPlayerOverlay(const Simulation &sim, Renderer &r
         return;
 
     Camera estimated = sim.playerView.camera;   // inherit fov/near/far/up
-    estimated.position = entry.computedPose->position;
-    estimated.target   = entry.computedPose->target;
+    applyPose(estimated, *entry.computedPose);
     renderer.drawGhost(estimated, sim.playerView.viewport, overlay::estimateColor,
                        overlay::estimateGhostAlpha, overlay::estimateGhostTint);
 }

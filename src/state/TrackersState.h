@@ -30,6 +30,11 @@ public:
     // T-key prompt, fixed for the mode's lifetime (press T again to change it).
     explicit TrackersState(size_t count = kDefaultCount);
 
+    // The T-key terminal prompt (1..kMaxCount, plain Enter = the default).
+    // Lives with the state so the range policy has one home; the transition
+    // table just writes TrackersState(TrackersState::promptCount()).
+    static size_t promptCount();
+
     void onEnter(Simulation &sim) override;   // scatter the trackers
     void renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
