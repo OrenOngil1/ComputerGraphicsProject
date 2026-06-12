@@ -23,9 +23,10 @@ struct Simulation {
     // The scene's sun. Deliberately NOT reset per terrain (unlike the
     // recording state above): a user-chosen lighting setup survives menu
     // round-trips, which Mode 4's pre/run lighting experiment relies on.
-    // Default: white late-morning sun from the north-west, mild ambient.
-    DirectionalLight light{ glm::normalize(glm::vec3(-0.4f, -1.0f, -0.3f)),
-                            glm::vec3(1.0f), 0.35f };
+    // The L key advances lightPreset through kLightPresets and copies the
+    // preset in here (keyCallback); index and light always move together.
+    size_t lightPreset = 0;
+    DirectionalLight light = kLightPresets[0].light;
 
     // Session exit: Escape sets this to leave the current terrain and return to the
     // menu. Quitting the program is the other signal -- glfwWindowShouldClose, raised

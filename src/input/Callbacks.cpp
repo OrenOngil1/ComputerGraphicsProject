@@ -143,6 +143,16 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         return;
     }
 
+    // L cycles the scene light through the presets. Global like Escape, not a
+    // mode transition: the light must be changeable at any moment in any mode
+    // (Mode 4's experiment swaps it between its Pre and Run phases).
+    if (key == GLFW_KEY_L) {
+        sim->lightPreset = (sim->lightPreset + 1) % kLightPresetCount;
+        sim->light = kLightPresets[sim->lightPreset].light;
+        std::cout << "Light: " << kLightPresets[sim->lightPreset].name << std::endl;
+        return;
+    }
+
     // A global mode-switch hotkey takes precedence over in-mode handling.
     if (tryTransition(*sim, key, mods))
         return;
