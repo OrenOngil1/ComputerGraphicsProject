@@ -1,6 +1,7 @@
 #include "Renderer.h"
 
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 #include <glad/glad.h>
@@ -364,6 +365,72 @@ void Renderer::drawTracker(const Tracker &tracker, const glm::mat4 &viewProj)
     drawMesh(m_sphere, m_sceneShader, viewProj * model);
 
     m_sceneShader.SetUniform1i("u_UseOverride", 0);   // reset for subsequent draws
+}
+
+// Pull the viewport's back-buffer pixels into image-convention RGB.
+FramePixels Renderer::readViewportPixels(const Viewport &viewport)
+{
+    FramePixels frame;
+    frame.width  = viewport.width;
+    frame.height = viewport.height;
+    frame.rgb.resize((size_t)viewport.width * viewport.height * 3);
+
+    // Force tightly packed rows: the default GL_PACK_ALIGNMENT of 4 pads each
+    // row when width * 3 isn't a multiple of 4, which would silently shear
+    // every following scanline. (pickVertex reads one pixel, so it never hits
+    // this; full frames do.)
+    GLCall(glPixelStorei(GL_PACK_ALIGNMENT, 1));
+
+    std::vector<unsigned char> raw(frame.rgb.size());
+    GLCall(glReadPixels(viewport.x, viewport.y, viewport.width, viewport.height,
+                        GL_RGB, GL_UNSIGNED_BYTE, raw.data()));
+
+    // GL hands rows bottom-up; flip once here to image convention (row 0 = top)
+    // so every consumer indexes pixels the way cursor coordinates work.
+    const size_t rowBytes = (size_t)viewport.width * 3;
+    for (int y = 0; y < viewport.height; y++)
+        std::memcpy(frame.rgb.data() + (size_t)y * rowBytes,
+                    raw.data() + (size_t)(viewport.height - 1 - y) * rowBytes,
+                    rowBytes);
+    return frame;
+}
+
+// Render the tracker-detection frame and read it back: flat-black terrain (it
+// still writes depth, so it occludes exactly as in the visible frame) plus the
+// trackers in their flat palette colors -- every non-black pixel is tracker.
+FramePixels Renderer::captureTrackersFrame(const View &playerView,
+                                           const std::vector<Tracker> &trackers)
+{
+    const Viewport &viewport = playerView.viewport;
+
+    // Save the persistent clear color so the visible frame is unaffected.
+    GLfloat prevClear[4];
+    GLCall(glGetFloatv(GL_COLOR_CLEAR_VALUE, prevClear));
+
+    GLCall(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
+    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+
+    setupViewport(viewport);
+    glm::mat4 viewProj = computeViewProjection(playerView.camera, viewport);
+
+    // Terrain through the override path: flat black, full tint -- shape and
+    // depth only, no color that could collide with a tracker's.
+    m_sceneShader.Bind();
+    m_sceneShader.SetUniform1i("u_UseOverride", 1);
+    glm::vec4 black(0.0f, 0.0f, 0.0f, 1.0f);
+    m_sceneShader.SetUniform4f("u_OverrideColor", black);
+    m_sceneShader.SetUniform1f("u_TintStrength", 1.0f);
+    drawMesh(m_terrain, m_sceneShader, viewProj);
+    m_sceneShader.SetUniform1i("u_UseOverride", 0);
+
+    for (const Tracker &tracker : trackers)
+        drawTracker(tracker, viewProj);
+
+    FramePixels frame = readViewportPixels(viewport);
+
+    // Restore the clear color for the normal render path.
+    GLCall(glClearColor(prevClear[0], prevClear[1], prevClear[2], prevClear[3]));
+    return frame;
 }
 
 // Colored point markers (picked correspondence points, the estimated camera, ...),

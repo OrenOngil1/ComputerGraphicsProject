@@ -93,10 +93,23 @@ public:
     // wants. viewProj is the scene matrix the overlay was handed (no model part).
     void drawTracker(const Tracker &tracker, const glm::mat4 &viewProj);
 
+    // TRACKERS capture pass: re-render the player view with the terrain flat
+    // black and the trackers in their flat colors, and read the viewport back.
+    // Any non-black pixel therefore belongs to a tracker, with occlusion already
+    // resolved by the depth buffer. Like pickVertex, this draws into the back
+    // buffer and never swaps, so the capture is invisible on screen.
+    FramePixels captureTrackersFrame(const View &playerView,
+                                     const std::vector<Tracker> &trackers);
+
 private:
     // Shared by both views: set the viewport, build the MVP, draw the terrain;
     // returns the MVP so the caller can hand it to the active mode's overlay.
     glm::mat4 renderScene(const Camera &camera, const Viewport &viewport);
+
+    // Read the viewport's back-buffer pixels into image-convention RGB (rows
+    // flipped to top-down, packing alignment forced tight). The shared tail of
+    // every full-frame capture.
+    FramePixels readViewportPixels(const Viewport &viewport);
 
     Shader     m_sceneShader;
     // Flat per-vertex-id program for the color-pick pass (pickVertex). Kept here

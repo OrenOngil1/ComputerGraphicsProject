@@ -30,3 +30,16 @@ struct Mesh {
     int cols, rows;
     std::vector<Vertex> vertices;
 };
+
+// A CPU-side copy of a rendered viewport, the renderer's hand-off to the
+// vision pipeline. Rows are stored TOP-DOWN (row 0 = top scanline), tightly
+// packed RGB -- image convention, matching cursor coordinates. The renderer
+// flips OpenGL's bottom-up read-back on the way out, so consumers (blob
+// detection, OpenCV wrapping) never re-flip.
+struct FramePixels {
+    int width = 0, height = 0;
+    std::vector<unsigned char> rgb;   // width * height * 3, row-major from the top
+
+    // The RGB triple at image coords (x, y) -- y grows downward.
+    const unsigned char *at(int x, int y) const { return &rgb[((size_t)y * width + x) * 3]; }
+};
