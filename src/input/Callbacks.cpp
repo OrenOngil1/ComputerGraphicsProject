@@ -61,19 +61,29 @@ static bool tryTransition(Simulation &sim, int key, int mods)
         // flies and captures, independent of any recording. (Pressing T again
         // re-enters the mode: fresh trackers, fresh log -- like R for RECORD.)
         case GLFW_KEY_T: {
-            std::cout << "Number of trackers (1-20, Enter = 7): " << std::flush;
+            // Transition-time configuration, asked in the terminal like the
+            // terrain menu (and blocking the GL window while it waits, same
+            // as the menu after Escape). Plain getline is safe because every
+            // earlier cin reader discards its own trailing newline (see
+            // selectTerrain), so an empty line here really is the user
+            // pressing Enter for the default.
+            std::cout << "Number of trackers (1-" << TrackersState::kMaxCount
+                      << ", Enter = " << TrackersState::kDefaultCount << "): ";
             std::string line;
-            std::getline(std::cin >> std::ws, line);
-            size_t count = 7;
+            std::getline(std::cin, line);
+
+            size_t count = TrackersState::kDefaultCount;
             if (!line.empty()) {
                 try {
-                    int n = std::stoi(line);
-                    if (n >= 1 && n <= 20)
+                    const int n = std::stoi(line);
+                    if (n >= 1 && (size_t)n <= TrackersState::kMaxCount)
                         count = (size_t)n;
                     else
-                        std::cout << "Out of range -- using 7" << std::endl;
-                } catch (...) {
-                    std::cout << "Invalid input -- using 7" << std::endl;
+                        std::cout << "Out of range -- using "
+                                  << TrackersState::kDefaultCount << std::endl;
+                } catch (...) {   // stoi: not a number at all
+                    std::cout << "Invalid input -- using "
+                              << TrackersState::kDefaultCount << std::endl;
                 }
             }
             setState(sim, std::make_unique<TrackersState>(count));

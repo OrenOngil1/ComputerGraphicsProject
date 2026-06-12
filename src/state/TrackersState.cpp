@@ -37,9 +37,13 @@ static const glm::vec3 trackerPalette[] = {
     { 0.0f, 0.5f, 0.5f },  // teal
 };
 static const size_t paletteSize = sizeof(trackerPalette) / sizeof(trackerPalette[0]);
+static_assert(paletteSize == TrackersState::kMaxCount,
+              "kMaxCount (TrackersState.h) must track the palette size");
 
+// Clamp rather than trust: the T-key prompt validates its input, but the
+// constructor is the last line of defense for any other caller.
 TrackersState::TrackersState(size_t count)
-    : m_count(std::clamp(count, size_t(1), paletteSize))
+    : m_count(std::clamp(count, size_t(1), TrackersState::kMaxCount))
 {}
 
 void TrackersState::onEnter(Simulation &sim)
@@ -78,8 +82,7 @@ void TrackersState::onEnter(Simulation &sim)
         m_trackers.push_back({ position, radius, trackerPalette[i] });
     }
 
-    std::cout << "TRACKERS: placed " << m_trackers.size() << " of " << m_count
-              << " trackers (re-roll limit may reduce count on flat terrain). "
+    std::cout << "TRACKERS: placed " << m_trackers.size() << " trackers. "
               << "Fly freely; B = capture timestep, N/M = step through timesteps"
               << std::endl;
 }

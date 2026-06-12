@@ -19,7 +19,17 @@
 // split out.
 class TrackersState : public PoseComparisonState {
 public:
-    explicit TrackersState(size_t count = 7);
+    // Palette bounds, public so the T-key prompt (Callbacks.cpp) and this class
+    // share one source of truth for the valid range and its default. kMaxCount
+    // must equal the palette size in the .cpp -- a static_assert there enforces
+    // it, so growing the palette without updating this constant fails the build.
+    static constexpr size_t kDefaultCount = 7;
+    static constexpr size_t kMaxCount     = 20;
+
+    // The tracker count is transition-time configuration: chosen once at the
+    // T-key prompt, fixed for the mode's lifetime (press T again to change it).
+    explicit TrackersState(size_t count = kDefaultCount);
+
     void onEnter(Simulation &sim) override;   // scatter the trackers
     void renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
@@ -32,6 +42,6 @@ protected:
     std::optional<Waypoint> computePose(Simulation &sim, Renderer &renderer) override;
 
 private:
-    size_t                m_count;
+    size_t                m_count;      // how many trackers onEnter scatters
     std::vector<Tracker>  m_trackers;   // placed once per mode entry
 };
