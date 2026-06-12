@@ -1,9 +1,11 @@
 #include "Renderer.h"
 
+#include <cmath>
 #include <vector>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <VertexArray.h>
@@ -11,6 +13,36 @@
 #include <VertexBufferLayout.h>
 
 #include "../state/State.h"
+
+// Upload interleaved [x,y,z, r,g,b] vertices + triangle indices to the GPU and
+// record the layout in a VAO. The shared tail of every long-lived mesh build
+// (terrain, tracker sphere). The CPU-side vectors can be freed after this; the
+// GPU has its own copy.
+static GpuMesh uploadBuffers(const std::vector<float> &verts,
+                             const std::vector<unsigned int> &indices)
+{
+    // VertexBuffer / IndexBuffer constructors call glBufferData, which is the
+    // actual CPU -> GPU memory transfer.
+    GpuMesh gpu;
+    gpu.va = std::make_unique<VertexArray>();
+    gpu.vb = std::make_unique<VertexBuffer>(verts.data(), verts.size() * sizeof(float));
+    gpu.ib = std::make_unique<IndexBuffer>(indices.data(), indices.size() * sizeof(unsigned int));
+    gpu.indexCount = (unsigned int)indices.size();
+    gpu.vertexCount = verts.size() / 6;   // 6 floats per vertex (xyz + rgb)
+
+    // The VAO records "how to read the VBO's bytes" -- not the bytes themselves.
+    // Push order maps to shader attribute locations: 0 = position, 1 = color.
+    VertexBufferLayout layout;
+    layout.Push<float>(3);  // position
+    layout.Push<float>(3);  // color
+    gpu.va->AddBuffer(*gpu.vb, layout);
+
+    // Defensive unbind so nothing else accidentally modifies these objects.
+    gpu.va->Unbind();
+    gpu.vb->Unbind();
+    gpu.ib->Unbind();
+    return gpu;
+}
 
 // Builds the terrain's GPU buffers from a mesh. After this returns, the vertex and
 // index data live in GPU memory; every frame just issues a single draw call
@@ -57,28 +89,44 @@ GpuMesh uploadTerrain(const Mesh &mesh)
         }
     }
 
-    // VertexBuffer / IndexBuffer constructors call glBufferData, which is the
-    // actual CPU -> GPU memory transfer. The CPU-side `verts`/`indices` vectors
-    // can be freed after this; the GPU has its own copy.
-    GpuMesh gpu;
-    gpu.va = std::make_unique<VertexArray>();
-    gpu.vb = std::make_unique<VertexBuffer>(verts.data(), verts.size() * sizeof(float));
-    gpu.ib = std::make_unique<IndexBuffer>(indices.data(), indices.size() * sizeof(unsigned int));
-    gpu.indexCount = (unsigned int)indices.size();
-    gpu.vertexCount = mesh.vertices.size();
+    return uploadBuffers(verts, indices);
+}
 
-    // The VAO records "how to read the VBO's bytes" -- not the bytes themselves.
-    // Push order maps to shader attribute locations: 0 = position, 1 = color.
-    VertexBufferLayout layout;
-    layout.Push<float>(3);  // position
-    layout.Push<float>(3);  // color
-    gpu.va->AddBuffer(*gpu.vb, layout);
+// Build the shared unit-radius UV sphere the trackers are drawn with. Built
+// once (the Renderer constructor); each tracker draws it through a model
+// matrix (translate + scale) and a flat color, so adding trackers costs no
+// GPU memory. The dummy white vertex color satisfies the shared 6-float
+// layout -- tracker draws always override it with the tracker's color.
+static GpuMesh buildSphereMesh(int stacks, int sectors)
+{
+    std::vector<float> verts;
+    verts.reserve((stacks + 1) * (sectors + 1) * 6);
+    for (int i = 0; i <= stacks; i++) {
+        // phi sweeps pole to pole, theta around the equator. The seam column
+        // (j == sectors) duplicates j == 0 so the index grid can wrap simply.
+        float phi = glm::pi<float>() * i / stacks;
+        for (int j = 0; j <= sectors; j++) {
+            float theta = 2.0f * glm::pi<float>() * j / sectors;
+            verts.push_back(std::sin(phi) * std::cos(theta));
+            verts.push_back(std::cos(phi));
+            verts.push_back(std::sin(phi) * std::sin(theta));
+            verts.push_back(1.0f); verts.push_back(1.0f); verts.push_back(1.0f);
+        }
+    }
 
-    // Defensive unbind so nothing else accidentally modifies these objects.
-    gpu.va->Unbind();
-    gpu.vb->Unbind();
-    gpu.ib->Unbind();
-    return gpu;
+    // Two triangles per lat-long cell, same diagonal split as the terrain grid.
+    std::vector<unsigned int> indices;
+    indices.reserve(stacks * sectors * 6);
+    for (int i = 0; i < stacks; i++) {
+        for (int j = 0; j < sectors; j++) {
+            unsigned int i00 = i       * (sectors + 1) + j;
+            unsigned int i10 = (i + 1) * (sectors + 1) + j;
+            indices.push_back(i00); indices.push_back(i10); indices.push_back(i00 + 1);
+            indices.push_back(i00 + 1); indices.push_back(i10); indices.push_back(i10 + 1);
+        }
+    }
+
+    return uploadBuffers(verts, indices);
 }
 
 // Tell GL which rectangle of the framebuffer subsequent draws land in.
@@ -126,7 +174,9 @@ Renderer::Renderer()
       m_pointShader("assets/shaders/pointShader.glsl")
 {
     // m_terrain is left default-constructed (empty buffers); loadTerrain uploads
-    // the first mesh. The compiled shaders above only need a live GL context.
+    // the first mesh. The shared tracker sphere is terrain-independent, so it is
+    // built here, once. Both only need the live GL context the Window provides.
+    m_sphere = buildSphereMesh(16, 24);
 }
 
 void Renderer::clear() const
@@ -292,6 +342,27 @@ void Renderer::drawGhost(const Camera &estimatedCamera, const Viewport &viewport
 
     GLCall(glEnable(GL_DEPTH_TEST));
     GLCall(glDepthMask(GL_TRUE));
+    m_sceneShader.SetUniform1i("u_UseOverride", 0);   // reset for subsequent draws
+}
+
+// Draw one tracker: the shared unit sphere through a model matrix (translate +
+// scale), filled flat with the tracker's color via the scene shader's override
+// path with full tint -- deliberately flat/unshaded, so the pixels land in the
+// framebuffer as the exact palette color the blob detector will look for.
+// Depth testing stays ON (unlike the overlay helpers): occluded trackers are
+// hidden, in the visible frame and the capture read-back alike.
+void Renderer::drawTracker(const Tracker &tracker, const glm::mat4 &viewProj)
+{
+    m_sceneShader.Bind();
+    m_sceneShader.SetUniform1i("u_UseOverride", 1);
+    glm::vec4 fill(tracker.color, 1.0f);
+    m_sceneShader.SetUniform4f("u_OverrideColor", fill);
+    m_sceneShader.SetUniform1f("u_TintStrength", 1.0f);   // flat fill, ignore vertex color
+
+    glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), tracker.center),
+                                 glm::vec3(tracker.radius));
+    drawMesh(m_sphere, m_sceneShader, viewProj * model);
+
     m_sceneShader.SetUniform1i("u_UseOverride", 0);   // reset for subsequent draws
 }
 

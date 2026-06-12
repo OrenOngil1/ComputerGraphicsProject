@@ -85,6 +85,14 @@ public:
                     const std::vector<glm::vec3> &colors,
                     float size, const glm::mat4 &mvp);
 
+    // TRACKERS mode (Mode 3): draw one tracker as the shared unit sphere, scaled
+    // and translated into place, filled flat with the tracker's identifying color.
+    // Unlike the markers above this draws WITH depth testing, like the terrain:
+    // a tracker behind a hill is hidden -- and therefore absent from the capture
+    // read-back, which is exactly the occlusion semantics auto-correspondence
+    // wants. viewProj is the scene matrix the overlay was handed (no model part).
+    void drawTracker(const Tracker &tracker, const glm::mat4 &viewProj);
+
 private:
     // Shared by both views: set the viewport, build the MVP, draw the terrain;
     // returns the MVP so the caller can hand it to the active mode's overlay.
@@ -100,4 +108,7 @@ private:
     // Core-profile replacement for the deprecated GL_POINT_SMOOTH.
     Shader     m_pointShader;
     GpuMesh    m_terrain;
+    // The one sphere every tracker draw reuses (see drawTracker). Built in the
+    // constructor -- it only needs a live GL context, not a loaded terrain.
+    GpuMesh    m_sphere;
 };
