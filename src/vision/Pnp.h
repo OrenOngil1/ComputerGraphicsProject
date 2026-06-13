@@ -20,5 +20,13 @@ std::optional<Waypoint> computeCameraPose(const std::vector<PickedPoint> &picked
 // on small random subsets and keeps the one most correspondences agree with,
 // so outliers end up outvoted instead of averaged in. nullopt when no
 // consensus pose exists; logs the inlier count when one does.
+//
+// minInliers is the smallest consensus the caller will trust: a handful of
+// inliers clustered in one corner of the image satisfies RANSAC yet leaves
+// the pose badly under-constrained (a wildly wrong but confident-looking
+// result). Raising it above the algebraic PnP minimum of 4 lets a caller
+// reject those -- feature matching passes a higher bar so a poor-overlap or
+// re-lit frame is refused outright instead of yielding a garbage pose.
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<PickedPoint> &points,
-                                                float fov, int viewportWidth, int viewportHeight);
+                                                float fov, int viewportWidth, int viewportHeight,
+                                                int minInliers = 4);

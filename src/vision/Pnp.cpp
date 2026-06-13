@@ -66,7 +66,8 @@ std::optional<Waypoint> computeCameraPose(const std::vector<PickedPoint> &picked
 }
 
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<PickedPoint> &points,
-                                                float fov, int viewportWidth, int viewportHeight)
+                                                float fov, int viewportWidth, int viewportHeight,
+                                                int minInliers)
 {
     if (points.size() < 4) {
         std::cerr << "PnP (RANSAC) needs at least 4 correspondences (have "
@@ -89,9 +90,10 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<PickedPoint> &
     bool ok = cv::solvePnPRansac(objectPoints, imagePoints, K, cv::Mat(),
                                  rvec, tvec, false,
                                  100, 8.0f, 0.99, inliers);
-    if (!ok || inliers.size() < 4) {
-        std::cerr << "cv::solvePnPRansac found no consensus pose ("
-                  << inliers.size() << " inliers)" << std::endl;
+    if (!ok || (int)inliers.size() < minInliers) {
+        std::cerr << "cv::solvePnPRansac found no trustworthy pose ("
+                  << inliers.size() << " inliers, need " << minInliers << ")"
+                  << std::endl;
         return std::nullopt;
     }
 

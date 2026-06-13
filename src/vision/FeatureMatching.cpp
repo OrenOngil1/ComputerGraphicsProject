@@ -92,6 +92,11 @@ std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
               << " confident matches from " << keypoints.size()
               << " keypoints" << std::endl;
 
+    // A good-overlap, well-lit frame yields 150+ inliers; a poor-overlap or
+    // re-lit frame collapses to ~10, clustered, which RANSAC still "solves"
+    // into a wildly wrong pose. Demand a consensus well clear of that floor so
+    // such frames are refused rather than logged as a confident bad estimate.
+    const int kMinInliers = 25;
     return computeCameraPoseRansac(correspondences, fov,
-                                   viewportWidth, viewportHeight);
+                                   viewportWidth, viewportHeight, kMinInliers);
 }

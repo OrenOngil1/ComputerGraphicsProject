@@ -182,6 +182,13 @@ static void testPnp()
 
     check(poseMatches(computeCameraPoseRansac(withOutliers, fov, width, height)),
           "RANSAC: recovers the true pose despite 3 wrong correspondences");
+
+    // The same set has only 8 inliers; a caller demanding 20 (feature matching's
+    // guard against tiny, clustered consensuses) must get a refusal, not the
+    // pose -- this is what stops a poor-overlap frame from logging a confident
+    // but wildly wrong estimate.
+    check(!computeCameraPoseRansac(withOutliers, fov, width, height, 20).has_value(),
+          "RANSAC: refuses when inliers fall short of the caller's minimum");
 }
 
 int main()
