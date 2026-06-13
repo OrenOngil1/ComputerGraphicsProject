@@ -117,14 +117,20 @@ static void testCentroids()
 // same intrinsics construction (vertical FOV onto the viewport height).
 // glm::lookAt yields the OpenGL camera frame (x right, y up, looking down -z);
 // the image frame has y down and z forward, so y and z flip sign.
+// Independent of getCameraIntrinsicMatrix on purpose: this is the physically
+// correct square-pixel pinhole that glm::perspective renders (fx == fy, aspect
+// carried by width != height), so the round-trip validates the solver's
+// intrinsics against an outside standard rather than against their own formula.
+// The viewport here is deliberately non-square (800x600) -- a width/height
+// factor wrongly folded into fx would shift these projections and fail the
+// round-trip.
 static glm::vec2 projectToPixel(const glm::mat4 &view, const glm::vec3 &p,
                                 float fov, int width, int height)
 {
     const glm::vec3 pc = glm::vec3(view * glm::vec4(p, 1.0f));
-    const float fy = height / (2.0f * std::tan(glm::radians(fov) / 2.0f));
-    const float fx = fy * ((float)width / (float)height);
-    return { fx * (pc.x / -pc.z) + width  / 2.0f,
-             fy * (-pc.y / -pc.z) + height / 2.0f };
+    const float f = height / (2.0f * std::tan(glm::radians(fov) / 2.0f));
+    return { f * (pc.x / -pc.z) + width  / 2.0f,
+             f * (-pc.y / -pc.z) + height / 2.0f };
 }
 
 static void testPnp()

@@ -33,14 +33,22 @@ inline cv::Point2f glmToCvPoint2f(const glm::vec2 &v)
 
 // Build the 3x3 pinhole intrinsic matrix K from a vertical field of view and the
 // image size. fy is the focal length in pixels mapping the vertical FOV onto
-// `height` pixels; fx follows from the aspect ratio; (cx,cy) is the principal
-// point at the image center.
+// `height` pixels; (cx,cy) is the principal point at the image center.
 inline cv::Mat_<double> getCameraIntrinsicMatrix(double fov, double width, double height)
 {
     double fovyRadians = glm::radians(fov);
 
     double fy = height / (2.0 * std::tan(fovyRadians / 2.0));
-    double fx = fy * (width / height);
+
+    // Square pixels: fx == fy. The image aspect is carried entirely by width
+    // and height differing (and by cx, cy) -- it must NOT also be folded into
+    // the focal length. glm::perspective takes a VERTICAL fov and renders
+    // square pixels, deriving the horizontal FOV from the aspect; the matching
+    // pinhole therefore shares one focal length. (The old fx = fy * width/height
+    // shrank fx on the non-square player viewport, so solvePnP assumed a wider
+    // horizontal FOV than GL drew and pulled every estimated camera ~20-30%
+    // too close.)
+    double fx = fy;
 
     double cx = width / 2.0;
     double cy = height / 2.0;
