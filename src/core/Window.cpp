@@ -40,7 +40,13 @@ Window::Window(int width, int height, const char *title)
         throw std::runtime_error("Failed to load OpenGL via GLAD");
     }
 
-    std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
+    // Renderer + vendor alongside the version: under WSLg this is how you tell a
+    // GPU-backed context ("D3D12 (NVIDIA ...)") from a software fallback
+    // ("llvmpipe"), which is also what decides whether the compositor shows the
+    // window in its slow "COPY MODE" path.
+    std::cout << "OpenGL Version:  " << glGetString(GL_VERSION)  << std::endl;
+    std::cout << "OpenGL Renderer: " << glGetString(GL_RENDERER) << std::endl;
+    std::cout << "OpenGL Vendor:   " << glGetString(GL_VENDOR)   << std::endl;
 }
 
 Window::~Window()
