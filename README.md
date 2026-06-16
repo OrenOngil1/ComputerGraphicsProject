@@ -78,7 +78,7 @@ Architecture (composition root, State pattern, Renderer/vision separation):
 Changing the light between building the feature database and using it (PDF
 p. 54) **breaks Mode D almost completely**: under the database's own light,
 well-overlapping views localise to sub-percent error; any change of light
-*direction* collapses matches from 30–300 down to 2–14. The cause is that the
+*direction* collapses matches from 30–303 down to 2–14. The cause is that the
 terrain's appearance is **shading-driven, not texture-driven** — moving the sun
 flips the very intensity gradients ORB encodes. Full results and analysis:
 **[docs/lighting-experiment.md](docs/lighting-experiment.md)**.

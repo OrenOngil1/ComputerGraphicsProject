@@ -89,13 +89,52 @@ Procedure:
    match/inlier counts and position errors against a control run where the
    light never changed.
 
-Expected outcome: ORB descriptors encode local intensity patterns, so a
-lighting change (especially direction changes that move the shading gradients)
-degrades the ratio-test survivors and the inlier fraction; RANSAC keeps the
-pose usable until the inlier count approaches the minimum.
+Measured outcome (terrain1 — see `lighting-experiment.md`): with the light
+unchanged, matching is strong (tens to hundreds of confident matches, sub-
+percent pose error). Changing the light *direction* at all collapses matching
+almost completely — confident matches fall to a handful (≈2–14), RANSAC
+usually cannot reach its inlier floor, and the run-phase capture is **refused**
+rather than logged. The failure is near-total, not gradual: this terrain's
+appearance is shading-driven (relief lit by the directional light), not
+texture-driven, so moving the light rewrites the local intensity patterns ORB
+keys on everywhere at once.
 
 Run it on at least two terrains (the menu lists everything in
 `assets/terrains/`).
+
+## Pose stability vs. number of correspondences
+
+Mode C's configurable tracker count (the 1–20 prompt on **T**) doubles as a
+stability experiment: capture the same scene with different numbers of trackers
+in view and watch the pose error fall as correspondences are added.
+
+Measured (terrain1, mountainous → well-spread, non-coplanar trackers):
+
+| Trackers visible | Position error (world units, terrain ≈ 633 wide) |
+| --- | --- |
+| 4 (PnP minimum) | ~24 |
+| 5 | ~2.3 |
+| 6 | ~0.2 |
+
+Why: PnP recovers six degrees of freedom, so four correspondences is the bare
+minimum with no redundancy to average out centroid/pixel noise — the solution
+is well-determined in principle but ill-conditioned in practice. Each extra
+correspondence over-determines the system and least-squares averages the noise
+down quickly. Accuracy depends on *geometry*, not just count: collinear points
+(e.g. picks along one ridge) or trackers clustered into a small image region
+stay ill-conditioned however many there are, because they fail to constrain all
+six DOF. The instability is a real property of PnP, and observing it is the
+point of the experiment — not a defect to suppress.
+
+A note on metrics: the `position error` printed per capture is available only
+because this is a simulation — we know the true pose. A real system never does;
+its honest self-confidence signal is the **reprojection error** (how well the
+recovered pose re-predicts the observed pixels), which is exactly what
+`computeCameraPoseRansac` uses internally as its inlier test. The marker/pick
+solver `computeCameraPose` reports only the simulation's position error and runs
+no reprojection sanity check, so a degenerate solve is presented the same way as
+a precise one — fine for an experiment that *wants* to see the instability, but
+worth knowing when reading the numbers.
 
 ## Keyboard reference
 
@@ -110,7 +149,7 @@ Run it on at least two terrains (the menu lists everything in
 | T | anywhere | TRACKERS mode (prompts for count) |
 | F | anywhere | FEATURE MATCH mode (needs waypoints) |
 | W/A/S/D + arrows | moving modes | fly / look |
-| Shift + . / , | moving modes | altitude up / down |
+| Q / E | moving modes | altitude up / down |
 | B | RECORD | drop a waypoint |
 | B | TRACKERS / FEATURE MATCH | capture a timestep (true + computed pose) |
 | N / M | TRACKERS / FEATURE MATCH | review next / previous timestep |
