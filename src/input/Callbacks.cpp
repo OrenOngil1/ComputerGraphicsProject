@@ -5,6 +5,8 @@
 
 #include "../core/Simulation.h"
 #include "../state/States.h"
+#include "../state/TrackersState.h"
+#include "../state/FeatureMatchState.h"
 
 // The one place a transition is performed -- so a state never has to know about
 // the states it can transition to -- and the new mode's entry action (onEnter)
@@ -53,6 +55,26 @@ static bool tryTransition(Simulation &sim, int key, int mods)
                 return true;
             setState(sim, std::make_unique<PickState>());
             std::cout << "Switched to PICK mode" << std::endl;
+            return true;
+
+        // No waypoint guard: TRACKERS builds its own ground truth as the user
+        // flies and captures, independent of any recording. (Pressing T again
+        // re-enters the mode: fresh trackers, fresh log -- like R for RECORD.)
+        // The count prompt blocks in the terminal, like the terrain menu; its
+        // policy lives with the state, so this case stays a plain transition.
+        case GLFW_KEY_T:
+            setState(sim, std::make_unique<TrackersState>(TrackersState::promptCount()));
+            std::cout << "Switched to TRACKERS mode" << std::endl;
+            return true;
+
+        // Waypoint guard like PICK: the recorded waypoints are the pre-phase
+        // views the feature database is built from -- without a recording
+        // there would be nothing to match against.
+        case GLFW_KEY_F:
+            if (!requireWaypoints(sim))
+                return true;
+            setState(sim, std::make_unique<FeatureMatchState>());
+            std::cout << "Switched to FEATURE MATCH mode" << std::endl;
             return true;
     }
 
@@ -107,12 +129,20 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         return;
     }
 
+    // L cycles the scene light through the presets. Global like Escape, not a
+    // mode transition: the light must be changeable at any moment in any mode
+    // (Mode 4's experiment swaps it between its Pre and Run phases).
+    if (key == GLFW_KEY_L) {
+        std::cout << "Light: " << sim->cycleLightPreset() << std::endl;
+        return;
+    }
+
     // A global mode-switch hotkey takes precedence over in-mode handling.
     if (tryTransition(*sim, key, mods))
         return;
 
     if (sim->currentState)
-        sim->currentState->handleKey(*sim, key, mods);
+        sim->currentState->handleKey(*sim, *ctx->renderer, key, mods);
 }
 
 // Mouse buttons are routed to the active state unconditionally; the state decides

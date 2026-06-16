@@ -95,7 +95,7 @@ bool Application::loadTerrain(const std::string &path)
         return false;   // load failed; nothing mutated yet, so the caller can retry
 
     m_sim.mesh = std::move(*mesh);
-    m_sim.terrainSize = std::max(m_sim.mesh.width, m_sim.mesh.height);
+    m_sim.terrainSize = std::max(m_sim.mesh.cols, m_sim.mesh.rows);
 
     m_renderer.loadTerrain(m_sim.mesh);
 

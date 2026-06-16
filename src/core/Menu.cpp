@@ -48,6 +48,11 @@ std::string selectTerrain(const std::string &dir)
         std::cout << "Invalid choice, try again." << std::endl;
     }
 
+    // Discard the rest of the accepted line too: operator>> leaves the trailing
+    // newline in the buffer, and the next cin reader (the tracker-count prompt
+    // uses getline) must start from a clean line, not inherit ours.
+    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
     if (choice == files.size()) {   // the trailing "Exit" entry
         std::cout << "Exiting..." << std::endl;
         exit(0);

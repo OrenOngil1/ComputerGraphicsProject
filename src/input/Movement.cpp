@@ -18,9 +18,6 @@ void moveCamera(Camera &camera, float terrainSize, GLFWwindow *window, float dt)
     const float moveSpeed     = terrainSize * 0.05f * dt;
     const float rotationSpeed = 1.05f * dt;
 
-    const bool shift = held(window, GLFW_KEY_LEFT_SHIFT) ||
-                       held(window, GLFW_KEY_RIGHT_SHIFT);
-
     glm::vec3 forward = glm::normalize(camera.target - camera.position);
     glm::vec3 right   = glm::normalize(glm::cross(forward, camera.up));
 
@@ -40,9 +37,9 @@ void moveCamera(Camera &camera, float terrainSize, GLFWwindow *window, float dt)
     if (held(window, GLFW_KEY_A)) delta -= right   * moveSpeed;
     if (held(window, GLFW_KEY_D)) delta += right   * moveSpeed;
 
-    // Altitude is independent of look direction (Shift + > / <).
-    if (shift && held(window, GLFW_KEY_PERIOD)) delta += camera.up * moveSpeed;
-    if (shift && held(window, GLFW_KEY_COMMA))  delta -= camera.up * moveSpeed;
+    // Altitude is independent of look direction (Q up, E down).
+    if (held(window, GLFW_KEY_Q)) delta += camera.up * moveSpeed;
+    if (held(window, GLFW_KEY_E)) delta -= camera.up * moveSpeed;
 
     camera.position += delta;
     camera.target   += delta;

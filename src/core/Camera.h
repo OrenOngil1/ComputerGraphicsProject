@@ -56,3 +56,14 @@ struct Waypoint {
     glm::vec3 position;
     glm::vec3 target;
 };
+
+// Put a camera on a recorded pose. A Waypoint records WHERE, not what lens:
+// fov/near/far/up keep their current values. The one place the two-field copy
+// lives -- playback, pick seeding, timestep review, ghosts, and the feature
+// pre-phase all snap cameras to waypoints, and they must all mean the same
+// thing by it.
+inline void applyPose(Camera &camera, const Waypoint &waypoint)
+{
+    camera.position = waypoint.position;
+    camera.target   = waypoint.target;
+}

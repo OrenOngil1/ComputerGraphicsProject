@@ -10,5 +10,5 @@ struct GLFWwindow;   // only a pointer is needed here -- keep GLFW out of this h
 //   W/S          move forward/back along the look direction
 //   A/D          strafe left/right
 //   arrow keys   look (yaw/pitch), pitch clamped near vertical
-//   Shift+. / ,  raise / lower altitude
+//   Q / E        raise / lower altitude
 void moveCamera(Camera &camera, float terrainSize, GLFWwindow *window, float dt);
