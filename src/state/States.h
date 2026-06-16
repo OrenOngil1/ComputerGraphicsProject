@@ -15,7 +15,7 @@
 // comparison modes did exactly that (PoseComparisonState.h, TrackersState.h).
 
 // Free navigation (the old Mode::NONE): continuous FPS flight of the player camera
-// (WASD to move, arrows to look, Shift+>/< for altitude). No discrete keys, no overlay.
+// (WASD to move, arrows to look, Q/E for altitude). No discrete keys, no overlay.
 class NavigationState : public State {
 public:
     void tick(Simulation &sim, GLFWwindow *window, float dt) override;
