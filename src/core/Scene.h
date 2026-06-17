@@ -12,16 +12,34 @@ struct Vertex {
     glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
 };
 
-struct PickedPoint {
+// One 2D-3D correspondence for PnP: a 3D world point and the 2D image point it was
+// observed at. Renamed from PickedPoint when imagePos became normalized -- the name
+// now reads at every call site as a reminder that imagePos is a fraction, not pixels.
+struct Correspondence {
     glm::vec3 worldPos;
+    // The 2D observation as a fraction of the viewport, [0,1] x [0,1], origin
+    // top-left -- NOT raw pixels. A pixel coordinate only means something against a
+    // specific viewport size, so storing it normalized keeps a correspondence valid
+    // across a resize: the viewport (and the camera intrinsics derived from it) can
+    // change between when the point is captured and when PnP solves. Consumers
+    // denormalize via imagePixels() against the CURRENT viewport at the OpenCV
+    // boundary (see toCvPoints in Pnp.cpp) so the points and the intrinsics agree.
     glm::vec2 imagePos;
+
+    // The one authority for denormalizing: the stored fraction back to pixels in a
+    // viewport of the given size. Keeping it here means no consumer re-derives the
+    // conversion and risks drifting from how producers normalized (pixel / size).
+    glm::vec2 imagePixels(int viewportWidth, int viewportHeight) const
+    {
+        return imagePos * glm::vec2((float)viewportWidth, (float)viewportHeight);
+    }
 };
 
 // A TRACKERS-mode landmark (Mode 3): a sphere resting on the terrain surface,
 // identified by a unique flat color. The color doubles as the correspondence
 // key -- the blob detector finds it in the rendered frame, and the center is
 // the matching 3D point. center is in centered world space (the space the
-// cameras live in), like PickedPoint::worldPos.
+// cameras live in), like Correspondence::worldPos.
 struct Tracker {
     glm::vec3 center;
     float radius;

@@ -79,13 +79,15 @@ std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
     std::vector<std::vector<cv::DMatch>> candidates;
     matcher.knnMatch(descriptors, db.descriptors, candidates, 2);
 
-    std::vector<PickedPoint> correspondences;
+    std::vector<Correspondence> correspondences;
     for (const std::vector<cv::DMatch> &pair : candidates) {
         if (pair.size() < 2 || pair[0].distance >= 0.75f * pair[1].distance)
             continue;
+        // imagePos is normalized (see Correspondence): the keypoint is a pixel in this
+        // frame, so divide by the frame size to store it as a [0,1] fraction.
         const cv::Point2f &pt = keypoints[pair[0].queryIdx].pt;
         correspondences.push_back({ db.anchors[pair[0].trainIdx],
-                                    glm::vec2(pt.x, pt.y) });
+                                    glm::vec2(pt.x / frame.width, pt.y / frame.height) });
     }
 
     std::cout << "FEATURES: " << correspondences.size()

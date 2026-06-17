@@ -3,15 +3,15 @@
 #include <optional>
 #include <vector>
 
-#include "../core/Scene.h"    // PickedPoint
+#include "../core/Scene.h"    // Correspondence
 #include "../core/Camera.h"   // Waypoint
 
-// Solve the Perspective-n-Point problem: given >=4 2D-3D correspondences (clicked
-// terrain points + their pixel positions), the camera's vertical FOV, and the
+// Solve the Perspective-n-Point problem: given >=4 2D-3D correspondences (3D points +
+// their normalized 2D image observations), the camera's vertical FOV, and the
 // viewport size, estimate the camera pose that projects those 3D points onto those
-// pixels. Returns the pose as a Waypoint (eye + look-at target), or std::nullopt
+// observations. Returns the pose as a Waypoint (eye + look-at target), or std::nullopt
 // if there are too few points or the solver fails.
-std::optional<Waypoint> computeCameraPose(const std::vector<PickedPoint> &pickedPoints,
+std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &correspondences,
                                           float fov, int viewportWidth, int viewportHeight);
 
 // RANSAC flavor, for machine-generated correspondences (feature matching):
@@ -27,6 +27,6 @@ std::optional<Waypoint> computeCameraPose(const std::vector<PickedPoint> &picked
 // result). Raising it above the algebraic PnP minimum of 4 lets a caller
 // reject those -- feature matching passes a higher bar so a poor-overlap or
 // re-lit frame is refused outright instead of yielding a garbage pose.
-std::optional<Waypoint> computeCameraPoseRansac(const std::vector<PickedPoint> &points,
+std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,
                                                 int minInliers = 4);

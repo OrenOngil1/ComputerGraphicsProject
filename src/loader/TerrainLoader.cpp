@@ -2,15 +2,12 @@
 
 #include <iostream>
 #include <algorithm>
+#include <limits>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 
-bool vertexByYComp(const Vertex& a, const Vertex& b) {
-    return a.position.y < b.position.y;
-}
-
 // Simple color mapping function: maps height to a color gradient
-glm::vec3 getColor(float height, float minH, float maxH)
+static glm::vec3 getColor(float height, float minH, float maxH)
 {
 
     if(minH == maxH) {
@@ -46,13 +43,8 @@ glm::vec3 getColor(float height, float minH, float maxH)
         return snow;
 }
 
-void getColors(Mesh &mesh)
+static void getColors(Mesh &mesh, float minH, float maxH)
 {
-    float minH = std::min_element(
-        mesh.vertices.begin(), mesh.vertices.end(), vertexByYComp)->position.y;
-    float maxH = std::max_element(
-        mesh.vertices.begin(), mesh.vertices.end(), vertexByYComp)->position.y;
-
     for(Vertex &vertex : mesh.vertices) {
         vertex.color = getColor(vertex.position.y, minH, maxH);
     }
@@ -76,8 +68,7 @@ void computeNormals(Mesh &mesh)
             // normalize() eats the constant factor anyway.
             float dydx = heightAt(x + 1, z) - heightAt(x - 1, z);
             float dydz = heightAt(x, z + 1) - heightAt(x, z - 1);
-            mesh.vertices[z * mesh.cols + x].normal =
-                glm::normalize(glm::vec3(-dydx, 2.0f, -dydz));
+            mesh.vertices[z * mesh.cols + x].normal = glm::normalize(glm::vec3(-dydx, 2.0f, -dydz));
         }
     }
 }
@@ -85,7 +76,7 @@ void computeNormals(Mesh &mesh)
 // Sample the height at a corner: the mean of the (up to 4) surrounding pixels.
 // Corner vertices sit between pixels, so each averages the four pixels around it;
 // near an edge the clamps make some of the four coincide, which the mean absorbs.
-float sampleHeight(cv::Mat& img, int i, int j) {
+static float sampleHeight(cv::Mat& img, int i, int j) {
 
     // i,j is a corner; clamp the four surrounding pixel coords to image bounds.
     // OpenCV is row-major, so j (rows) is y and i (cols) is x.
@@ -109,19 +100,27 @@ std::optional<Mesh> readTerrain(const std::string& filename)
     }
 
     Mesh mesh = { image.cols + 1, image.rows + 1, std::vector<Vertex>() };
+    mesh.vertices.reserve(mesh.rows * mesh.cols);
 
     // The one amplitude knob: peak-to-trough relief as a fraction of the terrain's
     // width. sampleHeight now yields a true mean over [0,255], so the - 0.5f below
     // centers the terrain symmetrically about y = 0; heightScale scales that
     // [-0.5, 0.5] band. Tune reliefFraction to taste (lower = flatter).
     const float reliefFraction = 0.1f;
-    float heightScale = std::max(image.rows, image.cols) * reliefFraction;
+    const float heightScale = std::max(image.rows, image.cols) * reliefFraction;
 
+    // Track min and max height for color mapping after the fact.
+    float minH = std::numeric_limits<float>::max();
+    float maxH = std::numeric_limits<float>::lowest();
     for(int j = 0; j <= image.rows; j++) {
         for(int i = 0; i <= image.cols; i++) {
 
             // normalize height to range [-0.5, 0.5] and scale it
             float h = heightScale * (sampleHeight(image, i, j) / 255.0f - 0.5f);
+
+            // Update min and max height for color mapping
+            minH = std::min(minH, h);
+            maxH = std::max(maxH, h);
 
             // Default color value; will be set later based on height
             mesh.vertices.push_back({ glm::vec3(i, h, j), glm::vec3(-1.0f) });
@@ -130,7 +129,7 @@ std::optional<Mesh> readTerrain(const std::string& filename)
 
     // After all vertices are created, assign colors and normals from the
     // finished height field (both need every neighbor's height in place).
-    getColors(mesh);
+    getColors(mesh, minH, maxH);
     computeNormals(mesh);
 
     return mesh;

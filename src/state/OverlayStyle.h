@@ -19,5 +19,19 @@ inline const glm::vec3 truePathColor(0.0f, 0.0f, 1.0f);   // blue
 inline const glm::vec3 estimateColor(1.0f, 0.5f, 0.0f);   // orange (unique to estimates)
 inline const float     estimateGhostAlpha = 0.6f;         // ghost blend transparency
 inline const float     estimateGhostTint  = 0.6f;         // how far the ghost tints toward orange
+inline const float     estimateMarkerSize = 5.0f;         // estimated-camera dot (GL_POINTS px)
+
+// PICK mode: the 2D half of a correspondence that has been clicked in the player
+// view but is still waiting for its 3D match in the global view. White is reserved
+// for this -- the completed-point palette (pickedPointColor) deliberately omits it --
+// so the in-progress pick reads as distinct from every completed one.
+inline const glm::vec3 pendingPickColor(1.0f, 1.0f, 1.0f);   // white (reserved)
+
+// PICK mode marker size (GL_POINTS diameter, pixels). One size for all three pick
+// markers -- the 3D point in the global view, the 2D observation in the player view,
+// and the pending 2D pick -- so a correspondence reads as the same dot in both halves
+// and a pending pick matches a completed one in size. The pending pick is told apart
+// by its reserved color (pendingPickColor) alone, not by being larger.
+inline const float pickMarkerSize = 10.0f;
 
 } // namespace overlay

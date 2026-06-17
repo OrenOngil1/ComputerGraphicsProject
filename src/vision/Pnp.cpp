@@ -8,16 +8,19 @@
 
 // Split a correspondence list into the parallel point arrays OpenCV wants.
 // 3D object points are already in centered world space (every producer stores
-// them centered), so no offset is applied; image points are pixel positions.
-static void toCvPoints(const std::vector<PickedPoint> &points,
+// them centered), so no offset is applied. Image points are stored NORMALIZED
+// ([0,1] of the viewport, see Correspondence) and denormalized to pixels here against
+// the viewport PnP is solving for -- so the points match the intrinsics K, which
+// is built from the same width/height, even if the window was resized after picking.
+static void toCvPoints(const std::vector<Correspondence> &points, int width, int height,
                        std::vector<cv::Point3f> &objectPoints,
                        std::vector<cv::Point2f> &imagePoints)
 {
     objectPoints.reserve(points.size());
     imagePoints.reserve(points.size());
-    for (const PickedPoint &p : points) {
+    for (const Correspondence &p : points) {
         objectPoints.push_back(glmToCvPoint3f(p.worldPos));
-        imagePoints.push_back(glmToCvPoint2f(p.imagePos));
+        imagePoints.push_back(glmToCvPoint2f(p.imagePixels(width, height)));
     }
 }
 
@@ -33,13 +36,10 @@ static Waypoint extrinsicsToPose(const cv::Mat &rvec, const cv::Mat &tvec)
     cv::Mat forward =  R.t() * (cv::Mat_<double>(3, 1) << 0, 0, 1);
     cv::Mat target  = eye + forward;
 
-    Waypoint pose;
-    pose.position = glm::vec3(eye.at<double>(0),    eye.at<double>(1),    eye.at<double>(2));
-    pose.target   = glm::vec3(target.at<double>(0), target.at<double>(1), target.at<double>(2));
-    return pose;
+    return Waypoint{ cvToGlmVec3(eye), cvToGlmVec3(target) };
 }
 
-std::optional<Waypoint> computeCameraPose(const std::vector<PickedPoint> &pickedPoints,
+std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &pickedPoints,
                                           float fov, int viewportWidth, int viewportHeight)
 {
     if (pickedPoints.size() < 4) {
@@ -50,7 +50,7 @@ std::optional<Waypoint> computeCameraPose(const std::vector<PickedPoint> &picked
 
     std::vector<cv::Point3f> objectPoints;
     std::vector<cv::Point2f> imagePoints;
-    toCvPoints(pickedPoints, objectPoints, imagePoints);
+    toCvPoints(pickedPoints, viewportWidth, viewportHeight, objectPoints, imagePoints);
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 
@@ -65,7 +65,7 @@ std::optional<Waypoint> computeCameraPose(const std::vector<PickedPoint> &picked
     return extrinsicsToPose(rvec, tvec);
 }
 
-std::optional<Waypoint> computeCameraPoseRansac(const std::vector<PickedPoint> &points,
+std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,
                                                 int minInliers)
 {
@@ -77,7 +77,7 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<PickedPoint> &
 
     std::vector<cv::Point3f> objectPoints;
     std::vector<cv::Point2f> imagePoints;
-    toCvPoints(points, objectPoints, imagePoints);
+    toCvPoints(points, viewportWidth, viewportHeight, objectPoints, imagePoints);
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 

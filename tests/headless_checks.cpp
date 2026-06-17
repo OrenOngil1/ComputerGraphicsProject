@@ -149,9 +149,12 @@ static void testPnp()
         { -3,  0, -5 }, {  6,  3,  2 }, { -5,  1,  4 }, {  1,  4, -2 },
     };
 
-    std::vector<PickedPoint> exact;
+    // Correspondence::imagePos is normalized ([0,1] of the viewport), so divide the
+    // synthetic pixel projection by the frame size before storing it.
+    const glm::vec2 frameSize((float)width, (float)height);
+    std::vector<Correspondence> exact;
     for (const glm::vec3 &p : points)
-        exact.push_back({ p, projectToPixel(view, p, fov, width, height) });
+        exact.push_back({ p, projectToPixel(view, p, fov, width, height) / frameSize });
 
     // A solver that round-trips synthetic projections back to the camera that
     // made them has its conventions (intrinsics, axis flips, inversion) right.
@@ -169,16 +172,17 @@ static void testPnp()
 
     // RANSAC: corrupt three of eleven pairs far beyond the 8px inlier band --
     // a plain least-squares solve would be dragged off; consensus must not be.
-    std::vector<PickedPoint> withOutliers = exact;
+    std::vector<Correspondence> withOutliers = exact;
     withOutliers.push_back({ { 4, 2, 4 },
-                             projectToPixel(view, { 4, 2, 4 }, fov, width, height) });
+                             projectToPixel(view, { 4, 2, 4 }, fov, width, height) / frameSize });
     withOutliers.push_back({ { -2, 3, 3 },
-                             projectToPixel(view, { -2, 3, 3 }, fov, width, height) });
+                             projectToPixel(view, { -2, 3, 3 }, fov, width, height) / frameSize });
     withOutliers.push_back({ { 3, 1, -4 },
-                             projectToPixel(view, { 3, 1, -4 }, fov, width, height) });
-    withOutliers[2].imagePos += glm::vec2(150.0f, -120.0f);
-    withOutliers[6].imagePos += glm::vec2(-200.0f, 90.0f);
-    withOutliers[9].imagePos += glm::vec2(80.0f, 160.0f);
+                             projectToPixel(view, { 3, 1, -4 }, fov, width, height) / frameSize });
+    // Corruptions are pixel offsets too, so normalize them by the frame size.
+    withOutliers[2].imagePos += glm::vec2(150.0f, -120.0f) / frameSize;
+    withOutliers[6].imagePos += glm::vec2(-200.0f, 90.0f) / frameSize;
+    withOutliers[9].imagePos += glm::vec2(80.0f, 160.0f) / frameSize;
 
     check(poseMatches(computeCameraPoseRansac(withOutliers, fov, width, height)),
           "RANSAC: recovers the true pose despite 3 wrong correspondences");
