@@ -16,7 +16,7 @@
 // the functions below are the only writers.
 struct FeatureDb {
     cv::Mat descriptors;              // CV_8U, one 32-byte ORB descriptor per row
-    std::vector<glm::vec3> anchors;   // centered world space, like PickedPoint::worldPos
+    std::vector<glm::vec3> anchors;   // centered world space, like Correspondence::worldPos
 
     bool empty() const { return anchors.empty(); }
 };

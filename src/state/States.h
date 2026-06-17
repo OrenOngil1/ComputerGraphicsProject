@@ -4,7 +4,7 @@
 #include <optional>
 
 #include "State.h"
-#include "../core/Scene.h"    // PickedPoint
+#include "../core/Scene.h"    // Correspondence
 #include "../core/Camera.h"   // Waypoint
 
 // The concrete application modes, grouped deliberately: each is tiny, they form
@@ -48,10 +48,11 @@ private:
 };
 
 // Mode 2: pose estimation by color picking. The player camera is seeded at a random
-// recorded waypoint (the "unknown" pose); the user left-clicks terrain points to build
-// 2D-3D correspondences, then presses 'C' to solve PnP. The global view shows the
-// picked points + estimated camera; the player view overlays a translucent ghost of
-// the terrain from the estimated pose, for visual comparison against the true view.
+// recorded waypoint (the "unknown" pose). Each 2D-3D correspondence is built in two
+// clicks -- a 2D point in the player (camera) view, then its matching 3D point color-
+// picked in the global view (the "map") -- then 'C' solves PnP. The global view shows
+// the picked points + estimated camera; the player view overlays a translucent ghost
+// of the terrain from the estimated pose, for visual comparison against the true view.
 class PickState : public State {
 public:
     void onEnter(Simulation &sim) override;                      // seed pose, reset picks
@@ -63,9 +64,22 @@ public:
     void renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
 private:
-    // Draw the picked correspondences as palette-colored markers (shared by both views).
-    void drawPickedPoints(Renderer &renderer, const glm::mat4 &mvp) const;
+    // The two views show a correspondence's two different halves, so they draw
+    // different things -- deliberately NOT a shared helper:
+    //  - global view (the "map"): the 3D worldPos, in world space through the scene mvp.
+    //  - player view (the camera): the 2D imagePos, the user's observation, in
+    //    normalized screen space -- it must stay where they clicked, not move to the
+    //    reprojection of worldPos (that would leak the true projection).
+    void drawWorldMarkers(Renderer &renderer, const glm::mat4 &mvp) const;
+    void drawImageMarkers(Renderer &renderer) const;
 
-    std::vector<PickedPoint> m_pickedPoints;
-    std::optional<Waypoint>  m_computedCamera;   // PnP result; empty until 'C' succeeds
+    std::vector<Correspondence> m_pickedPoints;
+    std::optional<Waypoint>     m_computedCamera;   // PnP result; empty until 'C' succeeds
+
+    // The two-phase pick: a correspondence is a 2D click in the player view paired
+    // with a 3D color-pick in the global view (the "map"). Set (to the normalized 2D
+    // image coordinate, like Correspondence::imagePos) when the 2D half has been clicked
+    // and we are awaiting its 3D match; empty otherwise. Carrying the coordinate *in*
+    // the optional makes "mid-pair but no saved 2D" unrepresentable.
+    std::optional<glm::vec2> m_pendingImagePos;
 };

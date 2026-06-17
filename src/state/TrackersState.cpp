@@ -118,10 +118,13 @@ std::optional<Waypoint> TrackersState::computePose(Simulation &sim, Renderer &re
 
     // The automatic correspondences: each visible centroid pairs with its
     // sphere's known 3D center. Occluded/off-screen trackers simply drop out.
-    std::vector<PickedPoint> correspondences;
+    std::vector<Correspondence> correspondences;
+    const glm::vec2 frameSize((float)frame.width, (float)frame.height);
     for (size_t i = 0; i < m_trackers.size(); i++) {
         if (centroids[i])
-            correspondences.push_back({ m_trackers[i].center, *centroids[i] });
+            // imagePos is normalized (see Correspondence): the blob centroid is a pixel
+            // in this frame, so divide by the frame size to store it as a [0,1] fraction.
+            correspondences.push_back({ m_trackers[i].center, *centroids[i] / frameSize });
     }
 
     std::cout << "TRACKERS: " << correspondences.size() << " of "

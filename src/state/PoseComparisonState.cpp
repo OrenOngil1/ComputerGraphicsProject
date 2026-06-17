@@ -97,7 +97,7 @@ void PoseComparisonState::renderGlobalOverlay(const Simulation &sim, Renderer &r
     renderer.drawPoints(computedPositions,
                         std::vector<glm::vec3>(computedPositions.size(),
                                                overlay::estimateColor),
-                        5.0f, mvp);
+                        overlay::estimateMarkerSize, mvp);
 }
 
 void PoseComparisonState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,

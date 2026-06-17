@@ -31,6 +31,12 @@ inline cv::Point2f glmToCvPoint2f(const glm::vec2 &v)
     return cv::Point2f(v.x, v.y);
 }
 
+// OpenCV -> glm point conversions.
+inline glm::vec3 cvToGlmVec3(const cv::Mat &p)
+{
+    return glm::vec3(p.at<double>(0), p.at<double>(1), p.at<double>(2));
+}
+
 // Build the 3x3 pinhole intrinsic matrix K from a vertical field of view and the
 // image size. fy is the focal length in pixels mapping the vertical FOV onto
 // `height` pixels; (cx,cy) is the principal point at the image center.

@@ -50,7 +50,8 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
   - `Camera.h` — `Camera` (position/target/up + fov/near/far), `Viewport`
     (x/y/w/h), `View {Camera; Viewport;}`, free `leftHalf`/`rightHalf` layout
     helpers, and `Waypoint` (recorded pose: position + target).
-  - `Scene.h` — `Vertex {position,color}`, `PickedPoint {worldPos,imagePos}`,
+  - `Scene.h` — `Vertex {position,color}`, `Correspondence {worldPos, normalized
+    imagePos + imagePixels() denormalizer}` (formerly `PickedPoint`),
     `Mesh {width,height,vertices}` (plain `struct`s).
   - `Menu.{h,cpp}` — `selectTerrain(dir)`: console menu over the DEM images in a
     folder; blocks on `std::cin`; trailing "Exit" entry calls `exit(0)`.
@@ -121,10 +122,13 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
   - `PlaybackState` — `UP`/`DOWN` step the private `m_index`; snaps the camera to
     the selected waypoint; overlays path+waypoints.
   - `PickState` (**fully implemented**, Mode 2) — `onEnter` seeds the player camera
-    at a random recorded waypoint (the unknown pose to recover); left-click →
-    `renderer.pickVertex` builds a 2D-3D `PickedPoint`; `C` → `computeCameraPose`
-    (PnP). Global overlay draws picked points + estimated camera; player overlay
-    draws the translucent `drawGhost` from the estimated pose vs. the true view.
+    at a random recorded waypoint (the unknown pose to recover). A correspondence is
+    built in two clicks: a 2D point in the player view (stored as a normalized
+    `imagePos`, no vertex pick) then its 3D match color-picked in the global view (the
+    "map") via `renderer.pickVertex`; `C` → `computeCameraPose` (PnP). Global overlay
+    draws the 3D points on the map + estimated camera; player overlay draws the 2D
+    observations where the user clicked, then the translucent `drawGhost` from the
+    estimated pose vs. the true view once solved.
 - **No `id()`/`Mode` enum** on purpose: prevents reintroducing `switch(id())`.
 
 ## Load-bearing invariants (do not break)
