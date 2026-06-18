@@ -7,9 +7,7 @@
 #include <opencv2/core/types.hpp>   // cv::Point2f / cv::Point3f
 #include <opencv2/core/mat.hpp>     // cv::Mat_
 
-// Small, header-only helpers shared across the codebase. `inline` lets the
-// definitions sit in this widely-included header without an ODR/multiple-
-// definition link error.
+// Small, header-only helpers shared across the codebase.
 
 // A uniformly random index in [0, size). `gen` is static so it is seeded once
 // (a fresh std::random_device per call would be wasteful and less random).

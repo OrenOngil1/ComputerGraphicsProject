@@ -56,7 +56,7 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &pic
 
     cv::Mat rvec, tvec;
     bool ok = cv::solvePnP(objectPoints, imagePoints, K, cv::Mat(),
-                           rvec, tvec, false, cv::SOLVEPNP_SQPNP);
+                           rvec, tvec, cv::SOLVEPNP_SQPNP);
     if (!ok) {
         std::cerr << "cv::solvePnP failed" << std::endl;
         return std::nullopt;
