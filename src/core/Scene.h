@@ -18,12 +18,19 @@ struct Vertex {
 struct Correspondence {
     glm::vec3 worldPos;
     // The 2D observation as a fraction of the viewport, [0,1] x [0,1], origin
-    // top-left -- NOT raw pixels. A pixel coordinate only means something against a
-    // specific viewport size, so storing it normalized keeps a correspondence valid
-    // across a resize: the viewport (and the camera intrinsics derived from it) can
-    // change between when the point is captured and when PnP solves. Consumers
-    // denormalize via imagePixels() against the CURRENT viewport at the OpenCV
-    // boundary (see toCvPoints in Pnp.cpp) so the points and the intrinsics agree.
+    // top-left -- NOT raw pixels, which only mean something against a specific viewport
+    // size. Consumers denormalize via imagePixels() against the CURRENT viewport at the
+    // OpenCV boundary (see toCvPoints in Pnp.cpp) so the points and the intrinsics K
+    // agree.
+    //
+    // CAUTION: a fraction is a faithful observation ONLY when captured and solved at
+    // the same aspect ratio. glm::perspective fixes the vertical FOV and derives the
+    // horizontal one from the aspect, so a resize between capture and solve re-scales
+    // the HORIZONTAL half of the fraction (the vertical survives). The producers that
+    // store fractions here -- TRACKERS and FEATURE MATCHING -- capture and solve in one
+    // frame, so they never hit this. PICK captures over many clicks and may be resized
+    // before solving, so it stores the aspect-invariant viewing ray instead and only
+    // converts to a fraction at solve time (see PickState::Observation).
     glm::vec2 imagePos;
 
     // The one authority for denormalizing: the stored fraction back to pixels in a

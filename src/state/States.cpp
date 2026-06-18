@@ -1,5 +1,6 @@
 #include "States.h"
 
+#include <cmath>
 #include <iostream>
 
 #include <GLFW/glfw3.h>
@@ -138,6 +139,30 @@ static glm::vec3 pickedPointColor(size_t index)
     return palette[index % (sizeof(palette) / sizeof(palette[0]))];
 }
 
+// PICK stores observations as camera-space viewing rays so they survive a window
+// resize (see PickState::Observation). These convert between a viewport fraction
+// ([0,1], origin top-left) and that ray, for a vertical-FOV perspective camera at a
+// given aspect -- the same mapping glm::perspective and getCameraIntrinsicMatrix use:
+//   ray = ((u - 0.5)*2*tan(fov/2)*aspect, (v - 0.5)*2*tan(fov/2)).
+// Only the horizontal term carries the aspect (glm fixes the vertical FOV) -- which is
+// exactly why a stored fraction goes stale horizontally when the window is resized.
+static glm::vec2 fractionToRay(glm::vec2 uv, float fovDeg, float aspect)
+{
+    const float t = std::tan(glm::radians(fovDeg) * 0.5f);
+    return { (uv.x - 0.5f) * 2.0f * t * aspect, (uv.y - 0.5f) * 2.0f * t };
+}
+
+static glm::vec2 rayToFraction(glm::vec2 ray, float fovDeg, float aspect)
+{
+    const float t = std::tan(glm::radians(fovDeg) * 0.5f);
+    return { 0.5f + ray.x / (2.0f * t * aspect), 0.5f + ray.y / (2.0f * t) };
+}
+
+static float viewportAspect(const Viewport &vp)
+{
+    return (float)vp.width / (float)vp.height;
+}
+
 // Is the cursor inside this viewport? The two phases of a pick each demand a click
 // in a specific half of the window (2D in the player view, 3D in the global view),
 // so each phase hit-tests the cursor against the viewport it expects.
@@ -151,7 +176,7 @@ void PickState::onEnter(Simulation &sim)
 {
     m_pickedPoints.clear();
     m_computedCamera.reset();
-    m_pendingImagePos.reset();
+    m_pendingImageRay.reset();
 
     // Seed the player camera at a random recorded waypoint -- the pose the user then
     // tries to recover by picking. PICK is only entered when waypoints exist (the
@@ -178,20 +203,21 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
     // (camera) view, then the matching 3D point color-picked in the global view (the
     // "map"). m_pendingImagePos tells the two phases apart -- empty means we still
     // need the 2D half; set means we are awaiting its 3D match.
-    if (!m_pendingImagePos) {
-        // Phase A: the 2D half. Must land in the player view. Record the cursor as a
-        // fraction of the viewport (normalized -- see Correspondence::imagePos) --
-        // crucially, we do NOT color-pick here, so the 3D point can't be read off the
-        // player view.
+    if (!m_pendingImageRay) {
+        // Phase A: the 2D half. Must land in the player view. Convert the cursor to a
+        // viewport fraction, then to the camera-space viewing ray (see Observation) so
+        // the observation survives a later resize -- crucially, we do NOT color-pick
+        // here, so the 3D point can't be read off the player view.
         const Viewport &viewport = sim.playerView.viewport;
         if (!inside(viewport, cursorX, cursorY)) {
             std::cout << "PICK: click a 2D point in the player (right) view first." << std::endl;
             return;
         }
 
-        m_pendingImagePos = glm::vec2(((float)cursorX - viewport.x) / (float)viewport.width,
-                                      ((float)cursorY - viewport.y) / (float)viewport.height);
-        std::cout << "PICK: 2D recorded at uv(" << m_pendingImagePos->x << ", " << m_pendingImagePos->y
+        glm::vec2 uv(((float)cursorX - viewport.x) / (float)viewport.width,
+                     ((float)cursorY - viewport.y) / (float)viewport.height);
+        m_pendingImageRay = fractionToRay(uv, sim.playerView.camera.fov, viewportAspect(viewport));
+        std::cout << "PICK: 2D recorded at ray(" << m_pendingImageRay->x << ", " << m_pendingImageRay->y
                   << ") -- now color-pick its 3D point in the global (left) view." << std::endl;
         return;
     }
@@ -215,12 +241,12 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
     // world the camera lives in -- mesh.vertices are stored uncentered.
     glm::vec3 worldPos = sim.mesh.worldPos(id);
 
-    m_pickedPoints.push_back(Correspondence{ worldPos, *m_pendingImagePos });
+    m_pickedPoints.push_back(Observation{ worldPos, *m_pendingImageRay });
     std::cout << "PICK: correspondence " << m_pickedPoints.size() << ": vertex " << id
               << " world(" << worldPos.x << ", " << worldPos.y << ", " << worldPos.z << ")"
-              << " uv(" << m_pendingImagePos->x << ", " << m_pendingImagePos->y << ")"
+              << " ray(" << m_pendingImageRay->x << ", " << m_pendingImageRay->y << ")"
               << std::endl;
-    m_pendingImagePos.reset();
+    m_pendingImageRay.reset();
 }
 
 void PickState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
@@ -229,11 +255,20 @@ void PickState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods
     if (key != GLFW_KEY_C)
         return;
 
-    // imagePos is normalized; computeCameraPose denormalizes against the viewport it
-    // is handed, so the points and intrinsics stay consistent even across a resize.
+    // Project each stored ray back into the CURRENT player viewport: ray ->
+    // fraction (this aspect) -> pixels + intrinsics (also this aspect, inside
+    // computeCameraPose). Because the ray is aspect-invariant, this stays consistent
+    // even if the window was resized between picking and solving.
     const Viewport &viewport = sim.playerView.viewport;
-    m_computedCamera = computeCameraPose(m_pickedPoints, sim.playerView.camera.fov,
-                                         viewport.width, viewport.height);
+    const float fov = sim.playerView.camera.fov;
+    const float aspect = viewportAspect(viewport);
+
+    std::vector<Correspondence> correspondences;
+    correspondences.reserve(m_pickedPoints.size());
+    for (const Observation &o : m_pickedPoints)
+        correspondences.push_back(Correspondence{ o.worldPos, rayToFraction(o.imageRay, fov, aspect) });
+
+    m_computedCamera = computeCameraPose(correspondences, fov, viewport.width, viewport.height);
 
     // The player camera never moves in PICK (no tick override), so its current pose
     // is still the seeded ground truth -- report the estimate's error against it, the
@@ -271,14 +306,17 @@ void PickState::drawWorldMarkers(Renderer &renderer, const glm::mat4 &mvp) const
 // An orthographic matrix over the unit square (top-left origin, y down) maps the
 // stored [0,1] coordinates straight to the viewport, so markers also track resizes.
 // The pending pick (2D clicked, 3D not yet) rides along here in the pending color.
-void PickState::drawImageMarkers(Renderer &renderer) const
+void PickState::drawImageMarkers(Renderer &renderer, float fov, const Viewport &viewport) const
 {
+    const float aspect = viewportAspect(viewport);
     const glm::mat4 screen = glm::ortho(0.0f, 1.0f, 1.0f, 0.0f);
 
     // Completed observations: palette-colored, standard size (matching the map markers).
+    // Each stored ray is reprojected into the CURRENT aspect, so markers stay on their
+    // feature through a resize instead of drifting (a frozen fraction would slide).
     std::vector<glm::vec3> positions, colors;
     for (size_t i = 0; i < m_pickedPoints.size(); i++) {
-        positions.push_back(glm::vec3(m_pickedPoints[i].imagePos, 0.0f));
+        positions.push_back(glm::vec3(rayToFraction(m_pickedPoints[i].imageRay, fov, aspect), 0.0f));
         colors.push_back(pickedPointColor(i));
     }
     if (!positions.empty())
@@ -287,8 +325,8 @@ void PickState::drawImageMarkers(Renderer &renderer) const
     // The pending pick (2D clicked, 3D not yet) is drawn in its own pass, same size as
     // the completed markers: the reserved white color (pendingPickColor) alone marks it
     // as the not-yet-confirmed correspondence awaiting its 3D match.
-    if (m_pendingImagePos)
-        renderer.drawPoints({ glm::vec3(*m_pendingImagePos, 0.0f) },
+    if (m_pendingImageRay)
+        renderer.drawPoints({ glm::vec3(rayToFraction(*m_pendingImageRay, fov, aspect), 0.0f) },
                             { overlay::pendingPickColor }, overlay::pickMarkerSize, screen);
 }
 
@@ -328,6 +366,6 @@ void PickState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
                            overlay::estimateGhostTint);
     } else {
         // The 2D observations (completed + pending), each where the user clicked.
-        drawImageMarkers(renderer);
+        drawImageMarkers(renderer, sim.playerView.camera.fov, sim.playerView.viewport);
     }
 }
