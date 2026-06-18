@@ -3,6 +3,7 @@
 #include <iostream>
 #include <algorithm>
 #include <limits>
+
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
 
@@ -83,8 +84,7 @@ static float sampleHeight(cv::Mat& img, int i, int j) {
     int x0 = std::max(i-1, 0),        x1 = std::min(i, img.cols-1);
     int y0 = std::max(j-1, 0),        y1 = std::min(j, img.rows-1);
 
-    // Plain mean of the four samples -- the /4 is "4 pixels", nothing more. Terrain
-    // amplitude is NOT tuned here; that lives in the heightScale knob in readTerrain.
+    // Plain mean of the four samples
     int sum = img.at<uchar>(y0, x0) + img.at<uchar>(y0, x1)
             + img.at<uchar>(y1, x0) + img.at<uchar>(y1, x1);
     return sum / 4.0f;
