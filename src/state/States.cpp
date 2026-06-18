@@ -315,6 +315,8 @@ void PickState::drawImageMarkers(Renderer &renderer, float fov, const Viewport &
     // Each stored ray is reprojected into the CURRENT aspect, so markers stay on their
     // feature through a resize instead of drifting (a frozen fraction would slide).
     std::vector<glm::vec3> positions, colors;
+    positions.reserve(m_pickedPoints.size());
+    colors.reserve(m_pickedPoints.size());
     for (size_t i = 0; i < m_pickedPoints.size(); i++) {
         positions.push_back(glm::vec3(rayToFraction(m_pickedPoints[i].imageRay, fov, aspect), 0.0f));
         colors.push_back(pickedPointColor(i));
