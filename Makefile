@@ -2,8 +2,12 @@
 TARGET   := bin/drone_sim
 CXX      := g++
 CC       := gcc
-CXXFLAGS := -std=c++17 -Wall -O2 -DGLFW_INCLUDE_NONE -I/usr/include/opencv4 -Iinclude -Isrc/engine
-CFLAGS   := -Wall -O2 -Iinclude
+# -MMD -MP make the compiler emit a .d file beside each .o listing the headers
+# that .o depends on (with phony targets for each header so deleting one doesn't
+# break the build). `-include`d below, this gives correct incremental rebuilds
+# when a header changes -- no more stale objects / mandatory `make clean`.
+CXXFLAGS := -std=c++17 -Wall -O2 -MMD -MP -DGLFW_INCLUDE_NONE -I/usr/include/opencv4 -Iinclude -Isrc/engine
+CFLAGS   := -Wall -O2 -MMD -MP -Iinclude
 
 # ── Sources ───────────────────────────────────────────────────
 SRC_DIR  := src
@@ -12,6 +16,7 @@ CPP_SRCS := $(shell find $(SRC_DIR) -name "*.cpp")
 C_SRCS   := $(SRC_DIR)/glad.c
 OBJS     := $(patsubst $(SRC_DIR)/%.cpp, $(OBJ_DIR)/%.o, $(CPP_SRCS)) \
             $(patsubst $(SRC_DIR)/%.c,   $(OBJ_DIR)/%.o, $(C_SRCS))
+DEPS     := $(OBJS:.o=.d)   # auto-generated header dependency lists (-MMD)
 
 # ── Libraries ─────────────────────────────────────────────────
 OPENCV_FLAGS := $(shell pkg-config --cflags --libs opencv4)
@@ -54,5 +59,9 @@ $(CHECK_TARGET): tests/headless_checks.cpp \
                  $(OBJ_DIR)/loader/TerrainLoader.o
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LIBS)
+
+# Pull in the per-object header dependencies emitted by -MMD (silent on the
+# first build, before any .d exists).
+-include $(DEPS)
 
 .PHONY: all clean check
