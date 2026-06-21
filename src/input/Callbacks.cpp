@@ -73,7 +73,7 @@ static bool tryTransition(Simulation &sim, int key, int mods)
         case GLFW_KEY_F:
             if (!requireWaypoints(sim))
                 return true;
-            setState(sim, std::make_unique<FeatureMatchState>());
+            setState(sim, std::make_unique<FeatureMatchState>(FeatureMatchState::promptCount()));
             std::cout << "Switched to FEATURE MATCH mode" << std::endl;
             return true;
     }
