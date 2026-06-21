@@ -13,11 +13,13 @@ struct CallbackContext {
     Simulation *sim = nullptr;
     Renderer *renderer = nullptr;
 
-    // Global-map panning: middle-button drag pans the overview camera. Held
-    // here (lifetime = the session) so the press/move/release callbacks share it.
-    bool   panning  = false;
-    double lastPanX = 0.0;
-    double lastPanY = 0.0;
+    // Global-map drag state: middle-button drag pans the overview camera,
+    // right-button drag orbits it. Held here (lifetime = the session) so the
+    // press/move/release callbacks share it. Only one is active at a time.
+    bool   panning   = false;
+    bool   rotating  = false;
+    double lastDragX = 0.0;
+    double lastDragY = 0.0;
 };
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);

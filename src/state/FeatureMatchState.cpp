@@ -62,9 +62,10 @@ void FeatureMatchState::onEnter(Simulation &sim)
 {
     std::cout << "FEATURE MATCH: " << sim.waypoints.size() << " recorded views, "
               << m_featureCount << " features each. G = build the database by hand: "
-              << "for each view ORB highlights a point in the player (right) view -- "
-              << "color-pick its 3D spot in the global (left) map (right-click skips "
-              << "one). Then " << kCaptureHelp << std::endl;
+              << "for each view ORB highlights a point (red) in the player (right) view "
+              << "-- color-pick its 3D spot in the global (left) map; X skips one. "
+              << "Global map: scroll = zoom, middle-drag = pan, right-drag = rotate. "
+              << "Then " << kCaptureHelp << std::endl;
 }
 
 // Pose the player camera at the current build waypoint (so the right pane shows
@@ -130,8 +131,13 @@ void FeatureMatchState::handleKey(Simulation &sim, Renderer &renderer, int key, 
         startBuild(sim, renderer);
         return;
     }
-    if (building())                // B/N/M are run-phase keys; ignore mid-build
-        return;
+    if (building()) {
+        if (key == GLFW_KEY_X) {   // skip an unplaceable suggestion
+            std::cout << "FEATURES: skipped a suggestion." << std::endl;
+            advance(sim, renderer);
+        }
+        return;                    // B/N/M and the rest are inert mid-build
+    }
     PoseComparisonState::handleKey(sim, renderer, key, mods);
 }
 
@@ -145,17 +151,9 @@ void FeatureMatchState::tick(Simulation &sim, GLFWwindow *window, float dt)
 void FeatureMatchState::handleMouseButton(Simulation &sim, Renderer &renderer,
                                           GLFWwindow *window, int button, int action)
 {
-    if (!building() || action != GLFW_PRESS)
-        return;
-
-    // Right-click skips an unplaceable suggestion (off the map, or one the user
-    // can't localize) without anchoring it.
-    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
-        std::cout << "FEATURES: skipped a suggestion." << std::endl;
-        advance(sim, renderer);
-        return;
-    }
-    if (button != GLFW_MOUSE_BUTTON_LEFT)
+    // Left-click only: right/middle drive the global-map rotate/pan (intercepted
+    // in Callbacks before they reach here), and skipping a suggestion is the X key.
+    if (!building() || action != GLFW_PRESS || button != GLFW_MOUSE_BUTTON_LEFT)
         return;
 
     double cursorX, cursorY;
@@ -225,11 +223,10 @@ void FeatureMatchState::renderPlayerOverlay(const Simulation &sim, Renderer &ren
     // unambiguous (the user always knows which point they're placing). It is a
     // screen-space 2D marker over the live waypoint view: an ortho over the unit
     // square maps the stored [0,1] fraction straight to the viewport (the same
-    // screen matrix PICK uses), drawn in the reserved pending color.
+    // screen matrix PICK uses). Big and red so it's easy to spot and aim from.
     if (m_build->active < m_build->markers.size()) {
         const glm::mat4 screen = glm::ortho(0.0f, 1.0f, 1.0f, 0.0f);
         const glm::vec3 pos(m_build->markers[m_build->active], 0.0f);
-        renderer.drawPoints({ pos }, { overlay::pendingPickColor },
-                            overlay::pickMarkerSize, screen);
+        renderer.drawPoints({ pos }, { glm::vec3(1.0f, 0.0f, 0.0f) }, 22.0f, screen);
     }
 }

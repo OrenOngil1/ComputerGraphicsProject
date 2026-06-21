@@ -60,7 +60,9 @@ waypoint: it poses the player (right) view at that waypoint and runs ORB on it
 **one at a time** — the active suggestion is a white screen-space marker in the
 player view — and the user **color-picks its matching 3D point on the global
 (left) map** (`pickVertex(globalView)` → `mesh.worldPos`, the same color-pick
-Mode B uses). Right-click skips an unplaceable suggestion. Each placement stores
+Mode B uses). Press **X** to skip an unplaceable suggestion, and use the global-map
+mouse controls (scroll = zoom, middle-drag = pan, right-drag = orbit) to frame
+hard-to-see spots, including behind mountains. Each placement stores
 `(descriptor, hand-picked 3D anchor)` in the `FeatureDb`; when every view is
 done the database is built. The 2D ORB position is *only* on-screen guidance — it
 is never stored or fed to PnP; the database's 3D comes entirely from the user.
@@ -155,12 +157,13 @@ worth knowing when reading the numbers.
 | Q / E | moving modes | altitude up / down |
 | scroll wheel | over global view | zoom the global map in / out |
 | middle-drag | over global view | pan the global map |
+| right-drag | over global view | rotate (orbit) the global map — see behind mountains |
 | B | RECORD | drop a waypoint |
 | B | TRACKERS / FEATURE MATCH | capture a timestep (true + computed pose) |
 | N / M | TRACKERS / FEATURE MATCH | review next / previous timestep |
 | G | FEATURE MATCH | start the manual database build (steps through each view) |
 | left-click | FEATURE MATCH build | color-pick the active suggestion's 3D point on the global map |
-| right-click | FEATURE MATCH build | skip the active (unplaceable) suggestion |
+| X | FEATURE MATCH build | skip the active (unplaceable) suggestion |
 | click | PICK | pick a 2D–3D correspondence |
 | C | PICK | solve pose |
 

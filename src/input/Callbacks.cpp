@@ -4,6 +4,7 @@
 #include <memory>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>   // glm::rotate (global-map orbit)
 
 #include "../core/Simulation.h"
 #include "../state/States.h"
@@ -45,6 +46,28 @@ static void panGlobal(Camera &cam, double dx, double dy)
     const glm::vec3 delta = right * (float)(-dx) * scale + up * (float)(dy) * scale;
     cam.position += delta;
     cam.target   += delta;
+}
+
+// Right-drag orbit of an overview camera: swing the eye around the target so the
+// far side of the terrain -- places behind mountains -- can be brought into view.
+// Horizontal drag yaws around world up; vertical drag pitches, but only while the
+// view stays clear of the vertical so eye/target/up never become colinear. The
+// target stays fixed (a pure orbit), so picking still aims at the same scene.
+static void orbitGlobal(Camera &cam, double dx, double dy)
+{
+    glm::vec3 offset = cam.position - cam.target;
+
+    offset = glm::vec3(glm::rotate(glm::mat4(1.0f), (float)(-dx) * 0.005f,
+                                   glm::vec3(0.0f, 1.0f, 0.0f)) * glm::vec4(offset, 0.0f));
+
+    glm::vec3 forward = glm::normalize(-offset);
+    glm::vec3 right   = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+    glm::vec3 pitched = glm::vec3(glm::rotate(glm::mat4(1.0f), (float)(-dy) * 0.005f, right)
+                                  * glm::vec4(offset, 0.0f));
+    if (glm::abs(glm::normalize(pitched).y) < 0.985f)
+        offset = pitched;
+
+    cam.position = cam.target + offset;
 }
 
 // The one place a transition is performed -- so a state never has to know about
@@ -199,19 +222,22 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 
     Simulation *sim = ctx->sim;
 
-    // Middle button drives the global-map pan (press over the global view to
-    // grab, release to let go), intercepted here so it never reaches the mode.
-    if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
+    // Middle/right buttons drive the global-map pan/orbit (press over the global
+    // view to grab, release to let go), intercepted here so they never reach the
+    // active mode.
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE || button == GLFW_MOUSE_BUTTON_RIGHT) {
         if (action == GLFW_PRESS) {
             double x, y;
             glfwGetCursorPos(window, &x, &y);
             if (inside(sim->globalView.viewport, x, y)) {
-                ctx->panning  = true;
-                ctx->lastPanX = x;
-                ctx->lastPanY = y;
+                ctx->panning   = (button == GLFW_MOUSE_BUTTON_MIDDLE);
+                ctx->rotating  = (button == GLFW_MOUSE_BUTTON_RIGHT);
+                ctx->lastDragX = x;
+                ctx->lastDragY = y;
             }
         } else if (action == GLFW_RELEASE) {
             ctx->panning = false;
+            ctx->rotating = false;
         }
         return;
     }
@@ -236,15 +262,21 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
         zoomGlobal(ctx->sim->globalView.camera, yoffset);
 }
 
-// Cursor motion pans the global camera while a middle-drag is in progress. Fires
-// constantly, so it stays silent (no error log) and does nothing unless panning.
+// Cursor motion pans (middle-drag) or orbits (right-drag) the global camera.
+// Fires constantly, so it stays silent (no error log) and does nothing unless a
+// drag is in progress.
 void cursorPosCallback(GLFWwindow *window, double xpos, double ypos)
 {
     CallbackContext *ctx = static_cast<CallbackContext *>(glfwGetWindowUserPointer(window));
-    if (!ctx || !ctx->sim || !ctx->panning)
+    if (!ctx || !ctx->sim || (!ctx->panning && !ctx->rotating))
         return;
 
-    panGlobal(ctx->sim->globalView.camera, xpos - ctx->lastPanX, ypos - ctx->lastPanY);
-    ctx->lastPanX = xpos;
-    ctx->lastPanY = ypos;
+    const double dx = xpos - ctx->lastDragX;
+    const double dy = ypos - ctx->lastDragY;
+    if (ctx->panning)
+        panGlobal(ctx->sim->globalView.camera, dx, dy);
+    else
+        orbitGlobal(ctx->sim->globalView.camera, dx, dy);
+    ctx->lastDragX = xpos;
+    ctx->lastDragY = ypos;
 }
