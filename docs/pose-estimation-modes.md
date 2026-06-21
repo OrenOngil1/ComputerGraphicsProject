@@ -153,6 +153,8 @@ worth knowing when reading the numbers.
 | F | anywhere | FEATURE MATCH mode (needs waypoints; prompts for feature count) |
 | W/A/S/D + arrows | moving modes | fly / look |
 | Q / E | moving modes | altitude up / down |
+| scroll wheel | over global view | zoom the global map in / out |
+| middle-drag | over global view | pan the global map |
 | B | RECORD | drop a waypoint |
 | B | TRACKERS / FEATURE MATCH | capture a timestep (true + computed pose) |
 | N / M | TRACKERS / FEATURE MATCH | review next / previous timestep |

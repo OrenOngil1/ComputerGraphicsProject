@@ -3,10 +3,49 @@
 #include <iostream>
 #include <memory>
 
+#include <glm/glm.hpp>
+
 #include "../core/Simulation.h"
 #include "../state/States.h"
 #include "../state/TrackersState.h"
 #include "../state/FeatureMatchState.h"
+
+// Is the cursor inside this viewport? The global-map mouse controls only act
+// while the cursor is over the global (left) view, so they never fight with the
+// player view.
+static bool inside(const Viewport &vp, double x, double y)
+{
+    return x >= vp.x && x < vp.x + vp.width &&
+           y >= vp.y && y < vp.y + vp.height;
+}
+
+// Scroll-wheel zoom of an overview camera: slide the eye along its view axis,
+// keeping the target fixed. Each notch scales the eye-target distance ~10%,
+// clamped so it can't cross the target or fly off to infinity.
+static void zoomGlobal(Camera &cam, double scrollY)
+{
+    glm::vec3 forward = cam.target - cam.position;
+    float dist = glm::length(forward);
+    if (dist < 1e-4f) return;
+    forward /= dist;
+    dist = glm::clamp(dist * (scrollY > 0 ? 0.9f : 1.0f / 0.9f), 1.0f, 1.0e5f);
+    cam.position = cam.target - forward * dist;
+}
+
+// Middle-drag pan of an overview camera: shift eye AND target together in the
+// camera's view plane, so the map slides under the cursor (grab-the-map feel:
+// drag right -> content moves right). Scaled by the eye-target distance so the
+// pan feels the same at any zoom.
+static void panGlobal(Camera &cam, double dx, double dy)
+{
+    glm::vec3 forward = glm::normalize(cam.target - cam.position);
+    glm::vec3 right   = glm::normalize(glm::cross(forward, cam.up));
+    glm::vec3 up      = glm::normalize(glm::cross(right, forward));
+    const float scale = glm::length(cam.target - cam.position) * 0.0015f;
+    const glm::vec3 delta = right * (float)(-dx) * scale + up * (float)(dy) * scale;
+    cam.position += delta;
+    cam.target   += delta;
+}
 
 // The one place a transition is performed -- so a state never has to know about
 // the states it can transition to -- and the new mode's entry action (onEnter)
@@ -159,7 +198,53 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
     }
 
     Simulation *sim = ctx->sim;
+
+    // Middle button drives the global-map pan (press over the global view to
+    // grab, release to let go), intercepted here so it never reaches the mode.
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
+        if (action == GLFW_PRESS) {
+            double x, y;
+            glfwGetCursorPos(window, &x, &y);
+            if (inside(sim->globalView.viewport, x, y)) {
+                ctx->panning  = true;
+                ctx->lastPanX = x;
+                ctx->lastPanY = y;
+            }
+        } else if (action == GLFW_RELEASE) {
+            ctx->panning = false;
+        }
+        return;
+    }
+
     if (sim->currentState)
         sim->currentState->handleMouseButton(*sim, *ctx->renderer,
                                                   window, button, action);
+}
+
+// Scroll wheel zooms the global (overview) camera while the cursor is over it.
+void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
+{
+    (void)xoffset;
+
+    CallbackContext *ctx = static_cast<CallbackContext *>(glfwGetWindowUserPointer(window));
+    if (!ctx || !ctx->sim)
+        return;
+
+    double x, y;
+    glfwGetCursorPos(window, &x, &y);
+    if (inside(ctx->sim->globalView.viewport, x, y))
+        zoomGlobal(ctx->sim->globalView.camera, yoffset);
+}
+
+// Cursor motion pans the global camera while a middle-drag is in progress. Fires
+// constantly, so it stays silent (no error log) and does nothing unless panning.
+void cursorPosCallback(GLFWwindow *window, double xpos, double ypos)
+{
+    CallbackContext *ctx = static_cast<CallbackContext *>(glfwGetWindowUserPointer(window));
+    if (!ctx || !ctx->sim || !ctx->panning)
+        return;
+
+    panGlobal(ctx->sim->globalView.camera, xpos - ctx->lastPanX, ypos - ctx->lastPanY);
+    ctx->lastPanX = xpos;
+    ctx->lastPanY = ypos;
 }

@@ -70,6 +70,8 @@ Application::Application()
     glfwSetKeyCallback(window, keyCallback);
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
+    glfwSetScrollCallback(window, scrollCallback);          // global-map zoom
+    glfwSetCursorPosCallback(window, cursorPosCallback);    // global-map pan (middle-drag)
 
     // Seed the split-screen layout from the actual framebuffer size in PIXELS (the
     // requested WIDTH/HEIGHT are screen coords HiDPI scaling may not match). We call
