@@ -221,17 +221,15 @@ void FeatureMatchState::renderPlayerOverlay(const Simulation &sim, Renderer &ren
     }
     (void)mvp;
 
-    // The suggestions are screen-space 2D markers over the live waypoint view:
-    // the active one in the reserved pending color, the rest (still to do) dim.
-    // An ortho over the unit square maps the stored [0,1] fractions straight to
-    // the viewport -- the same screen matrix PICK uses for its 2D markers.
-    const glm::mat4 screen = glm::ortho(0.0f, 1.0f, 1.0f, 0.0f);
-    std::vector<glm::vec3> positions, colors;
-    for (size_t i = m_build->active; i < m_build->markers.size(); i++) {
-        positions.push_back(glm::vec3(m_build->markers[i], 0.0f));
-        colors.push_back(i == m_build->active ? overlay::pendingPickColor
-                                              : glm::vec3(0.35f));
+    // Only the active suggestion is shown -- one at a time keeps the recording
+    // unambiguous (the user always knows which point they're placing). It is a
+    // screen-space 2D marker over the live waypoint view: an ortho over the unit
+    // square maps the stored [0,1] fraction straight to the viewport (the same
+    // screen matrix PICK uses), drawn in the reserved pending color.
+    if (m_build->active < m_build->markers.size()) {
+        const glm::mat4 screen = glm::ortho(0.0f, 1.0f, 1.0f, 0.0f);
+        const glm::vec3 pos(m_build->markers[m_build->active], 0.0f);
+        renderer.drawPoints({ pos }, { overlay::pendingPickColor },
+                            overlay::pickMarkerSize, screen);
     }
-    if (!positions.empty())
-        renderer.drawPoints(positions, colors, overlay::pickMarkerSize, screen);
 }
