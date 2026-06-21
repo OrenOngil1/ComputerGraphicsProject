@@ -13,11 +13,25 @@
 #include "../render/Renderer.h"
 #include "../vision/FeatureMatching.h"
 
+// Mode D runs in two phases that share this one State, told apart by building()
+// (i.e. whether m_build is set):
+//   * BUILD (G) -- m_build != null. The camera is pinned to each recorded view
+//     in turn; the user hand-anchors that view's ORB suggestions onto the global
+//     map, filling m_db. Flight and B/N/M are suspended until it completes.
+//   * RUN (m_build == null) -- the inherited PoseComparisonState behavior: fly,
+//     B captures a timestep whose pose computePose() estimates by matching the
+//     LIVE view against m_db, N/M review, ghost + dual-path comparison.
+// tick/handleKey/handleMouseButton and the overlays all branch on building().
+
 // Pre-phase scratch: which recorded view we're anchoring, which suggestion is
-// active, the top-N ORB suggestions for the current view (normalized marker
-// positions for display) and their descriptors (one row each, aligned with
-// markers). Kept in the .cpp so OpenCV types stay out of the state header, the
-// same incomplete-type pattern as FeatureDb.
+// active, the top-N ORB suggestions for the current view, and their descriptors
+// (one row each, aligned with markers). Kept in the .cpp so OpenCV types stay
+// out of the state header, the same incomplete-type pattern as FeatureDb.
+//
+// markers is DISPLAY ONLY -- the 2D ORB position is just the dot the user aims
+// from; it never enters the database or PnP. The build stores only
+// (descriptor, user-picked 3D), and run-phase PnP pairs each match with the
+// LIVE frame's keypoint pixel, never these. That is what makes Mode D manual.
 struct BuildScratch {
     size_t                 waypoint = 0;
     size_t                 active   = 0;
@@ -101,6 +115,9 @@ void FeatureMatchState::loadCurrentView(Simulation &sim, Renderer &renderer)
     finishBuild();
 }
 
+// G: discard any previous database and start a fresh hand-build at view 0.
+// Rebuilding from scratch is deliberate -- a database must be anchored under one
+// light, so mixing two lightings (the experiment) would muddy it.
 void FeatureMatchState::startBuild(Simulation &sim, Renderer &renderer)
 {
     m_db = std::make_unique<FeatureDb>();
