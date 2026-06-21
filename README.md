@@ -26,9 +26,9 @@ recovers the camera's six degrees of freedom. The four modes are four ways of
 | Mode | Key | How correspondences are made | Demonstrates |
 | ---- | --- | ---------------------------- | ------------ |
 | **A — Navigation** | — | none (fly, record path `R`, play back `Ctrl+R`) | Dual-view free-flight camera + path recording |
-| **B — Picking** | `P` | *manual* — click points on the terrain | Human-in-the-loop PnP (the baseline) |
+| **B — Picking** | `P` | *manual* — click a 2D point in the camera view, then its 3D match on the map | Human-in-the-loop PnP (the baseline) |
 | **C — Trackers** | `T` | *fiducial* — uniquely coloured spheres with known 3D centres; find each colour's blob, its centroid is the 2D point | Automatic correspondence with trivial data association |
-| **D — Feature Matching** | `F` | *natural* — ORB features on the terrain itself, matched against a pre-built database | The hard, markerless case |
+| **D — Feature Matching** | `F` | *ORB-assisted manual* — ORB suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
 
 Modes C and D share a base (`PoseComparisonState`) that records
 `(true pose, computed pose)` per timestep (`B` to capture, `N`/`M` to review)
@@ -49,9 +49,6 @@ make            # build  -> bin/drone_sim
 ./bin/drone_sim # run; pick a terrain by number at the prompt
 make check      # run the headless math checks (no GPU needed)
 ```
-
-> The Makefile does not track header dependencies — after editing a header or
-> pulling, run `make clean && make`.
 
 ## How it works (key techniques)
 
