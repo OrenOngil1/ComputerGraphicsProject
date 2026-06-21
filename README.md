@@ -63,10 +63,12 @@ make check      # run the headless math checks (no GPU needed)
 - **Mode C (blobs).** Classify each read-back pixel against the known sphere
   palette; each colour's mean pixel is its centroid (the 2D point), paired with
   the sphere's known 3D centre.
-- **Mode D (ORB + RANSAC).** Pre-phase renders each recorded waypoint, detects
-  ORB keypoints, and anchors each to 3D via the ID pass → a `FeatureDb`.
-  Run-phase detects features in the live view, matches them (Hamming + Lowe's
-  ratio test), and solves with **RANSAC PnP** for robustness to wrong matches.
+- **Mode D (ORB + RANSAC), manual anchoring.** Pre-phase is by hand: for each
+  recorded view ORB suggests its strongest N points one at a time and the user
+  color-picks each one's 3D spot on the global map → a `FeatureDb` of
+  hand-placed `(descriptor, 3D)` pairs. Run-phase detects features in the live
+  view, matches them against that database (Hamming + Lowe's ratio test), and
+  solves with **RANSAC PnP** for robustness to wrong matches.
 - **Lighting.** A directional light (Lambert + ambient) with per-vertex normals
   from the height map; `L` cycles presets. Required for the Mode D experiment.
 
@@ -75,12 +77,12 @@ Architecture (composition root, State pattern, Renderer/vision separation):
 
 ## The lighting experiment
 
-Changing the light between building the feature database and using it (PDF
-p. 54) **breaks Mode D almost completely**: under the database's own light,
-well-overlapping views localise to sub-percent error; any change of light
-*direction* collapses matches from 30–303 down to 2–14. The cause is that the
-terrain's appearance is **shading-driven, not texture-driven** — moving the sun
-flips the very intensity gradients ORB encodes. Full results and analysis:
+Because the terrain's appearance is **shading-driven, not texture-driven**,
+moving the sun flips the very intensity gradients ORB encodes. With the manual
+Mode D this shows up in the *detection* step: a light-direction change relocates
+which points ORB suggests for the same view. The earlier automatic-matching
+version made the same cause measurable as a near-total collapse (matches
+30–303 → 2–14, pose refused), recorded in full at
 **[docs/lighting-experiment.md](docs/lighting-experiment.md)**.
 
 ## Tests
