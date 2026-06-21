@@ -26,9 +26,9 @@ recovers the camera's six degrees of freedom. The four modes are four ways of
 | Mode | Key | How correspondences are made | Demonstrates |
 | ---- | --- | ---------------------------- | ------------ |
 | **A — Navigation** | — | none (fly, record path `R`, play back `Ctrl+R`) | Dual-view free-flight camera + path recording |
-| **B — Picking** | `P` | *manual* — click points on the terrain | Human-in-the-loop PnP (the baseline) |
+| **B — Picking** | `P` | *manual* — click a 2D point in the camera view, then its 3D match on the map | Human-in-the-loop PnP (the baseline) |
 | **C — Trackers** | `T` | *fiducial* — uniquely coloured spheres with known 3D centres; find each colour's blob, its centroid is the 2D point | Automatic correspondence with trivial data association |
-| **D — Feature Matching** | `F` | *natural* — ORB features on the terrain itself, matched against a pre-built database | The hard, markerless case |
+| **D — Feature Matching** | `F` | *ORB-assisted manual* — ORB suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
 
 Modes C and D share a base (`PoseComparisonState`) that records
 `(true pose, computed pose)` per timestep (`B` to capture, `N`/`M` to review)
@@ -50,9 +50,6 @@ make            # build  -> bin/drone_sim
 make check      # run the headless math checks (no GPU needed)
 ```
 
-> The Makefile does not track header dependencies — after editing a header or
-> pulling, run `make clean && make`.
-
 ## How it works (key techniques)
 
 - **Render-to-read-back.** To learn where things land on screen, the app
@@ -63,10 +60,12 @@ make check      # run the headless math checks (no GPU needed)
 - **Mode C (blobs).** Classify each read-back pixel against the known sphere
   palette; each colour's mean pixel is its centroid (the 2D point), paired with
   the sphere's known 3D centre.
-- **Mode D (ORB + RANSAC).** Pre-phase renders each recorded waypoint, detects
-  ORB keypoints, and anchors each to 3D via the ID pass → a `FeatureDb`.
-  Run-phase detects features in the live view, matches them (Hamming + Lowe's
-  ratio test), and solves with **RANSAC PnP** for robustness to wrong matches.
+- **Mode D (ORB + RANSAC), manual anchoring.** Pre-phase is by hand: for each
+  recorded view ORB suggests its strongest N points one at a time and the user
+  color-picks each one's 3D spot on the global map → a `FeatureDb` of
+  hand-placed `(descriptor, 3D)` pairs. Run-phase detects features in the live
+  view, matches them against that database (Hamming + Lowe's ratio test), and
+  solves with **RANSAC PnP** for robustness to wrong matches.
 - **Lighting.** A directional light (Lambert + ambient) with per-vertex normals
   from the height map; `L` cycles presets. Required for the Mode D experiment.
 
@@ -75,12 +74,12 @@ Architecture (composition root, State pattern, Renderer/vision separation):
 
 ## The lighting experiment
 
-Changing the light between building the feature database and using it (PDF
-p. 54) **breaks Mode D almost completely**: under the database's own light,
-well-overlapping views localise to sub-percent error; any change of light
-*direction* collapses matches from 30–303 down to 2–14. The cause is that the
-terrain's appearance is **shading-driven, not texture-driven** — moving the sun
-flips the very intensity gradients ORB encodes. Full results and analysis:
+Because the terrain's appearance is **shading-driven, not texture-driven**,
+moving the sun flips the very intensity gradients ORB encodes. With the manual
+Mode D this shows up in the *detection* step: a light-direction change relocates
+which points ORB suggests for the same view. The earlier automatic-matching
+version made the same cause measurable as a near-total collapse (matches
+30–303 → 2–14, pose refused), recorded in full at
 **[docs/lighting-experiment.md](docs/lighting-experiment.md)**.
 
 ## Tests

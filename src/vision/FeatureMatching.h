@@ -9,11 +9,11 @@
 #include "../core/Scene.h"    // FramePixels, Mesh
 #include "../core/Camera.h"   // Waypoint
 
-// The feature-matching mode's pre-phase product: ORB descriptors harvested
-// from rendered views, each anchored to the 3D terrain point it was detected
-// on. Descriptors from all contributing views are stacked into one matrix;
+// The feature-matching mode's pre-phase product: ORB descriptors, each anchored
+// to a 3D terrain point the USER hand-placed on the map (Mode D is manual).
+// Descriptors from all contributing views are stacked into one matrix;
 // anchors[i] is the world-space point behind descriptor row i. Plain data --
-// the functions below are the only writers.
+// the mode is the only writer.
 struct FeatureDb {
     cv::Mat descriptors;              // CV_8U, one 32-byte ORB descriptor per row
     std::vector<glm::vec3> anchors;   // centered world space, like Correspondence::worldPos
@@ -21,14 +21,14 @@ struct FeatureDb {
     bool empty() const { return anchors.empty(); }
 };
 
-// Pre-phase, one view's worth: detect ORB keypoints on the captured frame,
-// anchor each to 3D through the per-pixel vertex-id map (keypoints over
-// background pixels drop out), and append the survivors to the database.
-// frame and vertexIds must come from the same View (Renderer's
-// captureSceneFrame / captureVertexIdFrame) so pixel (x, y) means the same
-// surface point in both.
-void harvestViewFeatures(FeatureDb &db, const FramePixels &frame,
-                         const std::vector<int> &vertexIds, const Mesh &mesh);
+// Pre-phase suggestion step: detect ORB on the frame and return the strongest
+// maxCount keypoints (by corner response) with their aligned descriptor rows --
+// the salient points the user is asked to place on the map, one at a time. The
+// rendered view's black background carries no texture, so the strongest
+// responses naturally land on the terrain. keypoints/descriptors are cleared
+// first; descriptors has one row per returned keypoint.
+void detectTopFeatures(const FramePixels &frame, int maxCount,
+                       std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors);
 
 // Run-phase: detect ORB features in the current frame, match them against the
 // database (brute-force Hamming + Lowe ratio test), and solve the surviving

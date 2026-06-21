@@ -1,7 +1,9 @@
 #include "FeatureMatching.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <numeric>
 
 #include <opencv2/features2d.hpp>
 #include <opencv2/imgproc.hpp>
@@ -33,27 +35,31 @@ static void detectFeatures(const FramePixels &frame,
     orb->detectAndCompute(toGray(frame), cv::noArray(), keypoints, descriptors);
 }
 
-void harvestViewFeatures(FeatureDb &db, const FramePixels &frame,
-                         const std::vector<int> &vertexIds, const Mesh &mesh)
+void detectTopFeatures(const FramePixels &frame, int maxCount,
+                       std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
 {
-    std::vector<cv::KeyPoint> keypoints;
-    cv::Mat descriptors;
-    detectFeatures(frame, keypoints, descriptors);
+    std::vector<cv::KeyPoint> allKps;
+    cv::Mat allDesc;
+    detectFeatures(frame, allKps, allDesc);
 
-    for (size_t i = 0; i < keypoints.size(); i++) {
-        // The keypoint's subpixel position rounds to the pixel whose vertex id
-        // anchors it. Keypoints over the background (id -1) have no 3D point
-        // and drop out -- e.g. silhouette responses against the sky.
-        const int x = (int)std::lround(keypoints[i].pt.x);
-        const int y = (int)std::lround(keypoints[i].pt.y);
-        if (x < 0 || x >= frame.width || y < 0 || y >= frame.height)
-            continue;
-        const int id = vertexIds[(size_t)y * frame.width + x];
-        if (id < 0)
-            continue;
+    keypoints.clear();
+    descriptors.release();
+    if (allKps.empty() || maxCount <= 0)
+        return;
 
-        db.descriptors.push_back(descriptors.row((int)i));
-        db.anchors.push_back(mesh.worldPos(id));
+    // Rank by ORB response (corner strength): the strongest keypoints are the
+    // most repeatable, and the ones a user would naturally single out.
+    std::vector<size_t> order(allKps.size());
+    std::iota(order.begin(), order.end(), size_t(0));
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        return allKps[a].response > allKps[b].response;
+    });
+
+    const size_t keep = std::min((size_t)maxCount, order.size());
+    keypoints.reserve(keep);
+    for (size_t i = 0; i < keep; i++) {
+        keypoints.push_back(allKps[order[i]]);
+        descriptors.push_back(allDesc.row((int)order[i]));   // copies the row
     }
 }
 
@@ -94,11 +100,12 @@ std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
               << " confident matches from " << keypoints.size()
               << " keypoints" << std::endl;
 
-    // A good-overlap, well-lit frame yields 150+ inliers; a poor-overlap or
-    // re-lit frame collapses to ~10, clustered, which RANSAC still "solves"
-    // into a wildly wrong pose. Demand a consensus well clear of that floor so
-    // such frames are refused rather than logged as a confident bad estimate.
-    const int kMinInliers = 25;
+    // The database is now hand-built and small (~featureCount per view), so the
+    // whole DB is only a few dozen descriptors and a run-phase match yields at
+    // most that many inliers -- the old 25 floor (tuned for the automatic DB of
+    // hundreds) would refuse every frame. Keep a small consensus floor above the
+    // algebraic PnP minimum of 4 so a near-empty match is still rejected.
+    const int kMinInliers = 6;
     return computeCameraPoseRansac(correspondences, fov,
                                    viewportWidth, viewportHeight, kMinInliers);
 }

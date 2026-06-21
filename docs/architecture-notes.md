@@ -1,10 +1,16 @@
 # Architecture Notes (AI orientation)
 
-> Dense map of the current architecture on branch `legacy-import` (legacy
-> features — movement, picking, menu — ported onto the post-`oop` refactor).
-> Written for a future Claude Code session to read first. Verify line numbers
-> against the current code before quoting them — structure is stable, exact
-> lines drift.
+> Dense map of the architecture. Written for a future Claude Code session to
+> read first. Verify line numbers against the current code before quoting them —
+> structure is stable, exact lines drift.
+>
+> **Status: all four modes are implemented** — A Navigation, B Picking, C
+> Trackers, D Feature Matching — plus a directional lighting model. Modes B and
+> D are *manual* (the user supplies the 3D half of each correspondence by
+> color-picking the global map); C is automatic (colored fiducials); D's ORB
+> only *suggests* the 2D points. For the per-mode walkthrough, controls, and the
+> experiments, read **`docs/pose-estimation-modes.md`** (and
+> `docs/lighting-experiment.md`); this file is the structural/ownership map.
 
 ## Mental model
 
@@ -50,37 +56,61 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
   - `Camera.h` — `Camera` (position/target/up + fov/near/far), `Viewport`
     (x/y/w/h), `View {Camera; Viewport;}`, free `leftHalf`/`rightHalf` layout
     helpers, and `Waypoint` (recorded pose: position + target).
-  - `Scene.h` — `Vertex {position,color}`, `Correspondence {worldPos, normalized
-    imagePos + imagePixels() denormalizer}` (formerly `PickedPoint`),
-    `Mesh {width,height,vertices}` (plain `struct`s).
+  - `Scene.h` — `Vertex {position, color, normal}` (normal added for lighting),
+    `Correspondence {worldPos, normalized imagePos + imagePixels() denormalizer}`
+    (formerly `PickedPoint`), `Mesh {cols, rows, vertices}` with `center()` /
+    `worldPos(id)` helpers (formerly `width`/`height`), plus `Tracker {center,
+    radius, color}` (Mode C) and `FramePixels {w, h, rgb}` (a CPU-side viewport
+    read-back, top-down RGB) for the vision passes. Plain `struct`s.
+  - `Lighting.h` — `DirectionalLight {direction, color, ambient}` and the
+    `kLightPresets` table (late-morning / noon / low-warm / overcast) the `L`
+    key cycles. The light lives on `Simulation` and survives terrain swaps.
   - `Menu.{h,cpp}` — `selectTerrain(dir)`: console menu over the DEM images in a
     folder; blocks on `std::cin`; trailing "Exit" entry calls `exit(0)`.
   - `Utils.h` — header-only helpers: `randomIndex(n)`, glm↔OpenCV point
-    conversions, and `getCameraIntrinsicMatrix(fov,w,h)` (the pinhole **K** for PnP).
+    conversions, and `getCameraIntrinsicMatrix(fov,w,h)` — the pinhole **K** for
+    PnP, **square pixels (`fx == fy`)**: the aspect is carried by w≠h and the
+    principal point, NOT the focal length (a wrong `fx` here once biased every
+    pose ~22% on the non-square player viewport).
 - `src/render/Renderer.h/.cpp` — **sole owner of GPU resources**: three `Shader`s
-  (`m_sceneShader`, `m_pickShader`, `m_pointShader`) + `TerrainGpu m_terrain`
-  (VA/VB/IB). Non-copyable. **Mesh-less ctor** compiles the shaders only;
-  `loadTerrain` is the sole terrain-upload path.
-  - Public: `clear()`, `loadTerrain(Mesh)` (swap buffers, reuse shader),
-    `renderGlobalView(View, Simulation)`, `renderPlayerView(View, Simulation)`;
-    overlay surface `drawPath` / `drawWaypoints` / `drawPoints`; PICK support
-    `pickVertex(x,y,View) → id` (offscreen id-color pass + `glReadPixels`) and
-    `drawGhost(...)` (terrain re-drawn translucent from an estimated pose).
-  - Private `renderScene(Camera, Viewport) → mvp`: viewport → MVP → draw
-    terrain; returns the MVP for the active mode's overlay.
+  (`m_sceneShader`, `m_pickShader`, `m_pointShader`) + two `GpuMesh` (VA/VB/IB):
+  `m_terrain` (swapped per DEM) and `m_sphere` (the shared unit sphere every
+  Mode-C tracker draws). Non-copyable. **Mesh-less ctor** compiles the shaders +
+  builds the sphere; `loadTerrain` is the sole terrain-upload path.
+  - Public: `clear()`, `loadTerrain(Mesh)`, `renderGlobalView`/`renderPlayerView
+    (View, Simulation)`; overlay surface `drawPath` / `drawWaypoints` /
+    `drawPoints` / `drawTrackers`; PICK support `pickVertex(x,y,View) → id`
+    (offscreen id-color pass + `glReadPixels`) and `drawGhost(...)`; and the
+    full-frame vision read-backs `captureSceneFrame(View, light)` (lit RGB),
+    `captureVertexIdFrame(View)` (per-pixel vertex id), `captureTrackersFrame`
+    (flat-color spheres on black) — all offscreen, never swapped.
+  - Private `renderScene(Camera, Viewport, DirectionalLight) → mvp`: viewport →
+    MVP → draw terrain lit (Lambert + ambient, gated by a `u_Lit` uniform so the
+    overlay/capture/pick passes stay unshaded); returns the MVP for the overlay.
 - `src/state/` — the State pattern (see below).
 - `src/input/`
-  - `Callbacks.cpp` — `keyCallback` (Escape → `returnToMenu`; `Ctrl+Q` → quit; else
-    `tryTransition` then `currentState->handleKey`), `mouseButtonCallback` (→ `currentState`),
-    `framebufferSizeCallback`, and the transition machinery (`setState`,
-    `requireWaypoints`, `tryTransition`).
+  - `Callbacks.cpp` — `keyCallback` (Escape → `returnToMenu`; `Ctrl+Q` → quit;
+    `L` → cycle the light; else `tryTransition` then `currentState->handleKey`),
+    `mouseButtonCallback`, `framebufferSizeCallback`, plus `scrollCallback` /
+    `cursorPosCallback` for the **global-map controls** (scroll = zoom,
+    middle-drag = pan, right-drag = orbit — these act only over the global view
+    and move only the overview camera; the drag state lives on
+    `CallbackContext`). The transition machinery (`setState`, `requireWaypoints`,
+    `tryTransition`) lives here too.
   - `Movement.*` — `moveCamera(camera, terrainSize, window, dt)`: continuous,
     frame-rate-independent FPS flight. **Polls** held keys (`glfwGetKey`) each
     frame: WASD translate (forward follows pitch), arrows look (pitch clamped),
-    Shift+`.`/`,` altitude. Speed scales with `terrainSize` and `dt`.
-- `src/vision/Pnp.{h,cpp}` — `computeCameraPose(pickedPoints, fov, w, h) →
-  optional<Waypoint>`: solves Perspective-n-Point (OpenCV) from ≥4 2D-3D
-  correspondences; the CV layer, decoupled from rendering.
+    `Q`/`E` altitude. Speed scales with `terrainSize` and `dt`.
+- `src/vision/` — the OpenCV layer, decoupled from rendering (operates on
+  `Correspondence`s and `FramePixels`, never GL):
+  - `Pnp.{h,cpp}` — `computeCameraPose(...)` (SQPnP, for the exact correspondences
+    of Pick/Trackers) and `computeCameraPoseRansac(..., minInliers)` (for the
+    noisier feature matches); both → `optional<Waypoint>`.
+  - `TrackerDetection.{h,cpp}` — `findTrackerCentroids(frame, trackers)`: classify
+    each pixel against the palette; each color's blob centroid is its 2D point.
+  - `FeatureMatching.{h,cpp}` — `detectTopFeatures` (the strongest N ORB keypoints,
+    Mode D's suggestions) and `estimatePoseFromFeatures` (run-phase: match the
+    live view against the hand-built `FeatureDb` + RANSAC).
 - `src/loader/TerrainLoader.*` — `readTerrain(path) → Mesh` from a DEM image.
 - `src/engine/` — thin OpenGL 3.3-core wrappers: `Shader`, `VertexArray`,
   `VertexBuffer`, `IndexBuffer`, `VertexBufferLayout`, `Debugger`.
@@ -95,15 +125,22 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
   `sim.returnToMenu` (ends the session → back to the menu) and **`Ctrl+Q`** quits the
   program (`glfwWindowShouldClose`); then `tryTransition` (global mode hotkeys) runs
   and short-circuits; otherwise `currentState->handleKey`.
-- **Mouse input** (`mouseButtonCallback`): routed unconditionally to
-  `currentState->handleMouseButton(sim, *renderer, window, button, action)`
-  — only `PickState` reacts (left-click → pick a vertex).
+- **Mouse input** (`mouseButtonCallback`): middle/right buttons are intercepted
+  for the global-map pan/orbit (never reach the mode); left is routed to
+  `currentState->handleMouseButton(...)` — `PickState` and the `FeatureMatchState`
+  build use it to color-pick a vertex in the global view.
 - **Transitions** (`tryTransition` in `Callbacks.cpp`): `R`→Record,
-  `Ctrl+R`→Playback, `P`→Pick. Playback/Pick are guarded by `requireWaypoints`.
-  `setState` swaps the pointer then calls `onEnter` — the one place onEnter runs.
-- **In-mode keys** (per `States.h`): Navigation = continuous flight (see
+  `Ctrl+R`→Playback, `P`→Pick, `T`→Trackers (prompts for a count), `F`→Feature
+  Matching (prompts for a count). Playback/Pick/Feature-Matching are guarded by
+  `requireWaypoints`. `L` (cycle light) is handled in `keyCallback` *before*
+  `tryTransition`, so it works in any mode. `setState` swaps the pointer then
+  calls `onEnter` — the one place onEnter runs.
+- **In-mode keys** (per the state headers): Navigation = continuous flight (see
   `Movement.*`); Record = `B` stores a waypoint; Playback = `UP`/`DOWN` step
-  waypoints; Pick = left-click adds a correspondence, `C` solves PnP.
+  waypoints; Pick = click a 2D point then its 3D match, `C` solves PnP; Trackers
+  & Feature Matching = `B` capture a timestep, `N`/`M` review (from
+  `PoseComparisonState`); Feature Matching also = `G` start the manual database
+  build, `X` skip a suggestion during it.
 - **Resize** (`framebufferSizeCallback`): recomputes `globalView.viewport =
   leftHalf(w,h)`, `playerView.viewport = rightHalf(w,h)`. Pixels, not screen
   coords (HiDPI). The loop only reads viewports — never recomputes them.
@@ -121,14 +158,28 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
     `B` stores a waypoint; overlays path+waypoints on the global view.
   - `PlaybackState` — `UP`/`DOWN` step the private `m_index`; snaps the camera to
     the selected waypoint; overlays path+waypoints.
-  - `PickState` (**fully implemented**, Mode 2) — `onEnter` seeds the player camera
-    at a random recorded waypoint (the unknown pose to recover). A correspondence is
-    built in two clicks: a 2D point in the player view (stored as a normalized
-    `imagePos`, no vertex pick) then its 3D match color-picked in the global view (the
-    "map") via `renderer.pickVertex`; `C` → `computeCameraPose` (PnP). Global overlay
-    draws the 3D points on the map + estimated camera; player overlay draws the 2D
-    observations where the user clicked, then the translucent `drawGhost` from the
-    estimated pose vs. the true view once solved.
+  - `PickState` (Mode 2) — `onEnter` seeds the player camera at a random recorded
+    waypoint (the unknown pose to recover). A correspondence is built in two
+    clicks: a 2D point in the player view (stored as an aspect-invariant camera
+    ray, no vertex pick) then its 3D match color-picked in the global view via
+    `renderer.pickVertex`; `C` → `computeCameraPose`. Overlays: 3D points + the
+    estimated camera on the map; the 2D observations in the player view, then the
+    translucent `drawGhost` once solved.
+  - `PoseComparisonState` (`PoseComparisonState.{h,cpp}`) — shared base of the two
+    automatic-display modes. Free flight; `B` captures a `(true, computed)` pose
+    pair into a `PoseLog`; `N`/`M` review timesteps; the global view draws both
+    fly-through paths and the player view the ghost. The one pure virtual is
+    `computePose` — the only thing the two subclasses differ on.
+  - `TrackersState` (Mode 3, `TrackersState.{h,cpp}`) — `onEnter` scatters N
+    colored fiducial spheres (count from a prompt); `computePose` reads back the
+    detection frame, `findTrackerCentroids` → 2D points paired with the spheres'
+    known 3D centers → PnP. No clicks.
+  - `FeatureMatchState` (Mode 4, `FeatureMatchState.{h,cpp}`) — manual. `G` runs an
+    interactive build (a `.cpp`-private `BuildScratch` sub-state): step each
+    recorded view, ORB suggests the strongest N points one at a time, the user
+    color-picks each one's 3D on the map → a hand-anchored `FeatureDb`.
+    `computePose` (run-phase `B`) matches the live view's ORB features against
+    that DB + RANSAC. `tick`/`handleKey` branch on whether a build is in progress.
 - **No `id()`/`Mode` enum** on purpose: prevents reintroducing `switch(id())`.
 
 ## Load-bearing invariants (do not break)
@@ -144,16 +195,17 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
    other states.
 4. **Camera is read-only render input; Viewport is pure layout.**
 
-## Extension seams (Modes 3–4)
+## Extension seams
 
-- **Mode 2 (Picking): DONE.** Built as `PickState` + `Renderer::pickVertex` /
-  `drawGhost` / `drawPoints` + `vision/Pnp`. The pick pass currently lives **on
-  `Renderer`** (`m_pickShader`); if it grows (FBO, depth read-back) the documented
-  move is still to extract a dedicated `ColorPicker`/`PickPass` rather than widen
-  `Renderer` further.
-- **Modes 3/4 (Trackers / 2D feature matching): NEXT.** New `State` subclasses;
-  reuse `vision/Pnp` + `Utils.h` intrinsics; keep OpenCV/CV pipeline code
-  decoupled from rendering (the `vision/` boundary).
+- **Modes 2–4: DONE.** Picking = `PickState` + `Renderer::pickVertex`/`drawGhost`;
+  Trackers / Feature-Matching = `PoseComparisonState` subclasses + the `vision/`
+  detectors. The color-pick pass still lives **on `Renderer`** (`m_pickShader`);
+  if it grows (FBO, depth read-back) the documented move is to extract a dedicated
+  `ColorPicker`/`PickPass` rather than widen `Renderer` further.
+- **Adding a mode** (the established recipe): a new `State` subclass (or a
+  `PoseComparisonState` subclass for the capture/compare display), a transition in
+  `tryTransition`, and any CV work behind the `vision/` boundary; reuse `Utils.h`
+  intrinsics + `Pnp`.
 - **Terrain swap:** the session loop is **unified** — `Application::loadTerrain`
   calls `Renderer::loadTerrain(newMesh)` to swap the mesh in place; the window and
   compiled shaders persist across menu picks.
@@ -183,6 +235,9 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
 
 ## Cross-references
 
+- **`docs/pose-estimation-modes.md`** — the four modes, full controls, and the
+  experiments (read for *behavior*; this file is *structure*).
+- **`docs/lighting-experiment.md`** — the lighting / feature-stability experiment.
 - `docs/legacy-import.md` — human-facing end-of-branch snapshot ("where the project is now").
 - `docs/refactor-summary.md` — the earlier `oop`-refactor overview.
 - `docs/main-refactor.md` — the main.cpp decomposition fork (resolved → unified).

@@ -54,9 +54,14 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &pic
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 
+    // The `false` is useExtrinsicGuess. Drop it and cv::SOLVEPNP_SQPNP (an int
+    // enum) binds to that bool parameter instead of `flags`, so solvePnP runs
+    // the default ITERATIVE solver with useExtrinsicGuess=true and asserts on
+    // the empty rvec/tvec (it expects them to hold an initial guess). Passing it
+    // explicitly keeps SQPnP in the flags slot.
     cv::Mat rvec, tvec;
     bool ok = cv::solvePnP(objectPoints, imagePoints, K, cv::Mat(),
-                           rvec, tvec, cv::SOLVEPNP_SQPNP);
+                           rvec, tvec, false, cv::SOLVEPNP_SQPNP);
     if (!ok) {
         std::cerr << "cv::solvePnP failed" << std::endl;
         return std::nullopt;

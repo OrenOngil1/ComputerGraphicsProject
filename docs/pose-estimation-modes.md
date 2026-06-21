@@ -49,55 +49,60 @@ part — is answered by a single pixel scan.
 
 ## Mode D — Feature Matching (`F`, requires recorded waypoints)
 
-No markers; correspondences come from ORB features
-(`src/vision/FeatureMatching.cpp`). Two user-driven phases:
+No markers; the salient points come from ORB features
+(`src/vision/FeatureMatching.cpp`). Like Mode B, the 2D→3D correspondence is
+**manual** — ORB only *suggests* where to look; the user supplies the 3D. `F`
+prompts for the number of features per view (default 5). Two phases:
 
-**Pre-phase (G)** — for each recorded waypoint, render that view *under the
-current light* twice through the Renderer: once lit
-(`captureSceneFrame`) and once through the pick shader decoded per pixel into
-vertex ids (`captureVertexIdFrame`). ORB keypoints detected on the lit frame
-are anchored to 3D by looking up the vertex id under each keypoint pixel
-(keypoints over background drop out). Everything lands in one `FeatureDb`:
-stacked descriptors + a 3D anchor per row. G rebuilds from scratch — mixing
-two lightings in one database would muddy the experiment.
+**Pre-phase (G) — interactive, by hand.** The build steps through each recorded
+waypoint: it poses the player (right) view at that waypoint and runs ORB on it
+(`detectTopFeatures`), keeping the strongest N keypoints. They are presented
+**one at a time** — the active suggestion is a white screen-space marker in the
+player view — and the user **color-picks its matching 3D point on the global
+(left) map** (`pickVertex(globalView)` → `mesh.worldPos`, the same color-pick
+Mode B uses). Press **X** to skip an unplaceable suggestion, and use the global-map
+mouse controls (scroll = zoom, middle-drag = pan, right-drag = orbit) to frame
+hard-to-see spots, including behind mountains. Each placement stores
+`(descriptor, hand-picked 3D anchor)` in the `FeatureDb`; when every view is
+done the database is built. The 2D ORB position is *only* on-screen guidance — it
+is never stored or fed to PnP; the database's 3D comes entirely from the user.
 
-**Run-phase (B)** — capture the current view (again under the current light),
-detect ORB features, brute-force Hamming `knnMatch` against the database,
-keep matches that pass Lowe's ratio test (best clearly beats the runner-up,
-0.75), and hand the surviving 2D–3D pairs to `computeCameraPoseRansac`.
-RANSAC instead of plain least squares because descriptor matching always lets
-some wrong pairs through: candidate poses are fitted on small random subsets
-and the one most correspondences agree with (8 px reprojection band) wins.
+**Run-phase (B)** — unchanged and automatic: capture the current view, detect
+ORB features, brute-force Hamming `knnMatch` against the hand-built database,
+keep matches passing Lowe's ratio test (0.75), and solve with
+`computeCameraPoseRansac`. Because the hand-built database is small (≈N per
+view), the inlier floor is modest (6) rather than the automatic version's 25.
 
-The console reports keypoints → confident matches → RANSAC inliers per
-capture — the numbers the lighting experiment reads.
+The console reports keypoints → confident matches → RANSAC inliers per capture.
 
-## The lighting experiment (PDF p. 54)
+## The lighting experiment (PDF p. 54) — reframed around ORB detection
 
 The scene has one directional light (Lambert + ambient, `src/core/Lighting.h`)
 with four presets cycled by **L**: late-morning sun, noon sun, low warm sun,
 overcast. The light deliberately survives terrain swaps and menu round-trips.
 
+Because Mode D's anchoring is now manual, the experiment is about **what ORB
+detects**, not about automatic descriptor matching. ORB keys on local intensity
+gradients, and on this shading-driven terrain those gradients *are* the relief
+lit by the sun — so moving the light moves the salient points themselves.
+
 Procedure:
 
 1. Record a flight with several waypoints (R, B, B, ...).
-2. Press F, then G — the database snapshots the terrain's appearance under
-   the *current* preset.
-3. Press L one or more times — the scene now looks different, but the
-   database still remembers the old appearance.
-4. Fly near the recorded views and press B at several poses; compare the
-   match/inlier counts and position errors against a control run where the
-   light never changed.
+2. Press F, then G, and note where ORB highlights its suggestions for the first
+   view (their on-screen positions).
+3. Press Escape back, change the light with **L**, re-enter F → G on the *same*
+   waypoints. Compare: the suggested points land in **different places** (and
+   different counts survive), because the corners ORB finds shifted with the
+   shading.
 
-Measured outcome (terrain1 — see `lighting-experiment.md`): with the light
-unchanged, matching is strong (tens to hundreds of confident matches, sub-
-percent pose error). Changing the light *direction* at all collapses matching
-almost completely — confident matches fall to a handful (≈2–14), RANSAC
-usually cannot reach its inlier floor, and the run-phase capture is **refused**
-rather than logged. The failure is near-total, not gradual: this terrain's
-appearance is shading-driven (relief lit by the directional light), not
-texture-driven, so moving the light rewrites the local intensity patterns ORB
-keys on everywhere at once.
+Observed: a light-*direction* change relocates most suggestions and changes
+which features are even detected; only a brightness/ambient change (same
+direction) leaves them roughly stable. The historical automatic-matching
+collapse (database built under one light, run-phase frame re-lit → confident
+matches fall from tens–hundreds to ≈2–14, pose refused) is recorded in
+`lighting-experiment.md`; it has the same root cause — shading-driven, not
+texture-driven, appearance.
 
 Run it on at least two terrains (the menu lists everything in
 `assets/terrains/`).
@@ -147,15 +152,20 @@ worth knowing when reading the numbers.
 | Ctrl+R | anywhere | PLAYBACK mode (needs waypoints) |
 | P | anywhere | PICK mode (needs waypoints) |
 | T | anywhere | TRACKERS mode (prompts for count) |
-| F | anywhere | FEATURE MATCH mode (needs waypoints) |
+| F | anywhere | FEATURE MATCH mode (needs waypoints; prompts for feature count) |
 | W/A/S/D + arrows | moving modes | fly / look |
 | Q / E | moving modes | altitude up / down |
+| scroll wheel | over global view | zoom the global map in / out |
+| middle-drag | over global view | pan the global map |
+| right-drag | over global view | rotate (orbit) the global map — see behind mountains |
 | B | RECORD | drop a waypoint |
 | B | TRACKERS / FEATURE MATCH | capture a timestep (true + computed pose) |
 | N / M | TRACKERS / FEATURE MATCH | review next / previous timestep |
-| G | FEATURE MATCH | (re)build the feature database under the current light |
+| G | FEATURE MATCH | start the manual database build (steps through each view) |
+| left-click | FEATURE MATCH build | color-pick the active suggestion's 3D point on the global map |
+| X | FEATURE MATCH build | skip the active (unplaceable) suggestion |
 | click | PICK | pick a 2D–3D correspondence |
-| C / Z | PICK | solve pose / undo last pick |
+| C | PICK | solve pose |
 
 ## Headless checks
 
