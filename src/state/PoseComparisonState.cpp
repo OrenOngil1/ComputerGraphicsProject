@@ -23,7 +23,7 @@ void PoseComparisonState::snapToCurrent(Simulation &sim) const
     if (m_log.entries.empty())
         return;
 
-    applyPose(sim.playerView.camera, m_log.entries[m_log.current].truePose);
+    sim.playerView.camera.applyPose(m_log.entries[m_log.current].truePose);
 }
 
 void PoseComparisonState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
@@ -120,7 +120,7 @@ void PoseComparisonState::renderPlayerOverlay(const Simulation &sim, Renderer &r
         return;
 
     Camera estimated = sim.playerView.camera;   // inherit fov/near/far/up
-    applyPose(estimated, *entry.computedPose);
+    estimated.applyPose(*entry.computedPose);
     renderer.drawGhost(estimated, sim.playerView.viewport, overlay::estimateColor,
                        overlay::estimateGhostAlpha, overlay::estimateGhostTint);
 }

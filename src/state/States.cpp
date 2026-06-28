@@ -87,7 +87,7 @@ void PlaybackState::onEnter(Simulation &sim)
     // Snap to the first waypoint so PLAYBACK starts on a known pose. The waypoints
     // are guaranteed non-empty here: the transition guard requires them.
     m_index = 0;
-    applyPose(sim.playerView.camera, sim.waypoints[m_index]);
+    sim.playerView.camera.applyPose(sim.waypoints[m_index]);
 }
 
 // UP/DOWN step m_index through the waypoints (wrapping), then the camera snaps to
@@ -109,7 +109,7 @@ void PlaybackState::handleKey(Simulation &sim, Renderer &renderer, int key, int 
     else
         return;
 
-    applyPose(sim.playerView.camera, waypoints[m_index]);
+    sim.playerView.camera.applyPose(waypoints[m_index]);
 }
 
 void PlaybackState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
@@ -158,20 +158,6 @@ static glm::vec2 rayToFraction(glm::vec2 ray, float fovDeg, float aspect)
     return { 0.5f + ray.x / (2.0f * t * aspect), 0.5f + ray.y / (2.0f * t) };
 }
 
-static float viewportAspect(const Viewport &vp)
-{
-    return (float)vp.width / (float)vp.height;
-}
-
-// Is the cursor inside this viewport? The two phases of a pick each demand a click
-// in a specific half of the window (2D in the player view, 3D in the global view),
-// so each phase hit-tests the cursor against the viewport it expects.
-static bool inside(const Viewport &vp, double x, double y)
-{
-    return x >= vp.x && x < vp.x + vp.width &&
-           y >= vp.y && y < vp.y + vp.height;
-}
-
 void PickState::onEnter(Simulation &sim)
 {
     m_pickedPoints.clear();
@@ -182,7 +168,7 @@ void PickState::onEnter(Simulation &sim)
     // tries to recover by picking. PICK is only entered when waypoints exist (the
     // transition guard), so the vector is non-empty.
     const Waypoint &seed = sim.waypoints[randomIndex(sim.waypoints.size())];
-    applyPose(sim.playerView.camera, seed);
+    sim.playerView.camera.applyPose(seed);
 
     std::cout << "PICK: camera seeded at a random waypoint -- recover its pose. "
                  "Left-click a 2D point in the player (right) view, then color-pick "
@@ -209,14 +195,14 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
         // the observation survives a later resize -- crucially, we do NOT color-pick
         // here, so the 3D point can't be read off the player view.
         const Viewport &viewport = sim.playerView.viewport;
-        if (!inside(viewport, cursorX, cursorY)) {
+        if (!viewport.contains(cursorX, cursorY)) {
             std::cout << "PICK: click a 2D point in the player (right) view first." << std::endl;
             return;
         }
 
         glm::vec2 uv(((float)cursorX - viewport.x) / (float)viewport.width,
                      ((float)cursorY - viewport.y) / (float)viewport.height);
-        m_pendingImageRay = fractionToRay(uv, sim.playerView.camera.fov, viewportAspect(viewport));
+        m_pendingImageRay = fractionToRay(uv, sim.playerView.camera.fov, viewport.aspect());
         std::cout << "PICK: 2D recorded at ray(" << m_pendingImageRay->x << ", " << m_pendingImageRay->y
                   << ") -- now color-pick its 3D point in the global (left) view." << std::endl;
         return;
@@ -225,7 +211,7 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
     // Phase B: the 3D half. Must land in the global view, where we color-pick the
     // vertex under the cursor (reading the map).
     const Viewport &viewport = sim.globalView.viewport;
-    if (!inside(viewport, cursorX, cursorY)) {
+    if (!viewport.contains(cursorX, cursorY)) {
         std::cout << "PICK: color-pick the matching 3D point in the global (left) view." << std::endl;
         return;
     }
@@ -261,7 +247,7 @@ void PickState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods
     // even if the window was resized between picking and solving.
     const Viewport &viewport = sim.playerView.viewport;
     const float fov = sim.playerView.camera.fov;
-    const float aspect = viewportAspect(viewport);
+    const float aspect = viewport.aspect();
 
     std::vector<Correspondence> correspondences;
     correspondences.reserve(m_pickedPoints.size());
@@ -308,7 +294,7 @@ void PickState::drawWorldMarkers(Renderer &renderer, const glm::mat4 &mvp) const
 // The pending pick (2D clicked, 3D not yet) rides along here in the pending color.
 void PickState::drawImageMarkers(Renderer &renderer, float fov, const Viewport &viewport) const
 {
-    const float aspect = viewportAspect(viewport);
+    const float aspect = viewport.aspect();
     const glm::mat4 screen = glm::ortho(0.0f, 1.0f, 1.0f, 0.0f);
 
     // Completed observations: palette-colored, standard size (matching the map markers).
@@ -362,7 +348,7 @@ void PickState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
         // Terrain as seen from the estimated pose, translucent orange, over the true
         // player view -- the closer the alignment, the better the estimate.
         Camera estimated = sim.playerView.camera;   // inherit fov/near/far/up
-        applyPose(estimated, *m_computedCamera);
+        estimated.applyPose(*m_computedCamera);
         renderer.drawGhost(estimated, sim.playerView.viewport,
                            overlay::estimateColor, overlay::estimateGhostAlpha,
                            overlay::estimateGhostTint);
