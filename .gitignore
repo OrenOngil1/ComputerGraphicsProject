@@ -1,4 +1,3 @@
-obj
-bin
+build/
 CLAUDE.md
 .claude/

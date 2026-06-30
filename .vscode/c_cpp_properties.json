@@ -1,7 +1,12 @@
 {
     "configurations": [
         {
-            "name": "Linux",
+            "name": "Default",
+            // Pull include paths / defines / standard from the live CMake
+            // build instead of hardcoding them. Works on any OS and stays in
+            // sync with CMakeLists. The fields below are only a fallback for
+            // when CMake Tools hasn't configured yet.
+            "configurationProvider": "ms-vscode.cmake-tools",
             "includePath": [
                 "/usr/include/opencv4",
                 "/usr/include/GLFW",
@@ -10,8 +15,7 @@
                 "${workspaceFolder}/src/engine"
             ],
             "compilerPath": "/usr/bin/g++",
-            "cppStandard": "c++17",
-            "intelliSenseMode": "linux-gcc-x64"
+            "cppStandard": "c++17"
         }
     ],
     "version": 4

@@ -39,14 +39,6 @@ struct BuildScratch {
     cv::Mat                descriptors;   // one ORB descriptor row per marker
 };
 
-// Is the cursor inside this viewport? The 3D pick must land in the global map,
-// so the click is hit-tested against it (same check PICK uses).
-static bool inside(const Viewport &vp, double x, double y)
-{
-    return x >= vp.x && x < vp.x + vp.width &&
-           y >= vp.y && y < vp.y + vp.height;
-}
-
 // FeatureDb + BuildScratch are complete in this TU, so the unique_ptr members'
 // special members are defined here (the incomplete-type pattern, see the header).
 FeatureMatchState::FeatureMatchState(size_t featureCount)
@@ -88,7 +80,7 @@ void FeatureMatchState::onEnter(Simulation &sim)
 void FeatureMatchState::loadCurrentView(Simulation &sim, Renderer &renderer)
 {
     while (m_build->waypoint < sim.waypoints.size()) {
-        applyPose(sim.playerView.camera, sim.waypoints[m_build->waypoint]);
+        sim.playerView.camera.applyPose(sim.waypoints[m_build->waypoint]);
 
         FramePixels frame = renderer.captureSceneFrame(sim.playerView, sim.light());
         std::vector<cv::KeyPoint> kps;
@@ -178,7 +170,7 @@ void FeatureMatchState::handleMouseButton(Simulation &sim, Renderer &renderer,
 
     // The 3D half is color-picked in the global (left) map, exactly like PICK.
     const Viewport &map = sim.globalView.viewport;
-    if (!inside(map, cursorX, cursorY)) {
+    if (!map.contains(cursorX, cursorY)) {
         std::cout << "FEATURES: color-pick the 3D point in the global (left) map."
                   << std::endl;
         return;

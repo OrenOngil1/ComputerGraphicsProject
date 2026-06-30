@@ -38,17 +38,52 @@ Full controls and a per-mode walkthrough: **[docs/pose-estimation-modes.md](docs
 
 ## Build & run
 
-Linux (the project targets WSL2 Ubuntu 22.04). Dependencies:
+The project builds with **CMake** on Linux, Windows, and macOS.
 
-```
-g++ make pkg-config libopencv-dev libglfw3-dev libgl1-mesa-dev libglu1-mesa-dev libglm-dev
-```
+### Dependencies
+
+A setup script per platform installs the prerequisites:
+
+| OS | Script | Installs |
+| -- | ------ | -------- |
+| Linux (apt) | `scripts/setup.sh` | `cmake g++ libglfw3-dev libopencv-dev` |
+| macOS (brew) | `scripts/setup.sh` | `cmake glfw opencv` |
+| Windows | `scripts/setup.ps1` | checks for the MSVC compiler (offers a winget install) and bootstraps **vcpkg** |
+
+On Windows the libraries are then fetched automatically by vcpkg the first time
+you configure (manifest mode via `vcpkg.json`, versions pinned by its
+`builtin-baseline`). On Linux/macOS the system packages above supply them.
+
+### CMake
+
+Generator + toolchain choices live in `CMakePresets.json` (presets `linux` and
+`windows`), so configuring is a single command:
 
 ```bash
-make            # build  -> bin/drone_sim
-./bin/drone_sim # run; pick a terrain by number at the prompt
-make check      # run the headless math checks (no GPU needed)
+# Linux / macOS
+cmake --preset linux
+cmake --build build
+ctest --test-dir build            # headless math checks
+./build/bin/drone_sim
+
+# Windows — from a "Developer PowerShell for VS 2022"
+cmake --preset windows
+cmake --build build
+ctest --test-dir build            # headless math checks
+./build/bin/drone_sim.exe
 ```
+
+> The `windows` preset reads the vcpkg toolchain from `$env{VCPKG_ROOT}`. A VS
+> Developer environment provides that variable automatically; outside one, set
+> it to your vcpkg checkout (e.g. `C:\vcpkg`).
+
+### VS Code (CMake Tools)
+
+Install the **CMake Tools** extension, pick the **windows** (or **linux**)
+configure preset from the status bar, then use its **Configure / Build / Debug /
+Run Tests** actions — no terminal needed. `.vscode/` is pre-wired: CMake Tools
+sources the MSVC environment, the debugger runs the binary from the project root
+(so `assets/` resolves), and IntelliSense follows the live CMake build.
 
 ## How it works (key techniques)
 
@@ -84,8 +119,9 @@ version made the same cause measurable as a near-total collapse (matches
 
 ## Tests
 
-`make check` builds `tests/headless_checks.cpp` against the vision + loader code
-(no GPU) and verifies, on synthetic inputs with known answers: terrain normals,
+`ctest --test-dir build` (or CMake Tools' **Run Tests**) builds and runs
+`tests/headless_checks.cpp` against the vision + loader code (no GPU) and
+verifies, on synthetic inputs with known answers: terrain normals,
 tracker blob centroids, and both PnP solvers (including RANSAC outlier rejection
 and the minimum-inlier guard). The PnP checks reproject points with the
 GL-correct square-pixel camera on a non-square viewport, so they catch focal-
@@ -101,7 +137,8 @@ src/vision/    OpenCV: PnP solvers, blob detection, ORB feature matching
 src/loader/    DEM image -> terrain mesh + normals
 src/engine/    vendored BasicOpenGL toolkit (do not modify)
 assets/        shaders + terrain DEMs
-tests/         headless math checks (make check)
+tests/         headless math checks (ctest)
+scripts/       per-OS dependency setup (setup.sh, setup.ps1)
 docs/          architecture notes, mode guide, experiment write-up
 ```
 

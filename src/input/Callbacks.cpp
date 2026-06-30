@@ -11,15 +11,6 @@
 #include "../state/TrackersState.h"
 #include "../state/FeatureMatchState.h"
 
-// Is the cursor inside this viewport? The global-map mouse controls only act
-// while the cursor is over the global (left) view, so they never fight with the
-// player view.
-static bool inside(const Viewport &vp, double x, double y)
-{
-    return x >= vp.x && x < vp.x + vp.width &&
-           y >= vp.y && y < vp.y + vp.height;
-}
-
 // Scroll-wheel zoom of an overview camera: slide the eye along its view axis,
 // keeping the target fixed. Each notch scales the eye-target distance ~10%,
 // clamped so it can't cross the target or fly off to infinity.
@@ -229,7 +220,7 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
         if (action == GLFW_PRESS) {
             double x, y;
             glfwGetCursorPos(window, &x, &y);
-            if (inside(sim->globalView.viewport, x, y)) {
+            if (sim->globalView.viewport.contains(x, y)) {
                 ctx->panning   = (button == GLFW_MOUSE_BUTTON_MIDDLE);
                 ctx->rotating  = (button == GLFW_MOUSE_BUTTON_RIGHT);
                 ctx->lastDragX = x;
@@ -258,7 +249,7 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 
     double x, y;
     glfwGetCursorPos(window, &x, &y);
-    if (inside(ctx->sim->globalView.viewport, x, y))
+    if (ctx->sim->globalView.viewport.contains(x, y))
         zoomGlobal(ctx->sim->globalView.camera, yoffset);
 }
 

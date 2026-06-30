@@ -1,0 +1,44 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "linux",
+      "displayName": "Linux (system packages)",
+      "description": "GCC + apt/brew-installed GLFW & OpenCV. No toolchain file needed.",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "windows",
+      "displayName": "Windows (MSVC + vcpkg, Ninja)",
+      "description": "Ninja + MSVC; vcpkg supplies GLFW & OpenCV. CMake Tools sources the VS dev env so cl.exe is found. Arch (x64) comes from that env.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "linux",   "configurePreset": "linux" },
+    { "name": "windows", "configurePreset": "windows" }
+  ],
+
+  "testPresets": [
+    {
+      "name": "linux",
+      "configurePreset": "linux",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows",
+      "configurePreset": "windows",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
