@@ -1,33 +1,18 @@
 {
+    "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build",
-            "type": "shell",
-            "command": "make",
+            // Default build task (Ctrl+Shift+B). Driven by the CMake Tools
+            // extension, so it uses whatever preset/target is selected in the
+            // status bar.
+            "label": "CMake: build",
+            "type": "cmake",
+            "command": "build",
             "group": {
                 "kind": "build",
                 "isDefault": true
             },
-            "problemMatcher": ["$gcc"]
-        },
-        {
-            "label": "Clean",
-            "type": "shell",
-            "command": "make clean",
-            "group": "build"
-        },
-        {
-            "label": "Docker Build",
-            "type": "shell",
-            "command": "docker build -t my-app .",
-            "group": "build"
-        },
-        {
-            "label": "Docker Run",
-            "type": "shell",
-            "command": "docker run --rm my-app",
-            "group": "test"
+            "problemMatcher": ["$msCompile", "$gcc"]
         }
-    ],
-    "version": "2.0.0"
+    ]
 }

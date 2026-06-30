@@ -37,21 +37,21 @@ void configureGLState()
 void configureViews(Simulation &sim)
 {
     sim.globalView.camera = {
-        .position = glm::vec3(0.0f, sim.terrainSize * 0.8f, sim.terrainSize * 1.4f),
-        .target   = glm::vec3(0.0f, 0.0f, 0.0f),
-        .up       = glm::vec3(0.0f, 1.0f, 0.0f),
-        .fov      = 45.0f,
-        .near     = 0.1f,
-        .far      = sim.terrainSize * 3.0f
+        glm::vec3(0.0f, sim.terrainSize * 0.8f, sim.terrainSize * 1.4f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        45.0f,
+        0.1f,
+        sim.terrainSize * 3.0f
     };
 
     sim.playerView.camera = {
-        .position = glm::vec3(0.0f, sim.terrainSize * 0.07f, sim.terrainSize * 0.5f),
-        .target   = glm::vec3(0.0f, 0.0f, 0.0f),
-        .up       = glm::vec3(0.0f, 1.0f, 0.0f),
-        .fov      = 45.0f,
-        .near     = 0.1f,
-        .far      = sim.terrainSize * 3.0f
+        glm::vec3(0.0f, sim.terrainSize * 0.07f, sim.terrainSize * 0.5f),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        45.0f,
+        0.1f,
+        sim.terrainSize * 3.0f
     };
 }
 
@@ -97,7 +97,7 @@ bool Application::loadTerrain(const std::string &path)
         return false;   // load failed; nothing mutated yet, so the caller can retry
 
     m_sim.mesh = std::move(*mesh);
-    m_sim.terrainSize = std::max(m_sim.mesh.cols, m_sim.mesh.rows);
+    m_sim.terrainSize = static_cast<float>(std::max(m_sim.mesh.cols, m_sim.mesh.rows));
 
     m_renderer.loadTerrain(m_sim.mesh);
 

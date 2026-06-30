@@ -1,0 +1,39 @@
+{
+  // A "VS Dev (x64)" integrated-terminal profile: a normal cmd shell that boots
+  // through VsDevCmd.bat, so cmake / ninja / cl land on PATH (and the MSVC
+  // INCLUDE/LIB env is set) -- the same environment as "Developer Command
+  // Prompt for VS 2022". -arch/-host_arch=x64 force a 64-bit toolchain so a
+  // fresh configure builds x64 rather than defaulting to x86.
+  //
+  // Pick it from the terminal dropdown (the v next to the + in the panel).
+  // It is NOT the default profile, so your normal PowerShell / WSL terminals
+  // are left untouched. To make it default, uncomment the line below.
+  "terminal.integrated.profiles.windows": {
+    "VS Dev (x64)": {
+      "path": "C:\\Windows\\System32\\cmd.exe",
+      "args": [
+        "/k",
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\Tools\\VsDevCmd.bat",
+        "-arch=x64",
+        "-host_arch=x64"
+      ],
+      "icon": "tools"
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "VS Dev (x64)",
+
+  // The app reads assets via paths relative to the CWD ("assets/terrains/",
+  // "assets/shaders/"), but the binary lives in build/bin. Run/Debug it from
+  // the project root so those paths resolve. Applies to CMake Tools' Launch
+  // and Debug buttons (both OSes -- ${workspaceFolder} is portable).
+  "cmake.debugConfig": {
+    "cwd": "${workspaceFolder}"
+  },
+
+  // Force CMake Tools to source the MSVC developer environment before invoking
+  // CMake, so ninja.exe and cl.exe are on PATH for the configure/build. The
+  // "auto" default skipped it for our Ninja+vcpkg preset, which left
+  // CMAKE_MAKE_PROGRAM / the compiler unset. Harmless on Linux (no VS env to
+  // source). x64 is selected automatically on a 64-bit host.
+  "cmake.useVsDeveloperEnvironment": "always"
+}
