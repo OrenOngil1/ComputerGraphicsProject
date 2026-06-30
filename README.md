@@ -38,8 +38,7 @@ Full controls and a per-mode walkthrough: **[docs/pose-estimation-modes.md](docs
 
 ## Build & run
 
-Two build systems are provided: **CMake** (cross-platform — Linux, Windows,
-macOS) and the original **Makefile** (Linux / WSL).
+The project builds with **CMake** on Linux, Windows, and macOS.
 
 ### Dependencies
 

@@ -7,7 +7,7 @@
   //
   // Pick it from the terminal dropdown (the v next to the + in the panel).
   // It is NOT the default profile, so your normal PowerShell / WSL terminals
-  // are left untouched. To make it default, uncomment the line below.
+  // are left untouched.
   "terminal.integrated.profiles.windows": {
     "VS Dev (x64)": {
       "path": "C:\\Windows\\System32\\cmd.exe",
@@ -20,7 +20,8 @@
       "icon": "tools"
     }
   },
-  "terminal.integrated.defaultProfile.windows": "VS Dev (x64)",
+  // Uncomment to make the VS Dev terminal the default for new terminals.
+  // "terminal.integrated.defaultProfile.windows": "VS Dev (x64)",
 
   // The app reads assets via paths relative to the CWD ("assets/terrains/",
   // "assets/shaders/"), but the binary lives in build/bin. Run/Debug it from
