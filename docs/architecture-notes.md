@@ -94,13 +94,19 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
     `mouseButtonCallback`, `framebufferSizeCallback`, plus `scrollCallback` /
     `cursorPosCallback` for the **global-map controls** (scroll = zoom,
     middle-drag = pan, right-drag = orbit — these act only over the global view
-    and move only the overview camera; the drag state lives on
-    `CallbackContext`). The transition machinery (`setState`, `requireWaypoints`,
-    `tryTransition`) lives here too.
-  - `Movement.*` — `moveCamera(camera, terrainSize, window, dt)`: continuous,
-    frame-rate-independent FPS flight. **Polls** held keys (`glfwGetKey`) each
-    frame: WASD translate (forward follows pitch), arrows look (pitch clamped),
-    `Q`/`E` altitude. Speed scales with `terrainSize` and `dt`.
+    and move only the overview camera). The callbacks are thin routing: the drag
+    lifecycle + anchors live in an `OrbitController globalControls` on
+    `CallbackContext`, which delegates to the `zoom`/`pan`/`orbit` verbs. Also
+    `pollMovementIntent(window)` — the GLFW glue that gathers held movement keys
+    into a `MovementIntent` for `fly`. The transition machinery (`setState`,
+    `requireWaypoints`, `tryTransition`) lives here too.
+  - `CameraControls.*` — the **pure, GLFW-free camera verbs** (unit-tested in
+    `headless_checks`): `zoom`/`pan`/`orbit` (overview look-at camera) and
+    `fly(camera, MovementIntent, terrainSize, dt)` (continuous, frame-rate-
+    independent FPS flight: WASD translate with forward following pitch, arrows
+    look with pitch clamped, `Q`/`E` altitude; speed scales with `terrainSize`
+    and `dt`). Also the `OrbitController` drag-lifecycle wrapper and the
+    `MovementIntent` struct; interaction constants are named `constexpr`.
 - `src/vision/` — the OpenCV layer, decoupled from rendering (operates on
   `Correspondence`s and `FramePixels`, never GL):
   - `Pnp.{h,cpp}` — `computeCameraPose(...)` (SQPnP, for the exact correspondences
@@ -136,7 +142,7 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
   `tryTransition`, so it works in any mode. `setState` swaps the pointer then
   calls `onEnter` — the one place onEnter runs.
 - **In-mode keys** (per the state headers): Navigation = continuous flight (see
-  `Movement.*`); Record = `B` stores a waypoint; Playback = `UP`/`DOWN` step
+  `CameraControls.*`); Record = `B` stores a waypoint; Playback = `UP`/`DOWN` step
   waypoints; Pick = click a 2D point then its 3D match, `C` solves PnP; Trackers
   & Feature Matching = `B` capture a timestep, `N`/`M` review (from
   `PoseComparisonState`); Feature Matching also = `G` start the manual database
@@ -153,7 +159,7 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
   `renderGlobalOverlay` / `renderPlayerOverlay` (receive a `Renderer&`, **not** a
   `Shader`).
 - `States.h/.cpp`:
-  - `NavigationState` — `tick` → `moveCamera` (free flight).
+  - `NavigationState` — `tick` → `fly` (free flight).
   - `RecordState` — `tick` flies + samples path points past a distance threshold;
     `B` stores a waypoint; overlays path+waypoints on the global view.
   - `PlaybackState` — `UP`/`DOWN` step the private `m_index`; snaps the camera to

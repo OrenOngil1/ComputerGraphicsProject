@@ -7,15 +7,16 @@
 
 #include "OverlayStyle.h"
 #include "../core/Simulation.h"
-#include "../input/Movement.h"
+#include "../input/CameraControls.h"   // fly, MovementIntent
+#include "../input/Callbacks.h"        // pollMovementIntent (GLFW glue)
 #include "../render/Renderer.h"
 
 void PoseComparisonState::tick(Simulation &sim, GLFWwindow *window, float dt)
 {
     // Free flight, same as NAVIGATION: the user positions the camera for the
-    // next capture. moveCamera only changes the pose while movement keys are
-    // held, so a pose snapped to by N/M stays put until the user flies off.
-    moveCamera(sim.playerView.camera, sim.terrainSize, window, dt);
+    // next capture. fly only changes the pose while movement keys are held, so
+    // a pose snapped to by N/M stays put until the user flies off.
+    fly(sim.playerView.camera, pollMovementIntent(window), sim.terrainSize, dt);
 }
 
 void PoseComparisonState::snapToCurrent(Simulation &sim) const

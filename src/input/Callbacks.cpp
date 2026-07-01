@@ -3,62 +3,32 @@
 #include <iostream>
 #include <memory>
 
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>   // glm::rotate (global-map orbit)
-
 #include "../core/Simulation.h"
 #include "../state/States.h"
 #include "../state/TrackersState.h"
 #include "../state/FeatureMatchState.h"
 
-// Scroll-wheel zoom of an overview camera: slide the eye along its view axis,
-// keeping the target fixed. Each notch scales the eye-target distance ~10%,
-// clamped so it can't cross the target or fly off to infinity.
-static void zoomGlobal(Camera &cam, double scrollY)
+// 1 while `key` is physically held this frame, else 0 (int, so the opposing-key
+// subtraction below is plain integer arithmetic). Continuous movement is a polling
+// model: instead of reacting to discrete press/repeat events, every frame we ask GLFW
+// which keys are down right now and integrate motion over dt (in fly()).
+static int held(GLFWwindow *window, int key)
 {
-    glm::vec3 forward = cam.target - cam.position;
-    float dist = glm::length(forward);
-    if (dist < 1e-4f) return;
-    forward /= dist;
-    dist = glm::clamp(dist * (scrollY > 0 ? 0.9f : 1.0f / 0.9f), 1.0f, 1.0e5f);
-    cam.position = cam.target - forward * dist;
+    return glfwGetKey(window, key) == GLFW_PRESS ? 1 : 0;
 }
 
-// Middle-drag pan of an overview camera: shift eye AND target together in the
-// camera's view plane, so the map slides under the cursor (grab-the-map feel:
-// drag right -> content moves right). Scaled by the eye-target distance so the
-// pan feels the same at any zoom.
-static void panGlobal(Camera &cam, double dx, double dy)
+// Gather the currently-held movement keys into a device-neutral MovementIntent for fly().
+// Thin GLFW glue -- the motion math lives in CameraControls and is testable without a
+// window (this function is not). Opposing keys cancel via the signed subtraction.
+MovementIntent pollMovementIntent(GLFWwindow *window)
 {
-    glm::vec3 forward = glm::normalize(cam.target - cam.position);
-    glm::vec3 right   = glm::normalize(glm::cross(forward, cam.up));
-    glm::vec3 up      = glm::normalize(glm::cross(right, forward));
-    const float scale = glm::length(cam.target - cam.position) * 0.0015f;
-    const glm::vec3 delta = right * (float)(-dx) * scale + up * (float)(dy) * scale;
-    cam.position += delta;
-    cam.target   += delta;
-}
-
-// Right-drag orbit of an overview camera: swing the eye around the target so the
-// far side of the terrain -- places behind mountains -- can be brought into view.
-// Horizontal drag yaws around world up; vertical drag pitches, but only while the
-// view stays clear of the vertical so eye/target/up never become colinear. The
-// target stays fixed (a pure orbit), so picking still aims at the same scene.
-static void orbitGlobal(Camera &cam, double dx, double dy)
-{
-    glm::vec3 offset = cam.position - cam.target;
-
-    offset = glm::vec3(glm::rotate(glm::mat4(1.0f), (float)(-dx) * 0.005f,
-                                   glm::vec3(0.0f, 1.0f, 0.0f)) * glm::vec4(offset, 0.0f));
-
-    glm::vec3 forward = glm::normalize(-offset);
-    glm::vec3 right   = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
-    glm::vec3 pitched = glm::vec3(glm::rotate(glm::mat4(1.0f), (float)(-dy) * 0.005f, right)
-                                  * glm::vec4(offset, 0.0f));
-    if (glm::abs(glm::normalize(pitched).y) < 0.985f)
-        offset = pitched;
-
-    cam.position = cam.target + offset;
+    MovementIntent in;
+    in.forward  = held(window, GLFW_KEY_W)     - held(window, GLFW_KEY_S);
+    in.strafe   = held(window, GLFW_KEY_D)     - held(window, GLFW_KEY_A);
+    in.vertical = held(window, GLFW_KEY_Q)     - held(window, GLFW_KEY_E);
+    in.yaw      = held(window, GLFW_KEY_RIGHT) - held(window, GLFW_KEY_LEFT);
+    in.pitch    = held(window, GLFW_KEY_UP)    - held(window, GLFW_KEY_DOWN);
+    return in;
 }
 
 // The one place a transition is performed -- so a state never has to know about
@@ -221,14 +191,13 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
             double x, y;
             glfwGetCursorPos(window, &x, &y);
             if (sim->globalView.viewport.contains(x, y)) {
-                ctx->panning   = (button == GLFW_MOUSE_BUTTON_MIDDLE);
-                ctx->rotating  = (button == GLFW_MOUSE_BUTTON_RIGHT);
-                ctx->lastDragX = x;
-                ctx->lastDragY = y;
+                if (button == GLFW_MOUSE_BUTTON_MIDDLE)
+                    ctx->globalControls.beginPan(x, y);
+                else
+                    ctx->globalControls.beginOrbit(x, y);
             }
         } else if (action == GLFW_RELEASE) {
-            ctx->panning = false;
-            ctx->rotating = false;
+            ctx->globalControls.end();
         }
         return;
     }
@@ -250,7 +219,7 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
     double x, y;
     glfwGetCursorPos(window, &x, &y);
     if (ctx->sim->globalView.viewport.contains(x, y))
-        zoomGlobal(ctx->sim->globalView.camera, yoffset);
+        ctx->globalControls.zoomBy(ctx->sim->globalView.camera, yoffset);
 }
 
 // Cursor motion pans (middle-drag) or orbits (right-drag) the global camera.
@@ -259,15 +228,8 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 void cursorPosCallback(GLFWwindow *window, double xpos, double ypos)
 {
     CallbackContext *ctx = static_cast<CallbackContext *>(glfwGetWindowUserPointer(window));
-    if (!ctx || !ctx->sim || (!ctx->panning && !ctx->rotating))
+    if (!ctx || !ctx->sim || !ctx->globalControls.dragging())
         return;
 
-    const double dx = xpos - ctx->lastDragX;
-    const double dy = ypos - ctx->lastDragY;
-    if (ctx->panning)
-        panGlobal(ctx->sim->globalView.camera, dx, dy);
-    else
-        orbitGlobal(ctx->sim->globalView.camera, dx, dy);
-    ctx->lastDragX = xpos;
-    ctx->lastDragY = ypos;
+    ctx->globalControls.drag(ctx->sim->globalView.camera, xpos, ypos);
 }

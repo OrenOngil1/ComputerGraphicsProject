@@ -147,3 +147,11 @@ docs/          architecture notes, mode guide, experiment write-up
 - [docs/pose-estimation-modes.md](docs/pose-estimation-modes.md) — modes C/D, full keyboard reference, experiment procedure
 - [docs/lighting-experiment.md](docs/lighting-experiment.md) — the lighting experiment: method, results, analysis
 - [docs/architecture-notes.md](docs/architecture-notes.md) — module map, ownership, the State pattern
+
+## License
+
+This project is released under the **MIT License** — see [LICENSE](LICENSE).
+
+It bundles and depends on third-party components (GLM, glad, GLFW, OpenCV, and a
+course-issued OpenGL toolkit), each under its own license; see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

@@ -37,7 +37,7 @@ public:
     // Per-frame step, called once every frame from the main loop with dt = seconds
     // since the last frame (so time-based work is frame-rate independent). The
     // engine-standard update/tick, as opposed to handleKey's discrete events: here the
-    // moving modes poll held keys (via moveCamera) to fly the player camera. Default:
+    // moving modes poll held keys (via fly) to move the player camera. Default:
     // nothing (e.g. Playback/Pick don't move).
     virtual void tick(Simulation &, GLFWwindow *, float /*dt*/) {}
 

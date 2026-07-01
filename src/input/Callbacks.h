@@ -2,25 +2,21 @@
 
 #include <GLFW/glfw3.h>
 
-// Non-owning bundle of the collaborators a GLFW callback needs. The window's single
-// user pointer points at one of these; the Application owns the actual Simulation and
-// Renderer (as members) -- CallbackContext only refers to them. Lets a callback reach a
-// service (Renderer) without a global/singleton.
+#include "CameraControls.h"   // OrbitController, MovementIntent
+
 struct Simulation;
 class Renderer;
 
 struct CallbackContext {
     Simulation *sim = nullptr;
     Renderer *renderer = nullptr;
-
-    // Global-map drag state: middle-button drag pans the overview camera,
-    // right-button drag orbits it. Held here (lifetime = the session) so the
-    // press/move/release callbacks share it. Only one is active at a time.
-    bool   panning   = false;
-    bool   rotating  = false;
-    double lastDragX = 0.0;
-    double lastDragY = 0.0;
+    OrbitController globalControls;
 };
+
+// GLFW glue that gathers the currently-held movement keys into a device-neutral intent.
+// Declared here (input layer) so the States can call it each frame; defined in
+// Callbacks.cpp to keep GLFW out of the pure CameraControls TU.
+MovementIntent pollMovementIntent(GLFWwindow *window);
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 

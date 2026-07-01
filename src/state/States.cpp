@@ -9,12 +9,13 @@
 #include "OverlayStyle.h"
 #include "../core/Simulation.h"
 #include "../core/Utils.h"        // randomIndex
-#include "../input/Movement.h"
+#include "../input/CameraControls.h"   // fly, MovementIntent
+#include "../input/Callbacks.h"        // pollMovementIntent (GLFW glue)
 #include "../render/Renderer.h"
 #include "../vision/Pnp.h"        // computeCameraPose
 
 // Each mode's input + overlay behavior lives here, in its State. The only free
-// helper left that is genuinely shared is moveCamera (called by both NavigationState
+// helper left that is genuinely shared is fly (called by both NavigationState
 // and RecordState each frame).
 //
 // The waypoint overlay highlights whichever waypoint the player camera is
@@ -31,7 +32,7 @@ static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float min
 // ── NavigationState ──────────────────────────────────────────
 void NavigationState::tick(Simulation &sim, GLFWwindow *window, float dt)
 {
-    moveCamera(sim.playerView.camera, sim.terrainSize, window, dt);
+    fly(sim.playerView.camera, pollMovementIntent(window), sim.terrainSize, dt);
 }
 
 // ── RecordState ──────────────────────────────────────────────
@@ -50,7 +51,7 @@ void RecordState::tick(Simulation &sim, GLFWwindow *window, float dt)
     Camera &playerCamera = sim.playerView.camera;
     const glm::vec3 prevPosition = playerCamera.position;
 
-    moveCamera(playerCamera, sim.terrainSize, window, dt);
+    fly(playerCamera, pollMovementIntent(window), sim.terrainSize, dt);
 
     // Capture the new position as a path point once it has drifted far enough from the
     // last one (threshold scales with terrain size so it is resolution-independent).
