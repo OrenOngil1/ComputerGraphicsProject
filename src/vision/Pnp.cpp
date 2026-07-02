@@ -1,10 +1,51 @@
 #include "Pnp.h"
 
+#include <cmath>
 #include <iostream>
 
 #include <opencv2/calib3d.hpp>
 
-#include "../core/Utils.h"
+// glm <-> OpenCV point conversions.
+static cv::Point3f glmToCvPoint3f(const glm::vec3 &v)
+{
+    return cv::Point3f(v.x, v.y, v.z);
+}
+
+static cv::Point2f glmToCvPoint2f(const glm::vec2 &v)
+{
+    return cv::Point2f(v.x, v.y);
+}
+
+static glm::vec3 cvToGlmVec3(const cv::Mat &p)
+{
+    return glm::vec3(p.at<double>(0), p.at<double>(1), p.at<double>(2));
+}
+
+// The 3x3 pinhole intrinsic matrix K for a VERTICAL fov (degrees) rendered
+// onto a width x height viewport, principal point at the center.
+//
+// Square pixels: fx == fy. The aspect is carried entirely by width/height (and
+// cx, cy) -- it must NOT also be folded into the focal length. glm::perspective
+// takes a vertical FOV and renders square pixels, deriving the horizontal FOV
+// from the aspect; the matching pinhole therefore shares one focal length.
+// (Folding width/height into fx makes solvePnP assume a wider horizontal FOV
+// than GL drew and pulls every estimated camera 20-30% too close.)
+static cv::Mat_<double> getCameraIntrinsicMatrix(double fov, double width, double height)
+{
+    double fovyRadians = glm::radians(fov);
+
+    double fy = height / (2.0 * std::tan(fovyRadians / 2.0));
+    double fx = fy;
+
+    double cx = width / 2.0;
+    double cy = height / 2.0;
+
+    return (cv::Mat_<double>(3, 3) <<
+        fx, 0,  cx,
+        0,  fy, cy,
+        0,  0,  1
+    );
+}
 
 // Split a correspondence list into the parallel point arrays OpenCV wants.
 // 3D points are already in centered world space; image points are stored

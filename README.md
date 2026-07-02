@@ -1,9 +1,11 @@
 # 2D–3D Pose Estimation on DEM Terrain
 
+[![CI](https://github.com/OrenOngil1/ComputerGraphicsProject/actions/workflows/ci.yml/badge.svg)](https://github.com/OrenOngil1/ComputerGraphicsProject/actions/workflows/ci.yml)
+
 An interactive 3D graphics application in **C++ / OpenGL / OpenCV** that
 simulates and solves the **Perspective-n-Point (PnP)** problem: recovering a
 camera's 3D pose (position + orientation) from a 2D image. The world is a 3D
-terrain built from a **Digital Elevation Map** — a greyscale image whose pixel
+terrain built from a **Digital Elevation Map**: a greyscale image whose pixel
 brightness is height.
 
 The screen is split into two viewports: a **global** view (the whole terrain
@@ -19,16 +21,16 @@ terrain in the player view.
 Answering it needs **2D–3D correspondences**: pairs of (a known 3D world point,
 the 2D pixel where it appears). With **four or more**, OpenCV's `solvePnP`
 recovers the camera's six degrees of freedom. The four modes are four ways of
-*producing* those correspondences — from fully manual to fully automatic.
+*producing* those correspondences, from fully manual to fully automatic.
 
 ## The four modes
 
 | Mode | Key | How correspondences are made | Demonstrates |
 | ---- | --- | ---------------------------- | ------------ |
-| **A — Navigation** | — | none (fly, record path `R`, play back `Ctrl+R`) | Dual-view free-flight camera + path recording |
-| **B — Picking** | `P` | *manual* — click a 2D point in the camera view, then its 3D match on the map | Human-in-the-loop PnP (the baseline) |
-| **C — Trackers** | `T` | *fiducial* — uniquely coloured spheres with known 3D centres; find each colour's blob, its centroid is the 2D point | Automatic correspondence with trivial data association |
-| **D — Feature Matching** | `F` | *ORB-assisted manual* — ORB suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
+| **A - Navigation** | - | none (fly, record path `R`, play back `Ctrl+R`) | Dual-view free-flight camera + path recording |
+| **B - Picking** | `P` | *manual* - click a 2D point in the camera view, then its 3D match on the map | Human-in-the-loop PnP (the baseline) |
+| **C - Trackers** | `T` | *fiducial* - uniquely coloured spheres with known 3D centres; find each colour's blob, its centroid is the 2D point | Automatic correspondence with trivial data association |
+| **D - Feature Matching** | `F` | *ORB-assisted manual* - ORB suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
 
 Modes C and D share a base (`PoseComparisonState`) that records
 `(true pose, computed pose)` per timestep (`B` to capture, `N`/`M` to review)
@@ -81,7 +83,7 @@ ctest --test-dir build            # headless math checks
 
 Install the **CMake Tools** extension, pick the **windows** (or **linux**)
 configure preset from the status bar, then use its **Configure / Build / Debug /
-Run Tests** actions — no terminal needed. `.vscode/` is pre-wired: CMake Tools
+Run Tests** actions, no terminal needed. `.vscode/` is pre-wired: CMake Tools
 sources the MSVC environment, the debugger runs the binary from the project root
 (so `assets/` resolves), and IntelliSense follows the live CMake build.
 
@@ -144,13 +146,13 @@ docs/          architecture notes, mode guide, experiment write-up
 
 ## Documentation index
 
-- [docs/pose-estimation-modes.md](docs/pose-estimation-modes.md) — modes C/D, full keyboard reference, experiment procedure
-- [docs/lighting-experiment.md](docs/lighting-experiment.md) — the lighting experiment: method, results, analysis
-- [docs/architecture-notes.md](docs/architecture-notes.md) — module map, ownership, the State pattern
+- [docs/pose-estimation-modes.md](docs/pose-estimation-modes.md) - modes C/D, full keyboard reference, experiment procedure
+- [docs/lighting-experiment.md](docs/lighting-experiment.md) - the lighting experiment: method, results, analysis
+- [docs/architecture-notes.md](docs/architecture-notes.md) - module map, ownership, the State pattern
 
 ## License
 
-This project is released under the **MIT License** — see [LICENSE](LICENSE).
+This project is released under the **MIT License** - see [LICENSE](LICENSE).
 
 It bundles and depends on third-party components (GLM, glad, GLFW, OpenCV, and a
 course-issued OpenGL toolkit), each under its own license; see

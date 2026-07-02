@@ -8,7 +8,7 @@
 
 #include "OverlayStyle.h"
 #include "../core/Simulation.h"
-#include "../core/Utils.h"        // randomIndex
+#include "../core/Random.h"       // randomIndex
 #include "../input/CameraControls.h"   // fly, MovementIntent
 #include "../input/Callbacks.h"        // pollMovementIntent (GLFW glue)
 #include "../render/Renderer.h"

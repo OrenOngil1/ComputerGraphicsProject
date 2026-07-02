@@ -1,0 +1,29 @@
+# Build + headless checks on a clean Linux machine, on every push to main and
+# every pull request. Uses the same setup script and CMake preset a developer
+# would, so CI failing means the documented path is broken.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    name: Linux (build + headless checks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: ./scripts/setup.sh
+
+      - name: Configure
+        run: cmake --preset linux
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

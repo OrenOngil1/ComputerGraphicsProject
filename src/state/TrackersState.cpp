@@ -5,7 +5,7 @@
 #include <string>
 
 #include "../core/Simulation.h"
-#include "../core/Utils.h"               // randomIndex
+#include "../core/Random.h"              // randomIndex
 #include "../render/Renderer.h"
 #include "../vision/Pnp.h"               // computeCameraPose
 #include "../vision/TrackerDetection.h"  // findTrackerCentroids
