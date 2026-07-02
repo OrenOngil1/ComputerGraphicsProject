@@ -73,7 +73,9 @@ jobs:
       # `windows` preset; Linux finds the system packages without one.
       # CMAKE_BUILD_TYPE only matters for the single-config Linux generators;
       # the Visual Studio generator is multi-config and uses --config instead.
-      shell: bash
+      # Default shell on purpose (pwsh on Windows): bash would eat the
+      # backslashes in the Windows workspace path. The ${{ }} conditional is
+      # resolved by the template engine before any shell runs.
       run: >
         cmake -B ${{ steps.strings.outputs.build-output-dir }}
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
