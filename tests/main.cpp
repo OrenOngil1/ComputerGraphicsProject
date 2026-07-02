@@ -1,8 +1,7 @@
-// Headless sanity checks for the GL-free math: the PnP solvers, the tracker
-// blob centroids, the terrain normals, the camera controls, the pick-id
-// encoding, and the render<->vision camera-model contract, each on synthetic
-// inputs with a known correct answer. No window, no GL context -- run
-// anywhere with `ctest`.
+// Headless sanity checks for the GL-free pieces -- geometry math, vision
+// steps, and the cross-layer contracts -- each on synthetic inputs with a
+// known correct answer, one test_*.cpp per topic. No window, no GL context:
+// run anywhere with `ctest`.
 
 #include <iostream>
 
@@ -14,6 +13,9 @@ void testPnp();
 void testCameraControls();
 void testPickEncoding();
 void testCameraModel();
+void testViewport();
+void testPoseLog();
+void testFeatures();
 
 int main()
 {
@@ -23,6 +25,9 @@ int main()
     testCameraControls();
     testPickEncoding();
     testCameraModel();
+    testViewport();
+    testPoseLog();
+    testFeatures();
 
     if (failures == 0)
         std::cout << "All checks passed." << std::endl;

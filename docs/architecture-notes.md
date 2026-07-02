@@ -95,8 +95,13 @@ quit. All three unwind normally, so destructors run. No global state.
     `FeatureDb`, then RANSAC PnP).
 - `src/loader/TerrainLoader.{h,cpp}` — DEM image → `Mesh` (heights, elevation
   ramp colors, central-difference normals).
-- `src/engine/` — vendored thin OpenGL wrappers (`Shader`, `VertexArray`, ...);
-  not modified by this project.
+- `external/` — vendored third-party code built from source, each component its
+  own library target; not modified by this project.
+  - `external/engine/` — the BasicOpenGL course toolkit: thin OpenGL wrappers
+    (`Shader`, `VertexArray`, ...).
+  - `external/glad/` — the glad OpenGL loader, in its upstream layout.
+- `include/` — vendored header-only libraries (glm); consumed via the include
+  path alone, nothing to build.
 
 ## Control flow
 
@@ -171,9 +176,11 @@ read-back), extract a dedicated `PickPass` rather than widening `Renderer`.
 
 `tests/` builds one headless binary (no window, no GL) from per-topic files:
 terrain normals, tracker centroids, both PnP solvers, the camera verbs, the
-pick-id encoding round trip, and the render↔vision camera-model contract
-(`viewProjection` vs. an independent pinhole) — each against synthetic inputs
-with known answers. The PnP round-trip projects
+pick-id encoding round trip, the split-screen viewport layout, the pose-review
+log cursor, the ORB suggestion step (`detectTopFeatures`, including its
+keypoint↔descriptor row alignment), and the render↔vision camera-model contract
+(`viewProjection` and the viewing-ray mapping vs. an independent pinhole) —
+each against synthetic inputs with known answers. The PnP round-trip projects
 through an independently-derived square-pixel pinhole on a non-square viewport,
 so intrinsics mistakes (an aspect factor folded into the focal length) fail the
 suite.

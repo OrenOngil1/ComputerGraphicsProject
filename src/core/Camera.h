@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -65,4 +67,22 @@ inline glm::mat4 viewProjection(const Camera &camera, const Viewport &viewport)
                                       camera.near, camera.far);
     glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
     return proj * view;
+}
+
+// Convert between a viewport fraction ([0,1] x [0,1], origin top-left) and the
+// camera-space viewing ray (x/z, y/z), for this same camera model at a given
+// vertical FOV (degrees) and aspect:
+//   ray = ((u - 0.5)*2*tan(fov/2)*aspect, (v - 0.5)*2*tan(fov/2)).
+// Only the horizontal term carries the aspect, which is why the ray form
+// survives a resize and a stored fraction doesn't (see PickState::Observation).
+inline glm::vec2 fractionToRay(glm::vec2 uv, float fovDeg, float aspect)
+{
+    const float t = std::tan(glm::radians(fovDeg) * 0.5f);
+    return { (uv.x - 0.5f) * 2.0f * t * aspect, (uv.y - 0.5f) * 2.0f * t };
+}
+
+inline glm::vec2 rayToFraction(glm::vec2 ray, float fovDeg, float aspect)
+{
+    const float t = std::tan(glm::radians(fovDeg) * 0.5f);
+    return { 0.5f + ray.x / (2.0f * t * aspect), 0.5f + ray.y / (2.0f * t) };
 }

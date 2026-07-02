@@ -170,9 +170,11 @@ worth knowing when reading the numbers.
 ## Headless checks
 
 `ctest --preset linux` (or `--preset windows`) builds and runs the checks in `tests/` against the
-vision + loader code (no window, no GPU) and verifies on synthetic inputs:
+GL-free code (no window, no GPU) and verifies on synthetic inputs:
 terrain normals against the analytic plane normal, blob centroids (including
 the not-visible and too-small cases), the camera-control verbs, the color-pick
-id encoding round trip, the render↔vision camera-model agreement, and both PnP
-solvers round-tripping a known camera — the RANSAC variant with 3 of 11
+id encoding round trip, the split-screen viewport layout, the pose-review log
+cursor, ORB feature suggestion (ordering and descriptor alignment), the
+render↔vision camera-model agreement (projection and viewing rays), and both
+PnP solvers round-tripping a known camera — the RANSAC variant with 3 of 11
 correspondences corrupted. Exit code = number of failed checks.

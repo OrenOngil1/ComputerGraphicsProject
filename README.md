@@ -129,13 +129,14 @@ version made the same cause measurable as a near-total collapse (matches
 ## Tests
 
 `ctest --preset linux` / `ctest --preset windows` (or CMake Tools' **Run
-Tests**) builds and runs the
-checks in `tests/` against the vision + loader code (no GPU) and
-verifies, on synthetic inputs with known answers: terrain normals,
-tracker blob centroids, and both PnP solvers (including RANSAC outlier rejection
-and the minimum-inlier guard). The PnP checks reproject points with the
-GL-correct square-pixel camera on a non-square viewport, so they catch focal-
-length / aspect mistakes in the intrinsics.
+Tests**) builds and runs the checks in `tests/` (no window, no GPU), one file
+per topic: the geometry math (terrain normals, camera controls, viewport
+layout), the vision steps (tracker blob centroids, ORB feature suggestion, both
+PnP solvers including RANSAC outlier rejection), and the cross-layer contracts
+(color-pick id round trip, the render↔vision camera model) — each on synthetic
+inputs with known answers. The camera-model checks project through an
+independent square-pixel pinhole on a non-square viewport, so focal-length /
+aspect mistakes in the intrinsics fail the suite.
 
 ## Repository layout
 
@@ -145,7 +146,8 @@ src/state/     one State per mode (Navigation, Pick, Trackers, FeatureMatch)
 src/render/    Renderer — all GPU work and read-back captures
 src/vision/    OpenCV: PnP solvers, blob detection, ORB feature matching
 src/loader/    DEM image -> terrain mesh + normals
-src/engine/    vendored BasicOpenGL toolkit (do not modify)
+external/      vendored code built from source: BasicOpenGL toolkit, glad (do not modify)
+include/       vendored header-only libraries: glm (do not modify)
 assets/        shaders + terrain DEMs
 tests/         headless math checks (ctest)
 scripts/       per-OS dependency setup (setup.sh, setup.ps1)

@@ -9,8 +9,8 @@ respective authors and is used under its own license.
 | Component | Location | Version | License |
 | --------- | -------- | ------- | ------- |
 | **GLM** (OpenGL Mathematics) | `include/glm/` | 0.9.9.8 | MIT / The Happy Bunny License — see [`include/glm/copying.txt`](include/glm/copying.txt) |
-| **glad** (OpenGL loader, generated) | `include/glad/`, `include/KHR/` | glad 0.1.36 (gl 3.3 core) | Generated loader is public-domain; `KHR/khrplatform.h` carries the Khronos Group MIT-style license inline in the file header |
-| **BasicOpenGL toolkit** | `src/engine/` | course-issued | Course-distributed teaching toolkit, vendored and used with permission |
+| **glad** (OpenGL loader, generated) | `external/glad/` | glad 0.1.36 (gl 3.3 core) | Generated loader is public-domain; `KHR/khrplatform.h` carries the Khronos Group MIT-style license inline in the file header |
+| **BasicOpenGL toolkit** | `external/engine/` | course-issued | Course-distributed teaching toolkit, vendored and used with permission |
 
 ## Fetched at build time (not redistributed here)
 
