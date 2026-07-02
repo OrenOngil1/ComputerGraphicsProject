@@ -2,36 +2,33 @@
 
 #include <cstdlib>   // abs
 
-// A pixel matches a tracker when every channel sits within this distance of
-// the tracker's palette color. The capture pass draws flat colors with no
-// lighting or blending, so values should match exactly; the slack only
-// absorbs rounding when the driver quantizes the float color to 8 bits.
+// Per-channel distance within which a pixel matches a tracker's palette color.
+// The capture pass draws flat colors, so values should match exactly; the
+// slack only absorbs rounding when the driver quantizes the float color to 8 bits.
 static const int channelTolerance = 3;
 
 // Blobs smaller than this are treated as "not visible": a sphere reduced to a
-// couple of pixels (barely peeking over a ridge, or at extreme distance)
-// yields a centroid too noisy to feed PnP.
+// couple of pixels yields a centroid too noisy to feed PnP.
 static const int minBlobPixels = 6;
 
 std::vector<std::optional<glm::vec2>>
 findTrackerCentroids(const FramePixels &frame, const std::vector<Tracker> &trackers)
 {
-    // One accumulator per tracker: pixel count + coordinate sums. The centroid
-    // is the mean position of the blob's pixels -- for a rendered sphere that
-    // is (to sub-pixel accuracy) the projection of its center, which is the
-    // 3D point the correspondence pairs it with.
+    // One accumulator per tracker. The centroid is the mean position of the
+    // blob's pixels -- for a rendered sphere that is (to sub-pixel accuracy)
+    // the projection of its center, the 3D point the correspondence pairs it with.
     struct Blob { long count = 0; double sumX = 0.0, sumY = 0.0; };
     std::vector<Blob> blobs(trackers.size());
 
-    // 8-bit quantization of each palette color, computed once outside the loop.
+    // 8-bit quantization of each palette color, computed once.
     std::vector<glm::ivec3> palette;
     palette.reserve(trackers.size());
     for (const Tracker &tracker : trackers)
         palette.push_back(glm::ivec3(tracker.color * 255.0f + 0.5f));
 
     // Single pass over the frame, classifying each pixel against the palette.
-    // The black background fails every test because each palette color has at
-    // least one full-intensity channel.
+    // The black background fails every test: each palette color has at least
+    // one full-intensity channel.
     for (int y = 0; y < frame.height; y++) {
         for (int x = 0; x < frame.width; x++) {
             const unsigned char *px = frame.at(x, y);

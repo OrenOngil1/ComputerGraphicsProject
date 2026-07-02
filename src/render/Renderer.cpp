@@ -15,12 +15,10 @@
 
 #include "../state/State.h"
 
-// Upload interleaved vertices + triangle indices to the GPU and record the
-// layout in a VAO. The shared tail of every long-lived mesh build (terrain,
-// tracker sphere). attribSizes lists the float count of each attribute in
-// push order (push order maps to shader attribute locations: 0 = position,
-// 1 = color, 2 = normal where present). The CPU-side vectors can be freed
-// after this; the GPU has its own copy.
+// Upload interleaved vertices + triangle indices and record the layout in a
+// VAO. attribSizes lists the float count of each attribute in push order,
+// which maps to shader attribute locations: 0 = position, 1 = color,
+// 2 = normal where present.
 static GpuMesh uploadBuffers(const std::vector<float> &verts,
                              const std::vector<unsigned int> &indices,
                              const std::vector<int> &attribSizes)
@@ -29,8 +27,6 @@ static GpuMesh uploadBuffers(const std::vector<float> &verts,
     for (int size : attribSizes)
         floatsPerVertex += size;
 
-    // VertexBuffer / IndexBuffer constructors call glBufferData, which is the
-    // actual CPU -> GPU memory transfer.
     GpuMesh gpu;
     gpu.va = std::make_unique<VertexArray>();
     gpu.vb = std::make_unique<VertexBuffer>(verts.data(), verts.size() * sizeof(float));
@@ -38,33 +34,26 @@ static GpuMesh uploadBuffers(const std::vector<float> &verts,
     gpu.indexCount = (unsigned int)indices.size();
     gpu.vertexCount = verts.size() / floatsPerVertex;
 
-    // The VAO records "how to read the VBO's bytes" -- not the bytes themselves.
     VertexBufferLayout layout;
     for (int size : attribSizes)
         layout.Push<float>(size);
     gpu.va->AddBuffer(*gpu.vb, layout);
 
-    // Defensive unbind so nothing else accidentally modifies these objects.
+    // Unbind so later binds can't accidentally modify these objects.
     gpu.va->Unbind();
     gpu.vb->Unbind();
     gpu.ib->Unbind();
     return gpu;
 }
 
-// Builds the terrain's GPU buffers from a mesh. After this returns, the vertex and
-// index data live in GPU memory; every frame just issues a single draw call
-// referencing them. Called by loadTerrain -- once per terrain, reused across frames.
-GpuMesh uploadTerrain(const Mesh &mesh)
+// Build the terrain's GPU buffers: interleaved position/color/normal, with the
+// centering translation baked into the positions (Mesh::center is the shared
+// definition every vertex->world consumer uses). Normals pass through
+// untransformed -- translation doesn't change them.
+static GpuMesh uploadTerrain(const Mesh &mesh)
 {
-    // Bake the centering translation into vertex positions instead of doing it
-    // every frame with a model matrix. Origin = middle of the terrain --
-    // Mesh::center() is the shared definition every vertex->world consumer uses.
     const glm::vec3 center = mesh.center();
 
-    // Interleaved layout: [x,y,z, r,g,b, nx,ny,nz, ...] -- 9 floats per vertex.
-    // The shader reads attribute 0 (position), 1 (color), 2 (normal). Normals
-    // pass through untransformed: the only "model transform" is the centering
-    // translation baked in here, and translation doesn't change normals.
     std::vector<float> verts;
     verts.reserve(mesh.vertices.size() * 9);
     for (const Vertex &v : mesh.vertices) {
@@ -79,14 +68,11 @@ GpuMesh uploadTerrain(const Mesh &mesh)
         verts.push_back(v.normal.z);
     }
 
-    // Each cell of the height-map grid is two triangles sharing a diagonal:
+    // Each grid cell is two triangles sharing a diagonal:
     //
     //   i00 --- i01        first  triangle: i00 -> i10 -> i01
     //    |  \    |         second triangle: i01 -> i10 -> i11
     //   i10 --- i11
-    //
-    // Using indices lets a vertex be reused by up to 6 surrounding triangles
-    // instead of being duplicated, which keeps the VBO small.
     std::vector<unsigned int> indices;
     indices.reserve((mesh.cols - 1) * (mesh.rows - 1) * 6);
     for (int z = 0; z < mesh.rows - 1; z++) {
@@ -103,17 +89,16 @@ GpuMesh uploadTerrain(const Mesh &mesh)
     return uploadBuffers(verts, indices, { 3, 3, 3 });   // position, color, normal
 }
 
-// Build the shared unit-radius UV sphere the trackers are drawn with. Built
-// once (the Renderer constructor); each tracker draws it through a model
-// matrix (translate + scale) and a flat color, so adding trackers costs no
-// GPU memory. The dummy white vertex color satisfies the shared 6-float
-// layout -- tracker draws always override it with the tracker's color.
+// Build the unit-radius UV sphere all trackers share; each draw scales and
+// translates it into place. The white vertex color satisfies the 6-float
+// layout -- tracker draws always override it. No normal attribute: trackers
+// draw flat, never lit.
 static GpuMesh buildSphereMesh(int stacks, int sectors)
 {
     std::vector<float> verts;
     verts.reserve((stacks + 1) * (sectors + 1) * 6);
     for (int i = 0; i <= stacks; i++) {
-        // phi sweeps pole to pole, theta around the equator. The seam column
+        // phi sweeps pole to pole, theta around the equator; the seam column
         // (j == sectors) duplicates j == 0 so the index grid can wrap simply.
         float phi = glm::pi<float>() * i / stacks;
         for (int j = 0; j <= sectors; j++) {
@@ -137,22 +122,17 @@ static GpuMesh buildSphereMesh(int stacks, int sectors)
         }
     }
 
-    // No normal attribute: trackers draw flat through the override path, which
-    // never lights, so the sphere stays at the lean 6-float layout.
     return uploadBuffers(verts, indices, { 3, 3 });   // position, color
 }
 
-// Tell GL which rectangle of the framebuffer subsequent draws land in.
-void setupViewport(const Viewport &viewport)
+static void setupViewport(const Viewport &viewport)
 {
     glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
 }
 
-// Build the projection*view matrix on the CPU. The vertex shader will
-// multiply it by each vertex position to get the final clip-space coordinate.
-// The aspect ratio comes from the viewport, not the camera. No model matrix
-// yet -- the centering offset is baked into the vertices and nothing else moves.
-glm::mat4 computeViewProjection(const Camera &camera, const Viewport &viewport)
+// Projection * view. The aspect comes from the viewport, not the camera; no
+// model matrix -- the centering offset is baked into the vertices.
+static glm::mat4 computeViewProjection(const Camera &camera, const Viewport &viewport)
 {
     glm::mat4 proj = glm::perspective(
         glm::radians(camera.fov),
@@ -164,9 +144,7 @@ glm::mat4 computeViewProjection(const Camera &camera, const Viewport &viewport)
     return proj * view;
 }
 
-// One draw call: bind the shader, push the MVP uniform, bind the pre-uploaded
-// VAO+IBO, and let the GPU rasterize. No vertex data crosses the bus here.
-void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
+static void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
 {
     shader.Bind();
     shader.SetUniformMat4f("u_MVP", mvp);
@@ -176,19 +154,14 @@ void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
 }
 
 // ── Renderer ──────────────────────────────────────────────────
-// A thin owner over the free helpers above. The constructor compiles the shader
-// programs only (no terrain yet -- that arrives via loadTerrain); the renderView
-// methods sequence the same four steps the duplicated viewport blocks in main()
-// used to repeat by hand.
 
 Renderer::Renderer()
     : m_sceneShader("assets/shaders/terrainShader.glsl"),
       m_pickShader("assets/shaders/pickShader.glsl"),
       m_pointShader("assets/shaders/pointShader.glsl")
 {
-    // m_terrain is left default-constructed (empty buffers); loadTerrain uploads
-    // the first mesh. The shared tracker sphere is terrain-independent, so it is
-    // built here, once. Both only need the live GL context the Window provides.
+    // m_terrain stays empty until the first loadTerrain; the tracker sphere is
+    // terrain-independent, so it is built once here.
     m_sphere = buildSphereMesh(16, 24);
 }
 
@@ -199,23 +172,18 @@ void Renderer::clear() const
 
 void Renderer::loadTerrain(const Mesh &terrain)
 {
-    // Move-assign the new buffers in; the old TerrainGpu's unique_ptrs free the
-    // previous VAO/VBO/IBO. The compiled shader is untouched -- no recompile.
-    m_terrain = uploadTerrain(terrain);
+    m_terrain = uploadTerrain(terrain);   // old buffers freed by the move-assign
 }
 
-// Shared scene pass: set the viewport, build the MVP, draw the terrain lit.
-// Returns the MVP so the view methods can hand it to the active mode's overlay.
 glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport,
                                 const DirectionalLight &light)
 {
     setupViewport(viewport);
     glm::mat4 mvp = computeViewProjection(camera, viewport);
 
-    // Lighting applies to the lit terrain pass ONLY: raise u_Lit while the
-    // scene shader is bound, then drop it after the draw, so every other draw
-    // through this program (paths, ghost, trackers, capture passes) keeps its
-    // exact unshaded colors -- the read-back pipelines depend on that.
+    // Raise u_Lit for the terrain draw only, then drop it: every other draw
+    // through this program (paths, ghost, trackers, capture passes) must keep
+    // its exact unshaded colors -- the read-back pipelines depend on that.
     m_sceneShader.Bind();
     glm::vec4 lightDir(light.direction, 0.0f);
     glm::vec4 lightColor(light.color, 1.0f);
@@ -230,8 +198,6 @@ glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport,
     return mvp;
 }
 
-// The overlay is the active mode's responsibility: Renderer no longer knows about
-// Mode, it just asks the State to decorate the view it drew.
 void Renderer::renderGlobalView(const View &view, const Simulation &sim)
 {
     glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light());
@@ -247,14 +213,10 @@ void Renderer::renderPlayerView(const View &view, const Simulation &sim)
 }
 
 // ── Overlay drawing ───────────────────────────────────────────
-// Moved in from the old Overlay.{h,cpp}: the mode draws through these methods,
-// which supply m_sceneShader themselves, so the shader never leaves the Renderer.
 
-// Overlays differ from terrain in one important way: their contents CHANGE
-// every frame (the recorded path grows, the highlighted waypoint moves). So instead
-// of building a long-lived VAO/VBO like the terrain does, we build a throwaway
-// pair each call -- upload the latest data, draw it, and let the destructors
-// free the GPU buffers when the function returns. Cheap for hundreds of points.
+// Upload-and-draw a throwaway vertex batch (xyz + rgb interleaved). Overlay
+// contents change every frame, so no long-lived buffers: the destructors free
+// the GPU objects on return. Cheap for hundreds of points.
 static void drawVertexBatch(const std::vector<float> &verts, GLenum primitive, Shader &shader, const glm::mat4 &mvp)
 {
     VertexArray va;
@@ -268,13 +230,9 @@ static void drawVertexBatch(const std::vector<float> &verts, GLenum primitive, S
     shader.Bind();
     shader.SetUniformMat4f("u_MVP", mvp);
     va.Bind();
-    // verts.size() / 6 because each vertex is 6 floats (xyz + rgb).
-    GLCall(glDrawArrays(primitive, 0, (GLsizei)(verts.size() / 6)));
+    GLCall(glDrawArrays(primitive, 0, (GLsizei)(verts.size() / 6)));   // 6 floats per vertex
 }
 
-// Flight path: a line strip connecting all positions in order, in one caller-
-// chosen color -- the pose-comparison modes draw two paths (true vs computed)
-// side by side, so the color identifies which is which.
 void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec3 &color,
                         const glm::mat4 &mvp)
 {
@@ -293,8 +251,6 @@ void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec
     GLCall(glEnable(GL_DEPTH_TEST));
 }
 
-// Camera waypoints: green for the waypoint the player camera is on (position
-// match), red for the rest. The highlight tracks the camera, not any cursor.
 void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
                              const glm::vec3 &cameraPos, const glm::mat4 &mvp)
 {
@@ -305,6 +261,8 @@ void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
     for (const Waypoint &waypoint : waypoints) {
         const glm::vec3 &p = waypoint.position;
         verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
+        // Exact float equality is safe: cameraPos was set by copying a
+        // waypoint's position (Camera::applyPose), never recomputed.
         if (p == cameraPos) {
             verts.push_back(0.0f); verts.push_back(1.0f); verts.push_back(0.0f); // green
         } else {
@@ -316,21 +274,20 @@ void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
     drawVertexBatch(verts, GL_POINTS, m_pointShader, mvp);
 }
 
-// ── PICK mode (Mode 2) ────────────────────────────────────────
+// ── Color picking ─────────────────────────────────────────────
 
-// Decode one pick-pass pixel back into a vertex id: the pick shader packs the
-// id little-endian into RGB. Anything out of range -- the white background, or
-// a pixel that isn't from the pick pass at all -- maps to -1 (a miss).
+// Decode a pick-pass pixel back into a vertex id: the pick shader packs the id
+// little-endian into RGB. Out of range -- the white background, or a pixel not
+// from the pick pass -- decodes to -1 (a miss). RGB8 caps ids at 2^24, far
+// beyond any terrain this renders interactively.
 static int decodeVertexId(const unsigned char *px, size_t vertexCount)
 {
     unsigned int id = px[0] | (px[1] << 8) | (px[2] << 16);
     return id < vertexCount ? (int)id : -1;
 }
 
-// Swap in a pass-specific clear color, restoring the persistent one on scope
-// exit -- so no capture pass can leak its background into the visible frame,
-// however it returns. (Restoring the clear COLOR doesn't touch pixels already
-// cleared; it only matters for the next frame's clear.)
+// Swap in a pass-specific clear color, restoring the previous one on scope
+// exit, so a capture pass can't leak its background into the next visible frame.
 struct ScopedClearColor {
     GLfloat prev[4];
     ScopedClearColor(float r, float g, float b, float a)
@@ -344,37 +301,29 @@ struct ScopedClearColor {
     }
 };
 
-// The shared id pass (see Renderer.h). White background: a pixel hitting no
-// geometry decodes to 0xFFFFFF, out of vertex range -- a miss.
 void Renderer::renderPickPass(const Camera &camera, const Viewport &viewport)
 {
     ScopedClearColor white(1.0f, 1.0f, 1.0f, 1.0f);
-    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+    clear();
 
     setupViewport(viewport);
     drawMesh(m_terrain, m_pickShader, computeViewProjection(camera, viewport));
 }
 
-// Render the id pass and read back the pixel under the cursor to learn which
-// vertex was clicked. The image goes to the back buffer and is never swapped,
-// so the next loop iteration paints over it.
 int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
 {
     const Viewport &viewport = playerView.viewport;
     renderPickPass(playerView.camera, viewport);
 
     // glReadPixels uses framebuffer coords (origin bottom-left); the cursor is
-    // top-left. viewport.y is 0 and viewport.height is the full framebuffer height,
-    // so the flip is (height-1 - mouseY); mouseX is already an absolute fb x.
+    // top-left, hence the (height-1 - mouseY) flip. Assumes full-height
+    // viewports (viewport.y == 0), which the split-screen layout guarantees.
     unsigned char px[3];
     GLCall(glReadPixels(mouseX, viewport.height - 1 - mouseY, 1, 1, GL_RGB, GL_UNSIGNED_BYTE, px));
 
     return decodeVertexId(px, m_terrain.vertexCount);
 }
 
-// The override-path primitive (see Renderer.h): set the override uniforms
-// while m_sceneShader is bound (they persist through drawMesh's redundant,
-// same-program re-bind), draw, and ALWAYS drop the override again.
 void Renderer::drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tintStrength,
                             const glm::mat4 &mvp)
 {
@@ -391,13 +340,11 @@ void Renderer::drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tin
     m_sceneShader.SetUniform1i("u_UseOverride", 0);
 }
 
-// Redraw the terrain from an estimated pose in one translucent color, overlaid on
-// the current view -- the PnP "ghost" the user compares against the real terrain.
 void Renderer::drawGhost(const Camera &estimatedCamera, const Viewport &viewport,
                          const glm::vec3 &color, float alpha, float tintStrength)
 {
-    // See-through overlay: don't write or test depth, so the ghost sits over the
-    // real terrain instead of z-fighting with or being occluded by it.
+    // Neither write nor test depth: the ghost sits over the real terrain
+    // instead of z-fighting with or being occluded by it.
     GLCall(glDepthMask(GL_FALSE));
     GLCall(glDisable(GL_DEPTH_TEST));
 
@@ -408,14 +355,10 @@ void Renderer::drawGhost(const Camera &estimatedCamera, const Viewport &viewport
     GLCall(glDepthMask(GL_TRUE));
 }
 
-// Draw the trackers: the shared unit sphere through a model matrix (translate
-// + scale) per tracker, filled flat with its color -- deliberately unshaded,
-// so the pixels land in the framebuffer as the exact palette color the blob
-// detector will look for. Depth testing stays ON (unlike the overlay
-// helpers): occluded trackers are hidden, in the visible frame and the
-// capture read-back alike.
 void Renderer::drawTrackers(const std::vector<Tracker> &trackers, const glm::mat4 &viewProj)
 {
+    // Flat, unshaded fill: the pixels must land as the exact palette color the
+    // blob detector looks for.
     for (const Tracker &tracker : trackers) {
         glm::mat4 model = glm::scale(glm::translate(glm::mat4(1.0f), tracker.center),
                                      glm::vec3(tracker.radius));
@@ -423,7 +366,8 @@ void Renderer::drawTrackers(const std::vector<Tracker> &trackers, const glm::mat
     }
 }
 
-// Pull the viewport's back-buffer pixels into image-convention RGB.
+// ── Read-back captures ────────────────────────────────────────
+
 FramePixels Renderer::readViewportPixels(const Viewport &viewport)
 {
     FramePixels frame;
@@ -433,17 +377,14 @@ FramePixels Renderer::readViewportPixels(const Viewport &viewport)
 
     // Force tightly packed rows: the default GL_PACK_ALIGNMENT of 4 pads each
     // row when width * 3 isn't a multiple of 4, which would silently shear
-    // every following scanline. (pickVertex reads one pixel, so it never hits
-    // this; full frames do.)
+    // every following scanline.
     GLCall(glPixelStorei(GL_PACK_ALIGNMENT, 1));
 
     GLCall(glReadPixels(viewport.x, viewport.y, viewport.width, viewport.height,
                         GL_RGB, GL_UNSIGNED_BYTE, frame.rgb.data()));
 
-    // GL hands rows bottom-up; flip once here to image convention (row 0 = top)
-    // so every consumer indexes pixels the way cursor coordinates work. In
-    // place, swapping row pairs through one row-sized scratch buffer, so the
-    // capture never needs a second full-frame allocation.
+    // GL hands rows bottom-up; flip once here to image convention (row 0 =
+    // top). In place, through one row-sized scratch buffer.
     const size_t rowBytes = (size_t)viewport.width * 3;
     std::vector<unsigned char> scratch(rowBytes);
     for (int y = 0; y < viewport.height / 2; y++) {
@@ -457,56 +398,33 @@ FramePixels Renderer::readViewportPixels(const Viewport &viewport)
     return frame;
 }
 
-// Render the tracker-detection frame and read it back: flat-black terrain (it
-// still writes depth, so it occludes exactly as in the visible frame) plus the
-// trackers in their flat palette colors -- every non-black pixel is tracker.
 FramePixels Renderer::captureTrackersFrame(const View &playerView,
                                            const std::vector<Tracker> &trackers)
 {
     const Viewport &viewport = playerView.viewport;
 
     ScopedClearColor black(0.0f, 0.0f, 0.0f, 1.0f);
-    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+    clear();
 
     setupViewport(viewport);
     glm::mat4 viewProj = computeViewProjection(playerView.camera, viewport);
 
-    // Terrain flat black, full tint: shape and depth only, no color that
-    // could collide with a tracker's.
+    // Terrain flat black, full tint: it still writes depth (occlusion as in
+    // the visible frame) but contributes no color that could collide with a
+    // tracker's.
     drawMeshFlat(m_terrain, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, viewProj);
     drawTrackers(trackers, viewProj);
 
     return readViewportPixels(viewport);
 }
 
-// ── FEATURE MATCH captures (Mode 4) ───────────────────────────
-
-// Render the lit scene as the player view would show it (no overlays) and read
-// it back -- the frame feature detection sees. Back buffer only, never swapped.
 FramePixels Renderer::captureSceneFrame(const View &view, const DirectionalLight &light)
 {
-    GLCall(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+    clear();
     renderScene(view.camera, view.viewport, light);
     return readViewportPixels(view.viewport);
 }
 
-// Render the pick pass over the whole viewport and decode every pixel. With
-// captureSceneFrame of the same View, pixel (x, y) in one is pixel (x, y) in
-// the other -- that alignment is what anchors a 2D keypoint to its 3D point.
-std::vector<int> Renderer::captureVertexIdFrame(const View &view)
-{
-    renderPickPass(view.camera, view.viewport);
-    FramePixels frame = readViewportPixels(view.viewport);
-
-    std::vector<int> ids((size_t)frame.width * frame.height);
-    for (size_t i = 0; i < ids.size(); i++)
-        ids[i] = decodeVertexId(&frame.rgb[i * 3], m_terrain.vertexCount);
-    return ids;
-}
-
-// Colored point markers (picked correspondence points, the estimated camera, ...),
-// one color per position. Drawn on top (depth test off) so markers on the terrain
-// surface stay visible.
 void Renderer::drawPoints(const std::vector<glm::vec3> &positions,
                           const std::vector<glm::vec3> &colors,
                           float size, const glm::mat4 &mvp)

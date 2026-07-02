@@ -13,149 +13,105 @@
 
 #include "../core/Simulation.h"
 
-// A GPU-resident indexed mesh (VAO + VBO + IBO). Owned by Renderer: the
-// terrain (rebuilt whenever the menu swaps DEMs) and the shared tracker
-// sphere (built once) are both instances of this.
+// A GPU-resident indexed mesh (VAO + VBO + IBO).
 struct GpuMesh {
     std::unique_ptr<VertexArray> va;
     std::unique_ptr<VertexBuffer> vb;
     std::unique_ptr<IndexBuffer> ib;
     unsigned int indexCount = 0;    // fed to glDrawElements (GLsizei)
-    size_t vertexCount = 0;         // pure count, for validating picked vertex ids
+    size_t vertexCount = 0;         // for validating picked vertex ids
 };
 
-// Owns the GPU resources needed to draw the scene (the scene shader plus the
-// terrain buffers) and exposes a single per-view draw call.
-//
-// One concrete class, no virtuals: there is exactly one way to draw the scene;
-// only the overlay varies, and it is selected per call. The real win is
-// lifetime safety -- owned as an Application member declared after the Window, so
-// member-init order destroys it (glDelete*) while the GL context is still alive,
-// without the hand-managed { } scope main() used to need. loadTerrain gives the
-// menu a cheap in-place terrain swap and leaves a home for Mode-2 picking/ghost.
+// Owns all GPU resources (shaders, terrain + tracker-sphere buffers) and every
+// draw and read-back pass. Owned as an Application member declared after the
+// Window, so it is constructed and destroyed while the GL context is live.
 class Renderer {
 public:
-    // Compiles the shader programs only -- no terrain yet. Splitting "compile the
-    // pipeline" (needs just a live context) from "upload a mesh" (mutable content,
-    // via loadTerrain) lets a Renderer be a plain member constructed once, with
-    // every terrain arriving through loadTerrain. Render paths assume a terrain has
-    // been loaded; the session always calls loadTerrain before drawing.
+    // Compiles the shader programs; no terrain yet -- render paths assume
+    // loadTerrain has been called first, which the session loop guarantees.
     Renderer();
 
-    // Owns a Shader (raw GL program id, no safe copy), so the Renderer is
-    // non-copyable. It is constructed once on the stack and never duplicated.
+    // Non-copyable: owns raw GL object ids.
     Renderer(const Renderer &) = delete;
     Renderer &operator=(const Renderer &) = delete;
 
-    void clear() const;                        // glClear(COLOR | DEPTH)
+    void clear() const;   // glClear(COLOR | DEPTH)
 
-    // Menu swap: drop the old terrain buffers and upload a new mesh. The already
-    // compiled shader is reused, so changing terrains never recompiles GLSL.
+    // Swap the terrain buffers in place; the compiled shaders are reused.
     void loadTerrain(const Mesh &terrain);
 
-    // Paint one viewport: draw the terrain, then let the active mode decorate it.
-    // Two methods rather than a flag parameter, so the overlay can never be
-    // mismatched with the view -- the global view draws the global overlay, the
-    // player view draws the player overlay.
+    // Paint one viewport: draw the lit terrain, then let the active mode
+    // decorate it with its overlay for that view.
     void renderGlobalView(const View &view, const Simulation &sim);
     void renderPlayerView(const View &view, const Simulation &sim);
 
-    // Overlay drawing surface: a mode's render*Overlay draws *through* the Renderer
-    // (it is handed `*this`, not a Shader), so m_sceneShader never leaves its owner.
-    // Throwaway buffers each call -- overlay geometry changes every frame.
+    // Overlay primitives, called by the modes' render*Overlay methods.
+    // Throwaway GPU buffers each call -- overlay geometry changes every frame.
     void drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec3 &color,
                   const glm::mat4 &mvp);
+    // Waypoint dots: green where cameraPos sits (exact position match), red otherwise.
     void drawWaypoints(const std::vector<Waypoint> &waypoints,
                        const glm::vec3 &cameraPos, const glm::mat4 &mvp);
 
-    // PICK mode (Mode 2): render the terrain with per-vertex id-colors (flat) and
-    // read back the clicked pixel, returning the vertex id under (mouseX, mouseY) or
-    // -1 on a miss. Draws into the back buffer and never swaps, so it isn't shown.
+    // Color-pick pass: render the terrain with per-vertex id colors into the
+    // back buffer (never swapped, so invisible) and read back the pixel under
+    // (mouseX, mouseY). Returns the vertex id there, or -1 on a miss.
     int pickVertex(int mouseX, int mouseY, const View &playerView);
 
-    // Redraw the terrain from an estimated pose in one translucent color, overlaid
-    // without depth on the current view -- the PnP "ghost" for visual comparison.
+    // The PnP "ghost": the terrain re-drawn from an estimated pose in one
+    // translucent color, without depth, over the current view.
     void drawGhost(const Camera &estimatedCamera, const Viewport &viewport,
                    const glm::vec3 &color, float alpha, float tintStrength);
 
-    // Colored point markers (picked correspondence points, estimated camera, ...),
-    // one color per position. Drawn on top of the scene (depth test off) so a marker
-    // sitting on the terrain surface is never hidden behind it.
+    // Colored point markers, one color per position, drawn with depth test off
+    // so markers on the terrain surface are never hidden behind it.
     void drawPoints(const std::vector<glm::vec3> &positions,
                     const std::vector<glm::vec3> &colors,
                     float size, const glm::mat4 &mvp);
 
-    // TRACKERS mode (Mode 3): draw the trackers as the shared unit sphere,
-    // each scaled and translated into place and filled flat with its
-    // identifying color. Unlike the markers above this draws WITH depth
-    // testing, like the terrain: a tracker behind a hill is hidden -- and
-    // therefore absent from the capture read-back, which is exactly the
-    // occlusion semantics auto-correspondence wants. viewProj is the scene
-    // matrix the overlay was handed (no model part).
+    // Draw the trackers as flat-colored spheres. Depth-tested, unlike the
+    // markers above: a tracker behind a hill is hidden, in the visible frame
+    // and the capture read-back alike -- the occlusion semantics automatic
+    // correspondence needs. viewProj carries no model part.
     void drawTrackers(const std::vector<Tracker> &trackers, const glm::mat4 &viewProj);
 
-    // TRACKERS capture pass: re-render the player view with the terrain flat
-    // black and the trackers in their flat colors, and read the viewport back.
-    // Any non-black pixel therefore belongs to a tracker, with occlusion already
-    // resolved by the depth buffer. Like pickVertex, this draws into the back
-    // buffer and never swaps, so the capture is invisible on screen.
+    // Tracker detection pass: the player view with the terrain flat black and
+    // the trackers in their flat palette colors, read back. Every non-black
+    // pixel belongs to a tracker, occlusion already resolved by the depth
+    // buffer. Back buffer only, never swapped.
     FramePixels captureTrackersFrame(const View &playerView,
                                      const std::vector<Tracker> &trackers);
 
-    // FEATURE MATCH captures (Mode 4). Both render into the back buffer and
-    // never swap, like pickVertex, so nothing shows on screen.
-    //
-    // The lit scene exactly as the player view would draw it, minus overlays:
-    // the pixels feature detection runs on. Takes the light explicitly because
-    // lighting is part of the Mode 4 experiment -- the same view captured
-    // under a different preset must produce different pixels.
+    // Feature-matching capture: the lit scene exactly as the player view draws
+    // it, minus overlays -- the pixels ORB runs on. Takes the light explicitly:
+    // the same view under a different preset must produce different pixels
+    // (that is the Mode 4 lighting experiment). Back buffer only, never swapped.
     FramePixels captureSceneFrame(const View &view, const DirectionalLight &light);
 
-    // The same view through the pick shader, fully decoded: the terrain vertex
-    // id under each pixel (image convention, index y * width + x, matching
-    // FramePixels), or -1 where no terrain was hit. pickVertex's full-frame
-    // twin -- it answers "which 3D point is this keypoint sitting on?" for
-    // every pixel at once.
-    std::vector<int> captureVertexIdFrame(const View &view);
-
 private:
-    // Shared by both views: set the viewport, build the MVP, draw the terrain
-    // lit by the scene's sun; returns the MVP so the caller can hand it to the
-    // active mode's overlay.
+    // Shared per-view pass: set the viewport, draw the terrain lit; returns the
+    // MVP so the caller can hand it to the active mode's overlay.
     glm::mat4 renderScene(const Camera &camera, const Viewport &viewport,
                           const DirectionalLight &light);
 
     // Read the viewport's back-buffer pixels into image-convention RGB (rows
-    // flipped to top-down, packing alignment forced tight). The shared tail of
-    // every full-frame capture.
+    // flipped top-down, packing forced tight). Shared tail of every capture.
     FramePixels readViewportPixels(const Viewport &viewport);
 
-    // The id pass both vertex readers share: terrain in flat per-vertex-id
-    // colors on a white background (white decodes to a miss), into the back
-    // buffer. pickVertex reads one pixel after it; captureVertexIdFrame reads
-    // the whole frame. One implementation, so the two can't drift apart.
+    // The id pass behind pickVertex: terrain in flat per-vertex-id colors on a
+    // white background (white decodes to a miss).
     void renderPickPass(const Camera &camera, const Viewport &viewport);
 
-    // Draw a mesh through the scene shader's override path: one flat fill
-    // (or a tint of the vertex colors, per tintStrength), never lit. Owns the
-    // raise/draw/drop of u_UseOverride -- the reset matters, because every
-    // other draw through the shared program (and the read-back pipelines)
-    // depends on the override being off. Ghost, trackers, and the capture
-    // passes all draw flat through here.
+    // Draw a mesh through the scene shader's flat-override path (one fill
+    // color, or a tint of the vertex colors, never lit), restoring the
+    // override to off afterward -- every other draw through the shared
+    // program depends on it being off.
     void drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tintStrength,
                       const glm::mat4 &mvp);
 
-    Shader     m_sceneShader;
-    // Flat per-vertex-id program for the color-pick pass (pickVertex). Kept here
-    // for now; if the pick pass grows (FBO, depth read-back), extract it to a
-    // dedicated ColorPicker/PickPass rather than expanding the Renderer.
-    Shader     m_pickShader;
-    // Disc-carving program for GL_POINTS markers (drawPoints / drawWaypoints):
-    // discards the sprite corners so points render round, not square -- the
-    // Core-profile replacement for the deprecated GL_POINT_SMOOTH.
-    Shader     m_pointShader;
-    GpuMesh    m_terrain;
-    // The one sphere every tracker draw reuses (see drawTracker). Built in the
-    // constructor -- it only needs a live GL context, not a loaded terrain.
-    GpuMesh    m_sphere;
+    Shader     m_sceneShader;   // lit terrain + flat-override path (ghost, trackers, captures)
+    Shader     m_pickShader;    // per-vertex-id colors for the color-pick pass
+    Shader     m_pointShader;   // round GL_POINTS markers (discards sprite corners)
+    GpuMesh    m_terrain;       // rebuilt per loadTerrain
+    GpuMesh    m_sphere;        // unit sphere shared by all tracker draws, built once
 };

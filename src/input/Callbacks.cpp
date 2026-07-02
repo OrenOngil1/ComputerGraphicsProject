@@ -8,18 +8,16 @@
 #include "../state/TrackersState.h"
 #include "../state/FeatureMatchState.h"
 
-// 1 while `key` is physically held this frame, else 0 (int, so the opposing-key
-// subtraction below is plain integer arithmetic). Continuous movement is a polling
-// model: instead of reacting to discrete press/repeat events, every frame we ask GLFW
-// which keys are down right now and integrate motion over dt (in fly()).
+// 1 while `key` is physically held, else 0 -- int, so opposing keys cancel via
+// plain subtraction below.
 static int held(GLFWwindow *window, int key)
 {
     return glfwGetKey(window, key) == GLFW_PRESS ? 1 : 0;
 }
 
-// Gather the currently-held movement keys into a device-neutral MovementIntent for fly().
-// Thin GLFW glue -- the motion math lives in CameraControls and is testable without a
-// window (this function is not). Opposing keys cancel via the signed subtraction.
+// Continuous movement is a polling model: every frame, ask GLFW which keys are
+// down right now and integrate over dt (in fly()). Thin GLFW glue -- the
+// motion math lives in CameraControls and is testable without a window.
 MovementIntent pollMovementIntent(GLFWwindow *window)
 {
     MovementIntent in;
@@ -31,19 +29,17 @@ MovementIntent pollMovementIntent(GLFWwindow *window)
     return in;
 }
 
-// The one place a transition is performed -- so a state never has to know about
-// the states it can transition to -- and the new mode's entry action (onEnter)
-// runs in exactly one spot, right after it becomes current.
+// The one place a transition is performed, so the new mode's entry action runs
+// in exactly one spot, right after it becomes current.
 static void setState(Simulation &sim, std::unique_ptr<State> next)
 {
     sim.currentState = std::move(next);
     sim.currentState->onEnter(sim);
 }
 
-// PLAYBACK and PICK both require at least one recorded waypoint. The precondition
-// is a property of the transition (you may only enter if waypoints exist), so it
-// is checked here, before the swap is committed -- not in onEnter, which runs
-// after the swap and so would be too late to refuse.
+// Shared transition guard: PLAYBACK, PICK, and FEATURE MATCH all need at least
+// one recorded waypoint. Checked before the swap is committed -- onEnter runs
+// after it and would be too late to refuse.
 static bool requireWaypoints(const Simulation &sim)
 {
     if (sim.waypoints.empty()) {
@@ -53,11 +49,10 @@ static bool requireWaypoints(const Simulation &sim)
     return true;
 }
 
-// Global, app-level hotkeys that switch mode from anywhere. Returns true if it
-// handled the key (transition performed OR refused), so the caller skips in-mode
-// handling this event. Running before and separately from the current state's
-// handleKey also avoids the self-deletion hazard of a state reassigning the
-// pointer that owns it mid-method.
+// App-level hotkeys that switch mode from anywhere. Returns true if it handled
+// the key (transition performed OR refused), so the caller skips in-mode
+// handling. Running before the current state's handleKey also avoids the
+// self-deletion hazard of a state reassigning the pointer that owns it.
 static bool tryTransition(Simulation &sim, int key, int mods)
 {
     switch (key) {
@@ -81,18 +76,15 @@ static bool tryTransition(Simulation &sim, int key, int mods)
             return true;
 
         // No waypoint guard: TRACKERS builds its own ground truth as the user
-        // flies and captures, independent of any recording. (Pressing T again
-        // re-enters the mode: fresh trackers, fresh log -- like R for RECORD.)
-        // The count prompt blocks in the terminal, like the terrain menu; its
-        // policy lives with the state, so this case stays a plain transition.
+        // flies and captures. Pressing T again re-enters: fresh trackers,
+        // fresh log.
         case GLFW_KEY_T:
             setState(sim, std::make_unique<TrackersState>(TrackersState::promptCount()));
             std::cout << "Switched to TRACKERS mode" << std::endl;
             return true;
 
-        // Waypoint guard like PICK: the recorded waypoints are the pre-phase
-        // views the feature database is built from -- without a recording
-        // there would be nothing to match against.
+        // Waypoint guard like PICK: the recorded waypoints are the views the
+        // feature database is built from.
         case GLFW_KEY_F:
             if (!requireWaypoints(sim))
                 return true;
@@ -104,12 +96,9 @@ static bool tryTransition(Simulation &sim, int key, int mods)
     return false;
 }
 
-// On resize GLFW hands us the new framebuffer size in PIXELS (the units
-// glViewport wants -- unlike window size, which is screen coordinates that
-// differ from pixels under HiDPI scaling). We recompute the split-screen layout
-// here, once per resize, and store each viewport in its View; the render loop
-// just reads them. Reaches Simulation through the window user pointer, exactly
-// like keyCallback below.
+// GLFW reports the new framebuffer size in PIXELS (what glViewport wants --
+// unlike window size, which is screen coordinates that differ under HiDPI).
+// Recompute the split-screen layout once per resize; the render loop reads it.
 void framebufferSizeCallback(GLFWwindow *window, int width, int height)
 {
     CallbackContext *ctx = static_cast<CallbackContext *>(glfwGetWindowUserPointer(window));
@@ -134,15 +123,11 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     }
     Simulation *sim = ctx->sim;
 
-    // Only handle key presses and repeats, ignore releases.
     if (action != GLFW_PRESS && action != GLFW_REPEAT)
         return;
 
-    // Escape backs out of the current session to the terrain menu (the universal
-    // "up one level" key) -- a flag, kept distinct from program exit. Ctrl+Q is the
-    // standard "quit the application now": it trips glfwWindowShouldClose, the same
-    // signal the OS close button raises, so run() ends the program instead of
-    // re-entering the menu.
+    // Escape backs out of the session to the terrain menu; Ctrl+Q quits the
+    // program via glfwWindowShouldClose, the same signal as the OS close button.
     if (key == GLFW_KEY_ESCAPE) {
         sim->returnToMenu = true;
         return;
@@ -152,15 +137,15 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         return;
     }
 
-    // L cycles the scene light through the presets. Global like Escape, not a
-    // mode transition: the light must be changeable at any moment in any mode
-    // (Mode 4's experiment swaps it between its Pre and Run phases).
+    // L cycles the light presets. Global like Escape, not a mode transition:
+    // the light must be changeable in any mode (Mode 4's experiment swaps it
+    // between its pre and run phases).
     if (key == GLFW_KEY_L) {
         std::cout << "Light: " << sim->cycleLightPreset() << std::endl;
         return;
     }
 
-    // A global mode-switch hotkey takes precedence over in-mode handling.
+    // Mode-switch hotkeys take precedence over in-mode handling.
     if (tryTransition(*sim, key, mods))
         return;
 
@@ -168,9 +153,6 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         sim->currentState->handleKey(*sim, *ctx->renderer, key, mods);
 }
 
-// Mouse buttons are routed to the active state unconditionally; the state decides
-// whether it cares (only PickState reacts, to a left-click). The Renderer is handed
-// through so PICK can run its color-pick render pass in response.
 void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
     (void)mods;
@@ -183,9 +165,9 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 
     Simulation *sim = ctx->sim;
 
-    // Middle/right buttons drive the global-map pan/orbit (press over the global
-    // view to grab, release to let go), intercepted here so they never reach the
-    // active mode.
+    // Middle/right buttons drive the global-map pan/orbit (press over the
+    // global view to grab, release to let go), intercepted here so they never
+    // reach the active mode.
     if (button == GLFW_MOUSE_BUTTON_MIDDLE || button == GLFW_MOUSE_BUTTON_RIGHT) {
         if (action == GLFW_PRESS) {
             double x, y;
@@ -207,7 +189,7 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
                                                   window, button, action);
 }
 
-// Scroll wheel zooms the global (overview) camera while the cursor is over it.
+// Scroll wheel zooms the global camera while the cursor is over its viewport.
 void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 {
     (void)xoffset;
@@ -223,8 +205,7 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
 }
 
 // Cursor motion pans (middle-drag) or orbits (right-drag) the global camera.
-// Fires constantly, so it stays silent (no error log) and does nothing unless a
-// drag is in progress.
+// Fires constantly, so it stays silent and does nothing unless a drag is live.
 void cursorPosCallback(GLFWwindow *window, double xpos, double ypos)
 {
     CallbackContext *ctx = static_cast<CallbackContext *>(glfwGetWindowUserPointer(window));

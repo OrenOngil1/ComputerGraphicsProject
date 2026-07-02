@@ -81,9 +81,9 @@ Escape sets `sim.returnToMenu` (→ back to menu); `Ctrl+Q` or the OS close butt
     (View, Simulation)`; overlay surface `drawPath` / `drawWaypoints` /
     `drawPoints` / `drawTrackers`; PICK support `pickVertex(x,y,View) → id`
     (offscreen id-color pass + `glReadPixels`) and `drawGhost(...)`; and the
-    full-frame vision read-backs `captureSceneFrame(View, light)` (lit RGB),
-    `captureVertexIdFrame(View)` (per-pixel vertex id), `captureTrackersFrame`
-    (flat-color spheres on black) — all offscreen, never swapped.
+    full-frame vision read-backs `captureSceneFrame(View, light)` (lit RGB) and
+    `captureTrackersFrame` (flat-color spheres on black) — all offscreen, never
+    swapped.
   - Private `renderScene(Camera, Viewport, DirectionalLight) → mvp`: viewport →
     MVP → draw terrain lit (Lambert + ambient, gated by a `u_Lit` uniform so the
     overlay/capture/pick passes stay unshaded); returns the MVP for the overlay.

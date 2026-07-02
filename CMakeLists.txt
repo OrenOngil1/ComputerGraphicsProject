@@ -67,11 +67,14 @@ endif()
 add_executable(drone_sim src/main.cpp)
 target_link_libraries(drone_sim PRIVATE drone_core)
 
-# Headless math checks (PnP solvers, blob centroids, terrain normals) -- no
-# window or GPU. We link the whole core lib; the static linker keeps only the
-# objects headless_checks.cpp actually references, so this gets the same
+# Headless math checks (PnP solvers, blob centroids, terrain normals,
+# camera controls) -- no window or GPU. One binary built from tests/*.cpp,
+# split by topic; we link the whole core lib and the static linker keeps
+# only the objects each file actually references, so this gets the same
 # "just the GL-free pieces" effect the Makefile spelled out by hand.
-add_executable(headless_checks tests/headless_checks.cpp)
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/*.cpp)
+
+add_executable(headless_checks ${TEST_SOURCES})
 target_link_libraries(headless_checks PRIVATE drone_core)
 
 enable_testing()

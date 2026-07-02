@@ -4,9 +4,8 @@
 #include <glm/gtc/matrix_transform.hpp>   // glm::rotate (overview orbit)
 
 namespace {
-// Interaction tuning. Named so the "why" of each literal is visible and so the feel is
-// changed in one place. Grouped here (file-local) rather than in the header: they are
-// implementation detail of these verbs, not part of their contract.
+// Interaction tuning, in one place. File-local: implementation detail of these
+// verbs, not part of their contract.
 constexpr float kZoomStep       = 0.9f;    // eye-target distance multiplier per zoom notch
 constexpr float kMinZoomDist    = 1.0f;    // zoom clamp floor  (can't cross the target)
 constexpr float kMaxZoomDist    = 1.0e5f;  // zoom clamp ceiling (can't fly to infinity)
@@ -46,9 +45,12 @@ void orbit(Camera &cam, double dx, double dy)
 {
     glm::vec3 offset = cam.position - cam.target;
 
+    // Yaw: rotate the eye offset around world up.
     offset = glm::vec3(glm::rotate(glm::mat4(1.0f), (float)(-dx) * kOrbitRate,
                                    glm::vec3(0.0f, 1.0f, 0.0f)) * glm::vec4(offset, 0.0f));
 
+    // Pitch: rotate around the view's right axis, applied only while it keeps
+    // the view clear of the vertical (degenerate with the world-up axis).
     const glm::vec3 forward = glm::normalize(-offset);
     const glm::vec3 right   = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
     const glm::vec3 pitched = glm::vec3(glm::rotate(glm::mat4(1.0f), (float)(-dy) * kOrbitRate, right)
@@ -61,29 +63,28 @@ void orbit(Camera &cam, double dx, double dy)
 
 void fly(Camera &cam, const MovementIntent &in, float terrainSize, float dt)
 {
-    // Scale by dt so speed is frame-rate independent; move speed also scales with terrain
-    // size so the feel is consistent across differently sized DEMs.
     const float moveSpeed = terrainSize * kMoveFraction * dt;
     const float rotSpeed  = kRotateSpeed * dt;
 
     const glm::vec3 forward = glm::normalize(cam.target - cam.position);
     const glm::vec3 right   = glm::normalize(glm::cross(forward, cam.up));
 
-    // Look first (rotate the target around the eye). Pitch is clamped before it reaches
-    // straight up/down so forward and up never become parallel (degenerate view matrix).
+    // Look first (rotate the target around the eye). Pitch is clamped before
+    // straight up/down so forward and up never become parallel (degenerate
+    // view matrix).
     if (in.pitch > 0 && forward.y <  kPitchLimit) cam.target += cam.up * rotSpeed;
     if (in.pitch < 0 && forward.y > -kPitchLimit) cam.target -= cam.up * rotSpeed;
     cam.target += right * (float)in.yaw * rotSpeed;
 
-    // Then translate eye + target together (free-fly: forward follows the current pitch;
-    // vertical is independent of look direction).
+    // Then translate eye + target together (forward follows the current
+    // pitch; vertical is independent of look direction).
     const glm::vec3 delta = forward  * (float)in.forward
                           + right    * (float)in.strafe
                           + cam.up   * (float)in.vertical;
     cam.position += delta * moveSpeed;
     cam.target   += delta * moveSpeed;
 
-    // Keep the target exactly one unit ahead of the eye, so the look nudges above stay
-    // angular (constant look distance) rather than drifting the target away.
+    // Keep the target exactly one unit ahead of the eye, so the look nudges
+    // above stay angular rather than drifting the target away.
     cam.target = cam.position + glm::normalize(cam.target - cam.position);
 }

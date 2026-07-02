@@ -19,8 +19,7 @@ namespace {
 constexpr int WIDTH  = 800;
 constexpr int HEIGHT = 600;
 
-// Persistent GL state -- set once, applies to every draw call afterward. The app
-// half of the old initGL(); needs only a live context, which the Window provides.
+// Persistent GL state -- set once, applies to every draw call afterward.
 void configureGLState()
 {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -31,9 +30,9 @@ void configureGLState()
     glEnable(GL_BLEND);
 }
 
-// Scene data, not control flow: place the two cameras relative to the terrain.
-// The global camera looks down at the whole terrain; the player camera starts low
-// at the edge looking in. Both scale with terrainSize so any DEM frames sensibly.
+// Place the two cameras relative to the terrain: the global camera looks down
+// at the whole terrain, the player camera starts low at the edge looking in.
+// Both scale with terrainSize so any DEM frames sensibly.
 void configureViews(Simulation &sim)
 {
     sim.globalView.camera = {
@@ -57,11 +56,6 @@ void configureViews(Simulation &sim)
 
 } // namespace
 
-// Window constructs first (member-init order), so the GL context is live here for
-// callback registration and the persistent GL state. The GLFW user pointer is NOT
-// set here -- it points at a CallbackContext that lives in run() (its lifetime is
-// the session loop), and the callbacks' null-pointer guards cover the brief gap
-// until run() wires it.
 Application::Application()
     : m_window(WIDTH, HEIGHT, "OpenGL Window")
 {
@@ -71,13 +65,11 @@ Application::Application()
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     glfwSetScrollCallback(window, scrollCallback);          // global-map zoom
-    glfwSetCursorPosCallback(window, cursorPosCallback);    // global-map pan (middle-drag)
+    glfwSetCursorPosCallback(window, cursorPosCallback);    // global-map pan/orbit drag
 
-    // Seed the split-screen layout from the actual framebuffer size in PIXELS (the
-    // requested WIDTH/HEIGHT are screen coords HiDPI scaling may not match). We call
-    // the same layout helpers the resize callback uses, directly -- so the seed needs
-    // no user pointer and runs here, before run() wires one. The callback itself only
-    // matters for *later* resizes.
+    // Seed the split-screen layout from the framebuffer size in PIXELS -- the
+    // requested WIDTH/HEIGHT are screen coords, which HiDPI scaling may not
+    // match. Same layout helpers the resize callback uses for later resizes.
     int fbWidth, fbHeight;
     glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
     m_sim.globalView.viewport = leftHalf(fbWidth, fbHeight);
@@ -86,15 +78,11 @@ Application::Application()
     configureGLState();
 }
 
-// Swap to a new terrain in place: upload the mesh (shaders untouched), reposition
-// the cameras, and reset the per-terrain state. The last step matters because
-// m_sim is now long-lived -- the "fresh per terrain" guarantee the old
-// in-loop local gave for free must be made explicit here.
 bool Application::loadTerrain(const std::string &path)
 {
     std::optional<Mesh> mesh = readTerrain(path);
     if (!mesh)
-        return false;   // load failed; nothing mutated yet, so the caller can retry
+        return false;
 
     m_sim.mesh = std::move(*mesh);
     m_sim.terrainSize = static_cast<float>(std::max(m_sim.mesh.cols, m_sim.mesh.rows));
@@ -103,29 +91,28 @@ bool Application::loadTerrain(const std::string &path)
 
     configureViews(m_sim);
 
+    // m_sim outlives the terrain, so the "fresh per terrain" reset is explicit:
+    // recordings must not bleed from one terrain into the next.
     m_sim.pathPoints.clear();
     m_sim.waypoints.clear();
     m_sim.currentState = std::make_unique<NavigationState>();
     return true;
 }
 
-// One terrain's frame loop. Continuous movement integrates over the time since the
-// last frame, so motion is frame-rate independent; seed `last` before the loop so
-// the first dt is tiny. Exits on either signal: OS close or Escape (returnToMenu).
 void Application::runSession()
 {
     GLFWwindow *window = m_window.handle();
     m_sim.returnToMenu = false;
 
+    // Seed `last` before the loop so the first dt is tiny, not since-epoch.
     float last = (float)glfwGetTime();
 
     while (!glfwWindowShouldClose(window) && !m_sim.returnToMenu) {
         const float now = (float)glfwGetTime();
-        const float dt = now - last;
+        const float dt = now - last;   // seconds; makes motion frame-rate independent
         last = now;
 
-        // The active mode advances itself (the moving modes poll held keys to fly
-        // the player camera; Playback/Pick inherit a no-op tick).
+        // The active mode advances itself (the moving modes poll held keys).
         if (m_sim.currentState)
             m_sim.currentState->tick(m_sim, window, dt);
 
@@ -138,29 +125,29 @@ void Application::runSession()
     }
 }
 
-// Menu/session loop. Each pass picks a terrain and runs it until a signal ends the
-// session. Escape (returnToMenu) loops back to the menu; the OS close button quits.
-// selectTerrain's "Exit" entry (exit(0)) is the other way out of the program.
 int Application::run()
 {
     GLFWwindow *window = m_window.handle();
 
-    // The callback bundle lives on run()'s stack: callbacks only fire during the
-    // session loop, so its lifetime is exactly run(). Pointing the user pointer at a
-    // local (not a member) keeps Application free of any pointer into its own fields.
+    // The callback bundle lives on run()'s stack: callbacks only fire during
+    // the session loop, so its lifetime is exactly run().
     CallbackContext context{ &m_sim, &m_renderer };
     glfwSetWindowUserPointer(window, &context);
 
     while (true) {
-        // Re-prompt until a terrain actually loads -- selectTerrain already loops
-        // back to the menu, so a failed load just sends the user around again.
-        while (!loadTerrain(selectTerrain("assets/terrains/")))
+        std::optional<std::string> path = selectTerrain("assets/terrains/");
+        if (!path)
+            break;   // menu "Exit": unwind normally, destructors run
+
+        if (!loadTerrain(*path)) {
             std::cerr << "Could not load that terrain -- pick another." << std::endl;
+            continue;
+        }
 
         runSession();
 
-        // Esc set returnToMenu -> next menu pass. Ctrl+Q or the OS close button quit
-        // (both via glfwWindowShouldClose); the menu's "Exit" is the third way out.
+        // Escape (returnToMenu) loops back to the menu; Ctrl+Q or the OS close
+        // button trip glfwWindowShouldClose and quit.
         if (glfwWindowShouldClose(window))
             break;
     }

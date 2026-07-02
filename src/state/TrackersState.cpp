@@ -10,11 +10,9 @@
 #include "../vision/Pnp.h"               // computeCameraPose
 #include "../vision/TrackerDetection.h"  // findTrackerCentroids
 
-// 20 perceptually distinct colors for tracker identification. The first 7 use
-// only 0/1 channel values (all binary primaries/secondaries except black); the
-// remaining 13 use 0.5 as a mid-step. Every pair differs by ≥0.5 (≈128/255)
-// in at least one channel -- far above the blob detector's channelTolerance=3,
-// so misclassification is impossible even with mild rendering imprecision.
+// 20 distinct tracker colors: every pair differs by >= 0.5 (~128/255) in at
+// least one channel -- far above the blob detector's channelTolerance, so
+// misclassification is impossible even with rendering imprecision.
 static const glm::vec3 trackerPalette[] = {
     { 1.0f, 0.0f, 0.0f },  // red
     { 0.0f, 1.0f, 0.0f },  // green
@@ -47,10 +45,9 @@ TrackersState::TrackersState(size_t count)
     : m_count(std::clamp(count, size_t(1), TrackersState::kMaxCount))
 {}
 
-// Reads one terminal line; anything that isn't a number in range falls back
-// to the default with a message. Relies on every earlier cin reader
-// discarding its own trailing newline (see selectTerrain), so an empty line
-// here really is the user pressing Enter for the default.
+// Reads one terminal line; anything that isn't a number in range falls back to
+// the default. Relies on every earlier cin reader discarding its own trailing
+// newline (see selectTerrain), so an empty line really is a plain Enter.
 size_t TrackersState::promptCount()
 {
     std::cout << "Number of trackers (1-" << kMaxCount
@@ -74,7 +71,7 @@ void TrackersState::onEnter(Simulation &sim)
 {
     m_trackers.clear();
 
-    // Both knobs scale with the terrain so any DEM gets sensibly sized,
+    // Both knobs scale with the terrain, so any DEM gets sensibly sized,
     // sensibly spread trackers.
     const float radius        = sim.terrainSize * 0.012f;
     const float minSeparation = sim.terrainSize * 0.08f;
@@ -82,11 +79,10 @@ void TrackersState::onEnter(Simulation &sim)
     const Mesh &mesh = sim.mesh;
 
     for (size_t i = 0; i < m_count; i++) {
-        // Rest each sphere on a random terrain vertex: recentered to the world
-        // the cameras live in, raised by the radius so it sits ON the surface.
-        // Re-roll a bounded number of times to keep trackers apart -- clumped
-        // trackers hand PnP a near-degenerate point configuration. Best effort:
-        // if the rolls run out, the last candidate stands rather than failing.
+        // Rest each sphere on a random terrain vertex, raised by its radius.
+        // Re-roll a bounded number of times to keep trackers apart (clumped
+        // trackers hand PnP a near-degenerate configuration); if the rolls run
+        // out, the last candidate stands rather than failing.
         glm::vec3 position(0.0f);
         for (int attempt = 0; attempt < 40; attempt++) {
             position = mesh.worldPos(randomIndex(mesh.vertices.size()))
@@ -116,14 +112,13 @@ std::optional<Waypoint> TrackersState::computePose(Simulation &sim, Renderer &re
     std::vector<std::optional<glm::vec2>> centroids =
         findTrackerCentroids(frame, m_trackers);
 
-    // The automatic correspondences: each visible centroid pairs with its
-    // sphere's known 3D center. Occluded/off-screen trackers simply drop out.
+    // Each visible centroid pairs with its sphere's known 3D center;
+    // occluded/off-screen trackers simply drop out.
     std::vector<Correspondence> correspondences;
     const glm::vec2 frameSize((float)frame.width, (float)frame.height);
     for (size_t i = 0; i < m_trackers.size(); i++) {
         if (centroids[i])
-            // imagePos is normalized (see Correspondence): the blob centroid is a pixel
-            // in this frame, so divide by the frame size to store it as a [0,1] fraction.
+            // Centroid pixel -> the [0,1] fraction Correspondence stores.
             correspondences.push_back({ m_trackers[i].center, *centroids[i] / frameSize });
     }
 

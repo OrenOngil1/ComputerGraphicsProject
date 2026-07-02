@@ -7,14 +7,16 @@
 struct Simulation;
 class Renderer;
 
+// What the GLFW callbacks reach through the window user pointer. Owned by
+// Application::run(); sim/renderer are non-owning.
 struct CallbackContext {
     Simulation *sim = nullptr;
     Renderer *renderer = nullptr;
-    OrbitController globalControls;
+    OrbitController globalControls;   // middle/right-drag state for the global map
 };
 
-// GLFW glue that gathers the currently-held movement keys into a device-neutral intent.
-// Declared here (input layer) so the States can call it each frame; defined in
+// Gather the currently-held movement keys into a device-neutral intent.
+// Declared here (input layer) so states can poll it each frame; defined in
 // Callbacks.cpp to keep GLFW out of the pure CameraControls TU.
 MovementIntent pollMovementIntent(GLFWwindow *window);
 
@@ -24,8 +26,8 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 
-// Global-map view controls: scroll zooms, middle-drag pans -- both move only the
-// global (overview) camera, to make color-picking 3D points there easier.
+// Global-map view controls: scroll zooms, middle-drag pans, right-drag orbits
+// -- all move only the global (overview) camera.
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
 void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);

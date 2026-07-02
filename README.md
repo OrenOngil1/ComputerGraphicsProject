@@ -119,8 +119,8 @@ version made the same cause measurable as a near-total collapse (matches
 
 ## Tests
 
-`ctest --test-dir build` (or CMake Tools' **Run Tests**) builds and runs
-`tests/headless_checks.cpp` against the vision + loader code (no GPU) and
+`ctest --test-dir build` (or CMake Tools' **Run Tests**) builds and runs the
+checks in `tests/` against the vision + loader code (no GPU) and
 verifies, on synthetic inputs with known answers: terrain normals,
 tracker blob centroids, and both PnP solvers (including RANSAC outlier rejection
 and the minimum-inlier guard). The PnP checks reproject points with the
