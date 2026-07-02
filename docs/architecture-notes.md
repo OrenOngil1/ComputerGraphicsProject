@@ -1,8 +1,8 @@
 # Architecture Notes
 
 A structural map of the codebase: what owns what, how a frame flows, and the
-invariants the design leans on. For *behavior* — the four modes, controls, and
-the experiments — read [pose-estimation-modes.md](pose-estimation-modes.md) and
+invariants the design leans on. For *behavior* - the four modes, controls, and
+the experiments, read [pose-estimation-modes.md](pose-estimation-modes.md) and
 [lighting-experiment.md](lighting-experiment.md); this file is about *structure*.
 
 ## Mental model
@@ -17,8 +17,7 @@ window and shaders are created **once** (a `Window` RAII member + a mesh-less
 `loadTerrain` so recordings don't bleed across terrains. Callbacks reach it
 through a `CallbackContext { Simulation*, Renderer*, OrbitController }`
 (defined in `input/Callbacks.h`) that lives on `run()`'s stack and is set on
-the GLFW window user pointer — `Application` holds no pointer into its own
-members.
+the GLFW window user pointer.
 
 **Exit paths:** Escape sets `sim.returnToMenu` (back to the terrain menu);
 `Ctrl+Q` or the OS close button trip `glfwWindowShouldClose` (quit); the menu's
@@ -41,9 +40,12 @@ quit. All three unwind normally, so destructors run. No global state.
   - `Simulation.h` — the per-session shared state: the active `State`, the
     mesh, the two `View`s, the recording (`pathPoints` + `waypoints`), the
     light preset, and the `returnToMenu` flag.
-  - `Camera.h` — `Camera` (eye pose + lens), `Viewport` (screen rectangle),
-    `View` (the pair), `Waypoint` (recorded pose), and the `leftHalf` /
-    `rightHalf` layout helpers.
+  - `Camera.h` — `Camera` (eye pose + lens), `View` (camera + viewport pair),
+    `Waypoint` (recorded pose), and `viewProjection` — the one definition of
+    the projection the renderer draws with, which `Pnp.cpp`'s intrinsics must
+    mirror (a headless check holds the two together).
+  - `Viewport.h` — `Viewport` (screen rectangle, pure layout) and the
+    `leftHalf` / `rightHalf` split-screen helpers.
   - `Scene.h` — `Vertex`, `Correspondence` (3D point + normalized 2D
     observation), `Mesh` (the height grid, with the `center()` /
     `worldPos(id)` centering authority), `Tracker`, and `FramePixels` (a
@@ -62,6 +64,12 @@ quit. All three unwind normally, so destructors run. No global state.
   (`pickVertex`), and the vision read-backs (`captureSceneFrame`,
   `captureTrackersFrame`) — all capture passes render to the back buffer and
   never swap, so they are invisible.
+- `src/render/GpuMesh.{h,cpp}` — the GPU-resident mesh bundle (VAO + VBO +
+  IBO) and its builders (`uploadTerrain`, `buildSphereMesh`). Construction
+  only; drawing stays in `Renderer`.
+- `src/render/PickEncoding.h` — both directions of the pick pass's id↔color
+  packing, side by side in one header; the pick shader just passes the baked
+  per-vertex attribute through, so the packing rule has a single home.
 - `src/state/` — one `State` subclass per mode (see below).
 - `src/input/`
   - `Callbacks.{h,cpp}` — GLFW glue: the callbacks, the transition machinery
@@ -115,7 +123,7 @@ quit. All three unwind normally, so destructors run. No global state.
 `State.h` is the base: every hook defaults to a no-op, so a mode overrides only
 what it uses (`onEnter`, `handleKey`, `tick`, `handleMouseButton`, the two
 overlays). There is deliberately **no `id()`/mode enum** — that would invite a
-`switch(state->id())`, reintroducing what the pattern removes. Transitions are
+`switch(state->id())`, which is exactly what the pattern exists to eliminate. Transitions are
 an app-level concern in `Callbacks.cpp`; states never name other states.
 
 - `NavigationState` — free flight.
@@ -162,8 +170,10 @@ read-back), extract a dedicated `PickPass` rather than widening `Renderer`.
 ## Testing
 
 `tests/` builds one headless binary (no window, no GL) from per-topic files:
-terrain normals, tracker centroids, both PnP solvers, and the camera verbs —
-each against synthetic inputs with known answers. The PnP round-trip projects
+terrain normals, tracker centroids, both PnP solvers, the camera verbs, the
+pick-id encoding round trip, and the render↔vision camera-model contract
+(`viewProjection` vs. an independent pinhole) — each against synthetic inputs
+with known answers. The PnP round-trip projects
 through an independently-derived square-pixel pinhole on a non-square viewport,
 so intrinsics mistakes (an aspect factor folded into the focal length) fail the
 suite.

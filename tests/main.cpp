@@ -1,7 +1,8 @@
 // Headless sanity checks for the GL-free math: the PnP solvers, the tracker
-// blob centroids, the terrain normals, and the camera controls, each on
-// synthetic inputs with a known correct answer. No window, no GL context --
-// run anywhere with `ctest`.
+// blob centroids, the terrain normals, the camera controls, the pick-id
+// encoding, and the render<->vision camera-model contract, each on synthetic
+// inputs with a known correct answer. No window, no GL context -- run
+// anywhere with `ctest`.
 
 #include <iostream>
 
@@ -11,6 +12,8 @@ void testNormals();
 void testCentroids();
 void testPnp();
 void testCameraControls();
+void testPickEncoding();
+void testCameraModel();
 
 int main()
 {
@@ -18,6 +21,8 @@ int main()
     testCentroids();
     testPnp();
     testCameraControls();
+    testPickEncoding();
+    testCameraModel();
 
     if (failures == 0)
         std::cout << "All checks passed." << std::endl;

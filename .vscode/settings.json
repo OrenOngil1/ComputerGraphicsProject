@@ -1,5 +1,5 @@
 {
-  // A "VS Dev (x64)" integrated-terminal profile: a normal cmd shell that boots
+  // A "Developer Command Prompt" integrated-terminal profile: a normal cmd shell that boots
   // through VsDevCmd.bat, so cmake / ninja / cl land on PATH (and the MSVC
   // INCLUDE/LIB env is set) -- the same environment as "Developer Command
   // Prompt for VS 2022". -arch/-host_arch=x64 force a 64-bit toolchain so a
@@ -9,7 +9,7 @@
   // It is NOT the default profile, so your normal PowerShell / WSL terminals
   // are left untouched.
   "terminal.integrated.profiles.windows": {
-    "VS Dev (x64)": {
+    "Developer Command Prompt": {
       "path": "C:\\Windows\\System32\\cmd.exe",
       "args": [
         "/k",
@@ -24,7 +24,7 @@
   // "terminal.integrated.defaultProfile.windows": "VS Dev (x64)",
 
   // The app reads assets via paths relative to the CWD ("assets/terrains/",
-  // "assets/shaders/"), but the binary lives in build/bin. Run/Debug it from
+  // "assets/shaders/"), but the binary lives under build/<preset>/bin. Run/Debug it from
   // the project root so those paths resolve. Applies to CMake Tools' Launch
   // and Debug buttons (both OSes -- ${workspaceFolder} is portable).
   "cmake.debugConfig": {

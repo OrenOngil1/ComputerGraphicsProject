@@ -45,7 +45,7 @@ jobs:
             c_compiler: cl
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Set reusable strings
       id: strings
@@ -62,7 +62,7 @@ jobs:
     # changing a dependency or the baseline rebuilds once and re-caches.
     - name: Cache vcpkg binary packages (Windows)
       if: runner.os == 'Windows'
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~\AppData\Local\vcpkg\archives
         key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}

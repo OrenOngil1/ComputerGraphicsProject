@@ -11,7 +11,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-# Collect executables under the build tree (build/bin), not the source root.
+# Collect executables under the build tree (<binaryDir>/bin -- the presets
+# point that at build/<preset-name>), not the source root.
 # In CMake the out-of-source build/ directory is the single home for every
 # generated artifact -- intermediates *and* binaries -- so it subsumes the
 # Makefile's separate obj/ + bin/. Keeping output inside build/ means the two
@@ -37,7 +38,7 @@ list(REMOVE_ITEM CORE_SOURCES ${CMAKE_SOURCE_DIR}/src/main.cpp)
 
 add_library(drone_core STATIC
   ${CORE_SOURCES}
-  src/glad.c            # vendored C loader; CMake compiles it with the C toolchain
+  include/glad/glad.c   # vendored C loader; CMake compiles it with the C toolchain
 )
 
 # PUBLIC = these propagate to anything that links drone_core (the app *and*

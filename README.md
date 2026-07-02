@@ -56,7 +56,7 @@ On Windows the libraries are then fetched automatically by vcpkg the first time
 you configure (manifest mode via `vcpkg.json`, versions pinned by its
 `builtin-baseline`). On Linux/macOS the system packages above supply them.
 
-### CMake
+### From a terminal
 
 Generator + toolchain choices live in `CMakePresets.json` (presets `linux` and
 `windows`), so configuring is a single command:
@@ -64,22 +64,29 @@ Generator + toolchain choices live in `CMakePresets.json` (presets `linux` and
 ```bash
 # Linux / macOS
 cmake --preset linux
-cmake --build build
-ctest --test-dir build            # headless math checks
-./build/bin/drone_sim
-
-# Windows — from a "Developer PowerShell for VS 2022"
-cmake --preset windows
-cmake --build build
-ctest --test-dir build            # headless math checks
-./build/bin/drone_sim.exe
+cmake --build --preset linux
+ctest --preset linux              # headless math checks
+./build/linux/bin/drone_sim
 ```
+
+```powershell
+# Windows — from a VS 2022 developer shell
+# ("Developer PowerShell for VS 2022" in the Start menu)
+cmake --preset windows
+cmake --build --preset windows
+ctest --preset windows            # headless math checks
+./build/windows/bin/drone_sim.exe
+```
+
+Each preset owns its own tree under `build/` (`build/linux/`, `build/windows/`),
+so builds for different platforms coexist in one checkout — handy when the same
+working copy is built both natively on Windows and from WSL.
 
 > The `windows` preset reads the vcpkg toolchain from `$env{VCPKG_ROOT}`. A VS
 > Developer environment provides that variable automatically; outside one, set
 > it to your vcpkg checkout (e.g. `C:\vcpkg`).
 
-### VS Code (CMake Tools)
+### From VS Code (CMake Tools)
 
 Install the **CMake Tools** extension, pick the **windows** (or **linux**)
 configure preset from the status bar, then use its **Configure / Build / Debug /
@@ -121,7 +128,8 @@ version made the same cause measurable as a near-total collapse (matches
 
 ## Tests
 
-`ctest --test-dir build` (or CMake Tools' **Run Tests**) builds and runs the
+`ctest --preset linux` / `ctest --preset windows` (or CMake Tools' **Run
+Tests**) builds and runs the
 checks in `tests/` against the vision + loader code (no GPU) and
 verifies, on synthetic inputs with known answers: terrain normals,
 tracker blob centroids, and both PnP solvers (including RANSAC outlier rejection

@@ -1,5 +1,18 @@
 # Experiment: lighting change vs. 2D feature matching (Mode D)
 
+> **Provenance note — results predate the current Mode D.** This experiment was
+> run on an earlier, fully automatic variant of Mode D, which anchored *every*
+> ORB keypoint to its 3D vertex via the ID-pass read-back (~1 000 descriptors
+> per view). That anchoring read the mesh vertices directly, which the project's
+> rules disallow for CV algorithms, so Mode D was redesigned around the manual
+> anchoring described in [pose-estimation-modes.md](pose-estimation-modes.md);
+> the automatic variant survives only in git history, and the setup below — in
+> particular the 9 792-descriptor database — is not reproducible with the
+> current app. The *result* stands on its own: the match collapse is a property
+> of ORB descriptors under relighting of a shading-driven scene, independent of
+> how the database was anchored. A rerun under the current manual pipeline is
+> planned.
+
 The mini-project (PDF p. 54) asks us to change the lighting between the
 feature-matching **pre-phase** (building the descriptor database) and the
 **run-phase** (estimating pose by matching) and report what happens. This is

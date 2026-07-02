@@ -139,13 +139,13 @@ void TrackersState::renderGlobalOverlay(const Simulation &sim, Renderer &rendere
                                         const glm::mat4 &mvp) const
 {
     // Spheres first (depth-tested scene objects), comparison overlay on top.
-    renderer.drawTrackers(m_trackers, mvp);
+    renderer.drawTrackersLit(m_trackers, sim.light(), mvp);
     PoseComparisonState::renderGlobalOverlay(sim, renderer, mvp);
 }
 
 void TrackersState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
                                         const glm::mat4 &mvp) const
 {
-    renderer.drawTrackers(m_trackers, mvp);
+    renderer.drawTrackersLit(m_trackers, sim.light(), mvp);
     PoseComparisonState::renderPlayerOverlay(sim, renderer, mvp);   // ghost over all
 }

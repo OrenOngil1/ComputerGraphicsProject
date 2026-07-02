@@ -1,12 +1,23 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include "Viewport.h"
 
 // A recorded camera pose (position + look-at target) -- a waypoint along the
 // flight path, captured in RECORD mode for later playback.
 struct Waypoint {
     glm::vec3 position;   // centered world space
     glm::vec3 target;
+
+    // Exact float equality: two poses match only when one was copied from the
+    // other (applyPose / pose()), never when recomputed.
+    bool operator==(const Waypoint &other) const
+    {
+        return position == other.position && target == other.target;
+    }
+    bool operator!=(const Waypoint &other) const { return !(*this == other); }
 };
 
 // An eye's pose and lens -- "what does the world look like from here?". It
@@ -30,28 +41,9 @@ struct Camera {
         position = waypoint.position;
         target   = waypoint.target;
     }
-};
 
-// The window rectangle a view paints into. Recomputed on resize (see
-// leftHalf/rightHalf below).
-struct Viewport {
-    int x = 0;        // lower-left corner + size, in framebuffer PIXELS
-    int y = 0;
-    int width = 0;
-    int height = 0;
-
-    // Hit-test a pixel. Half-open on the far edges, so a pixel never counts as
-    // inside two abutting viewports (the split shares the column at x + width).
-    // Cursor coords arrive as doubles from GLFW, hence the parameter type.
-    bool contains(double px, double py) const
-    {
-        return px >= x && px < x + width &&
-               py >= y && py < y + height;
-    }
-
-    // Width-to-height ratio -- the factor mapping the vertical FOV to the
-    // horizontal one in projections and viewing rays.
-    float aspect() const { return (float)width / (float)height; }
+    // The current pose as a Waypoint -- applyPose's outward counterpart.
+    Waypoint pose() const { return { position, target }; }
 };
 
 // An eye (Camera) paired with the screen rectangle it paints into (Viewport).
@@ -62,16 +54,15 @@ struct View {
     Viewport viewport;
 };
 
-// The split-screen layout as pure functions of the framebuffer size. Here
-// (next to Viewport) rather than in the renderer so the resize callback
-// computes layout without a renderer dependency; `inline` because this header
-// is widely included.
-inline Viewport leftHalf(int windowWidth, int windowHeight)
+// The projection * view matrix a (camera, viewport) pair renders with:
+// vertical FOV and clip planes from the camera, aspect from the viewport, no
+// model part. The one definition of the app's camera model -- the pinhole
+// intrinsics in vision/Pnp.cpp describe this same camera, and the headless
+// camera-model check holds the two to it.
+inline glm::mat4 viewProjection(const Camera &camera, const Viewport &viewport)
 {
-    return Viewport{ 0, 0, windowWidth / 2, windowHeight };
-}
-
-inline Viewport rightHalf(int windowWidth, int windowHeight)
-{
-    return Viewport{ windowWidth / 2, 0, windowWidth / 2, windowHeight };
+    glm::mat4 proj = glm::perspective(glm::radians(camera.fov), viewport.aspect(),
+                                      camera.near, camera.far);
+    glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
+    return proj * view;
 }

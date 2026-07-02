@@ -34,8 +34,7 @@ void PoseComparisonState::handleKey(Simulation &sim, Renderer &renderer, int key
         case GLFW_KEY_B: {
             // Capture a timestep: the camera's pose right now is the ground
             // truth; computePose estimates it from the rendered frame alone.
-            Waypoint truePose{ sim.playerView.camera.position,
-                               sim.playerView.camera.target };
+            Waypoint truePose = sim.playerView.camera.pose();
             m_log.add({ truePose, computePose(sim, renderer) });
 
             const PoseEntry &entry = m_log.entries.back();
@@ -109,10 +108,11 @@ void PoseComparisonState::renderPlayerOverlay(const Simulation &sim, Renderer &r
         return;
 
     // Show the diff only while the camera actually sits on the reviewed true
-    // pose (exact float equality is safe: the pose was applied by copy). Once
-    // the user flies off, the ghost would compare against the wrong view.
-    if (sim.playerView.camera.position != entry.truePose.position)
+    // pose (the pose was applied by copy, so Waypoint's exact equality holds).
+    // Once the user moves, the ghost would compare against the wrong view.
+    if (sim.playerView.camera.pose() != entry.truePose)
         return;
+
 
     Camera estimated = sim.playerView.camera;   // inherit fov/near/far/up
     estimated.applyPose(*entry.computedPose);

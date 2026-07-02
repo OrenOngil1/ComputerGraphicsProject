@@ -1,26 +1,13 @@
 #pragma once
 
-#include <memory>
-#include <string>
 #include <vector>
 
 #include <glm/glm.hpp>
 
 #include <Shader.h>
-#include <VertexArray.h>
-#include <VertexBuffer.h>
-#include <IndexBuffer.h>
 
+#include "GpuMesh.h"
 #include "../core/Simulation.h"
-
-// A GPU-resident indexed mesh (VAO + VBO + IBO).
-struct GpuMesh {
-    std::unique_ptr<VertexArray> va;
-    std::unique_ptr<VertexBuffer> vb;
-    std::unique_ptr<IndexBuffer> ib;
-    unsigned int indexCount = 0;    // fed to glDrawElements (GLsizei)
-    size_t vertexCount = 0;         // for validating picked vertex ids
-};
 
 // Owns all GPU resources (shaders, terrain + tracker-sphere buffers) and every
 // draw and read-back pass. Owned as an Application member declared after the
@@ -69,11 +56,16 @@ public:
                     const std::vector<glm::vec3> &colors,
                     float size, const glm::mat4 &mvp);
 
-    // Draw the trackers as flat-colored spheres. Depth-tested, unlike the
-    // markers above: a tracker behind a hill is hidden, in the visible frame
-    // and the capture read-back alike -- the occlusion semantics automatic
-    // correspondence needs. viewProj carries no model part.
+    // Draw the trackers as flat-colored spheres -- the exact palette colors the
+    // blob detector classifies, so this is what the detection capture uses.
+    // Depth-tested, unlike the markers above: a tracker behind a hill is hidden,
+    // in the visible frame and the capture read-back alike -- the occlusion
+    // semantics automatic correspondence needs. viewProj carries no model part.
     void drawTrackers(const std::vector<Tracker> &trackers, const glm::mat4 &viewProj);
+
+    // The visible-frame tracker draw: same spheres, Lambert-lit like the terrain.
+    void drawTrackersLit(const std::vector<Tracker> &trackers,
+                         const DirectionalLight &light, const glm::mat4 &viewProj);
 
     // Tracker detection pass: the player view with the terrain flat black and
     // the trackers in their flat palette colors, read back. Every non-black
@@ -89,6 +81,18 @@ public:
     FramePixels captureSceneFrame(const View &view, const DirectionalLight &light);
 
 private:
+    // Bind the scene shader and raise u_Lit with this light's uniforms; the
+    // caller must drop u_Lit after its lit draws (unlit is the shared
+    // program's resting state -- the exact-color draws depend on it).
+    void applyLighting(const DirectionalLight &light);
+
+    // Lit 3D draws -- the one place the u_Lit raise/drop happens. The mesh's
+    // own vertex colors (the terrain), or one solid fill (a tracker sphere).
+    void drawMeshLit(const GpuMesh &gpu, const DirectionalLight &light,
+                     const glm::mat4 &mvp);
+    void drawMeshLit(const GpuMesh &gpu, const glm::vec3 &fill,
+                     const DirectionalLight &light, const glm::mat4 &mvp);
+
     // Shared per-view pass: set the viewport, draw the terrain lit; returns the
     // MVP so the caller can hand it to the active mode's overlay.
     glm::mat4 renderScene(const Camera &camera, const Viewport &viewport,
@@ -102,10 +106,10 @@ private:
     // white background (white decodes to a miss).
     void renderPickPass(const Camera &camera, const Viewport &viewport);
 
-    // Draw a mesh through the scene shader's flat-override path (one fill
-    // color, or a tint of the vertex colors, never lit), restoring the
-    // override to off afterward -- every other draw through the shared
-    // program depends on it being off.
+    // Draw a mesh through the scene shader's override path (one fill color,
+    // or a tint of the vertex colors), restoring the override to off
+    // afterward -- every other draw through the shared program depends on it
+    // being off. Unlit unless the caller raised u_Lit (only drawMeshLit does).
     void drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tintStrength,
                       const glm::mat4 &mvp);
 

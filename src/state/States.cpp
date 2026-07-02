@@ -55,8 +55,7 @@ void RecordState::handleKey(Simulation &sim, Renderer &renderer, int key, int mo
     (void)renderer; (void)mods;
 
     if (key == GLFW_KEY_B) {
-        sim.waypoints.push_back({ sim.playerView.camera.position,
-                                       sim.playerView.camera.target });
+        sim.waypoints.push_back(sim.playerView.camera.pose());
 
         const glm::vec3 &p = sim.playerView.camera.position;
         std::cout << "RECORD: waypoint " << sim.waypoints.size()

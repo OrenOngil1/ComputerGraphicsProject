@@ -2,9 +2,10 @@
 # Install the build dependencies for drone_sim on Linux or macOS.
 #
 # This installs system packages ONLY. Configuring, building, and testing the
-# project (cmake -B build && cmake --build build && ctest --test-dir build) are
-# documented in the README -- this script deliberately stops at the deps so it
-# stays a thin, predictable wrapper around the package manager.
+# project (cmake --preset linux && cmake --build --preset linux && ctest
+# --preset linux) are documented in the README -- this script deliberately
+# stops at the deps so it stays a thin, predictable wrapper around the
+# package manager.
 #
 # Safe to re-run: apt and brew both skip anything already installed.
 set -euo pipefail
