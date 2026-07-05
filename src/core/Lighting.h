@@ -27,6 +27,6 @@ inline const LightPreset kLightPresets[] = {
     { "low warm sun",     { glm::normalize(glm::vec3(-1.0f, -0.25f, 0.2f)),
                             glm::vec3(1.0f, 0.75f, 0.5f), 0.20f } },
     { "overcast",         { glm::vec3(0.0f, -1.0f, 0.0f),
-                            glm::vec3(0.55f, 0.55f, 0.6f), 0.60f } },
+                            glm::vec3(0.15f, 0.15f, 0.2f), 0.60f } },
 };
 inline const size_t kLightPresetCount = sizeof(kLightPresets) / sizeof(kLightPresets[0]);

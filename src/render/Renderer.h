@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>   // renderScene's skyPreset
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -7,6 +8,7 @@
 #include <Shader.h>
 
 #include "GpuMesh.h"
+#include "SkyPass.h"
 #include "../core/Simulation.h"
 
 // Owns all GPU resources (shaders, terrain + tracker-sphere buffers) and every
@@ -93,10 +95,13 @@ private:
     void drawMeshLit(const GpuMesh &gpu, const glm::vec3 &fill,
                      const DirectionalLight &light, const glm::mat4 &mvp);
 
-    // Shared per-view pass: set the viewport, draw the terrain lit; returns the
-    // MVP so the caller can hand it to the active mode's overlay.
+    // Shared per-view pass: set the viewport, draw the lit terrain, then the
+    // sky when a preset index is given -- the visible views pass the active
+    // preset, the feature-matching capture passes nullopt to keep its
+    // background the flat clear color. Returns the MVP for the overlays.
     glm::mat4 renderScene(const Camera &camera, const Viewport &viewport,
-                          const DirectionalLight &light);
+                          const DirectionalLight &light,
+                          std::optional<size_t> skyPreset);
 
     // Read the viewport's back-buffer pixels into image-convention RGB (rows
     // flipped top-down, packing forced tight). Shared tail of every capture.
@@ -118,4 +123,5 @@ private:
     Shader     m_pointShader;   // round GL_POINTS markers (discards sprite corners)
     GpuMesh    m_terrain;       // rebuilt per loadTerrain
     GpuMesh    m_sphere;        // unit sphere shared by all tracker draws, built once
+    SkyPass    m_sky;           // per-preset skybox: own shader, cube, cubemap cache
 };

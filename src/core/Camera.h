@@ -69,6 +69,18 @@ inline glm::mat4 viewProjection(const Camera &camera, const Viewport &viewport)
     return proj * view;
 }
 
+// viewProjection with the view's translation stripped (rotation-only view):
+// the sky pass renders directions, not positions, so the viewer is pinned to
+// the origin and the skybox can never be approached or left behind. The
+// mat3 round-trip keeps the rotation block and zeroes the translation column.
+inline glm::mat4 skyViewProjection(const Camera &camera, const Viewport &viewport)
+{
+    glm::mat4 proj = glm::perspective(glm::radians(camera.fov), viewport.aspect(),
+                                      camera.near, camera.far);
+    glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
+    return proj * glm::mat4(glm::mat3(view));
+}
+
 // Convert between a viewport fraction ([0,1] x [0,1], origin top-left) and the
 // camera-space viewing ray (x/z, y/z), for this same camera model at a given
 // vertical FOV (degrees) and aspect:

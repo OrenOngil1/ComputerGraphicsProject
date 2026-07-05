@@ -123,3 +123,29 @@ GpuMesh buildSphereMesh(int stacks, int sectors)
     return uploadBuffers(verts, gridIndices(stacks + 1, sectors + 1),
                          { 3, 3, 3 });   // position, color, normal
 }
+
+// Viewed from inside -- the sky pass puts the camera at its center, so face
+// winding is irrelevant (the app never enables face culling). Corner i has
+// x = +-1 by bit pattern below; each face is two triangles of a quad.
+GpuMesh buildSkyboxCube()
+{
+    const std::vector<float> verts = {
+        -1.0f, -1.0f, -1.0f,   // 0
+         1.0f, -1.0f, -1.0f,   // 1
+         1.0f,  1.0f, -1.0f,   // 2
+        -1.0f,  1.0f, -1.0f,   // 3
+        -1.0f, -1.0f,  1.0f,   // 4
+         1.0f, -1.0f,  1.0f,   // 5
+         1.0f,  1.0f,  1.0f,   // 6
+        -1.0f,  1.0f,  1.0f,   // 7
+    };
+    const std::vector<unsigned int> indices = {
+        0, 1, 2,  0, 2, 3,   // -Z
+        5, 4, 7,  5, 7, 6,   // +Z
+        4, 0, 3,  4, 3, 7,   // -X
+        1, 5, 6,  1, 6, 2,   // +X
+        3, 2, 6,  3, 6, 7,   // +Y
+        4, 5, 1,  4, 1, 0,   // -Y
+    };
+    return uploadBuffers(verts, indices, { 3 });   // position only
+}

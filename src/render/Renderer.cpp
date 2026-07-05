@@ -32,7 +32,8 @@ static void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
 Renderer::Renderer()
     : m_sceneShader("assets/shaders/terrainShader.glsl"),
       m_pickShader("assets/shaders/pickShader.glsl"),
-      m_pointShader("assets/shaders/pointShader.glsl")
+      m_pointShader("assets/shaders/pointShader.glsl"),
+      m_sky("assets/skyboxes/")
 {
     // m_terrain stays empty until the first loadTerrain; the tracker sphere is
     // terrain-independent, so it is built once here.
@@ -78,24 +79,29 @@ void Renderer::drawMeshLit(const GpuMesh &gpu, const glm::vec3 &fill,
 }
 
 glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport,
-                                const DirectionalLight &light)
+                                const DirectionalLight &light,
+                                std::optional<size_t> skyPreset)
 {
     setupViewport(viewport);
     glm::mat4 mvp = viewProjection(camera, viewport);
     drawMeshLit(m_terrain, light, mvp);
+    // Sky after the terrain (depth confines it to the background) but before
+    // the overlays (they draw with depth off and must land on top of it).
+    if (skyPreset)
+        m_sky.draw(*skyPreset, camera, viewport);
     return mvp;
 }
 
 void Renderer::renderGlobalView(const View &view, const Simulation &sim)
 {
-    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light());
+    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light(), sim.lightPreset);
     if (sim.currentState)
         sim.currentState->renderGlobalOverlay(sim, *this, mvp);
 }
 
 void Renderer::renderPlayerView(const View &view, const Simulation &sim)
 {
-    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light());
+    glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light(), sim.lightPreset);
     if (sim.currentState)
         sim.currentState->renderPlayerOverlay(sim, *this, mvp);
 }
@@ -304,7 +310,9 @@ FramePixels Renderer::captureTrackersFrame(const View &playerView,
 FramePixels Renderer::captureSceneFrame(const View &view, const DirectionalLight &light)
 {
     clear();
-    renderScene(view.camera, view.viewport, light);
+    // nullopt sky: feature matching must not see sky pixels (they have no
+    // terrain 3D position and differ per preset).
+    renderScene(view.camera, view.viewport, light, std::nullopt);
     return readViewportPixels(view.viewport);
 }
 

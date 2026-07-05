@@ -27,3 +27,8 @@ GpuMesh uploadTerrain(const Mesh &mesh);
 // The unit-radius UV sphere at the origin that every tracker draw scales and
 // translates into place.
 GpuMesh buildSphereMesh(int stacks, int sectors);
+
+// The unit cube the skybox is sampled through: position-only vertices, drawn
+// with the viewer pinned at its center (the sky pass strips the view's
+// translation), so its world size never matters.
+GpuMesh buildSkyboxCube();
