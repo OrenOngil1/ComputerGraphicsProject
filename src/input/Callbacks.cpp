@@ -29,6 +29,24 @@ MovementIntent pollMovementIntent(GLFWwindow *window)
     return in;
 }
 
+// Screen coords -> framebuffer pixels via the window-to-framebuffer ratio
+// (1:1 on Windows/X11, 2:1 on e.g. Retina). Zero window size (minimized)
+// leaves the coords unscaled -- no viewport contains them anyway.
+glm::dvec2 cursorPosPixels(GLFWwindow *window)
+{
+    double x, y;
+    glfwGetCursorPos(window, &x, &y);
+
+    int winWidth, winHeight, fbWidth, fbHeight;
+    glfwGetWindowSize(window, &winWidth, &winHeight);
+    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+    if (winWidth > 0 && winHeight > 0) {
+        x *= (double)fbWidth / winWidth;
+        y *= (double)fbHeight / winHeight;
+    }
+    return { x, y };
+}
+
 // The one place a transition is performed, so the new mode's entry action runs
 // in exactly one spot, right after it becomes current.
 static void setState(Simulation &sim, std::unique_ptr<State> next)
@@ -121,10 +139,11 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         std::cerr << "Error: No CallbackContext associated with window" << std::endl;
         return;
     }
-    Simulation *sim = ctx->sim;
 
     if (action != GLFW_PRESS && action != GLFW_REPEAT)
         return;
+
+    Simulation *sim = ctx->sim;
 
     // Escape backs out of the session to the terrain menu; Ctrl+Q quits the
     // program via glfwWindowShouldClose, the same signal as the OS close button.
@@ -144,6 +163,12 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         std::cout << "Light: " << sim->cycleLightPreset() << std::endl;
         return;
     }
+
+    // Zero-sized framebuffer (minimized): the viewports are degenerate, and
+    // transitions and in-mode keys both do viewport math -- drop the key until
+    // the next resize. The global keys above stay usable.
+    if (sim->playerView.viewport.width <= 0 || sim->playerView.viewport.height <= 0)
+        return;
 
     // Mode-switch hotkeys take precedence over in-mode handling.
     if (tryTransition(*sim, key, mods))
@@ -170,13 +195,12 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
     // reach the active mode.
     if (button == GLFW_MOUSE_BUTTON_MIDDLE || button == GLFW_MOUSE_BUTTON_RIGHT) {
         if (action == GLFW_PRESS) {
-            double x, y;
-            glfwGetCursorPos(window, &x, &y);
-            if (sim->globalView.viewport.contains(x, y)) {
+            const glm::dvec2 cursor = cursorPosPixels(window);
+            if (sim->globalView.viewport.contains(cursor.x, cursor.y)) {
                 if (button == GLFW_MOUSE_BUTTON_MIDDLE)
-                    ctx->globalControls.beginPan(x, y);
+                    ctx->globalControls.beginPan(cursor.x, cursor.y);
                 else
-                    ctx->globalControls.beginOrbit(x, y);
+                    ctx->globalControls.beginOrbit(cursor.x, cursor.y);
             }
         } else if (action == GLFW_RELEASE) {
             ctx->globalControls.end();
@@ -198,19 +222,23 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset)
     if (!ctx || !ctx->sim)
         return;
 
-    double x, y;
-    glfwGetCursorPos(window, &x, &y);
-    if (ctx->sim->globalView.viewport.contains(x, y))
+    const glm::dvec2 cursor = cursorPosPixels(window);
+    if (ctx->sim->globalView.viewport.contains(cursor.x, cursor.y))
         ctx->globalControls.zoomBy(ctx->sim->globalView.camera, yoffset);
 }
 
 // Cursor motion pans (middle-drag) or orbits (right-drag) the global camera.
 // Fires constantly, so it stays silent and does nothing unless a drag is live.
+// The xpos/ypos arguments are screen coords; re-read in pixels so the deltas
+// match the drag anchors beginPan/beginOrbit stored.
 void cursorPosCallback(GLFWwindow *window, double xpos, double ypos)
 {
+    (void)xpos; (void)ypos;
+
     CallbackContext *ctx = static_cast<CallbackContext *>(glfwGetWindowUserPointer(window));
     if (!ctx || !ctx->sim || !ctx->globalControls.dragging())
         return;
 
-    ctx->globalControls.drag(ctx->sim->globalView.camera, xpos, ypos);
+    const glm::dvec2 cursor = cursorPosPixels(window);
+    ctx->globalControls.drag(ctx->sim->globalView.camera, cursor.x, cursor.y);
 }

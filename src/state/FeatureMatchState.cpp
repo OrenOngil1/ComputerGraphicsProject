@@ -2,14 +2,15 @@
 
 #include <algorithm>
 #include <iostream>
-#include <string>
 #include <vector>
 
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>   // glm::ortho
 
 #include "OverlayStyle.h"
+#include "../core/Menu.h"         // promptCount
 #include "../core/Simulation.h"
+#include "../input/Callbacks.h"   // cursorPosPixels
 #include "../render/Renderer.h"
 #include "../vision/FeatureMatching.h"
 
@@ -38,20 +39,7 @@ FeatureMatchState::~FeatureMatchState() = default;
 
 size_t FeatureMatchState::promptCount()
 {
-    std::cout << "Features per view (1-" << kMaxFeatures
-              << ", Enter = " << kDefaultFeatures << "): ";
-    std::string line;
-    std::getline(std::cin, line);
-
-    if (line.empty())
-        return kDefaultFeatures;
-    try {
-        const int n = std::stoi(line);
-        if (n >= 1 && (size_t)n <= kMaxFeatures)
-            return (size_t)n;
-    } catch (...) {}   // stoi: not a number at all
-    std::cout << "Invalid count -- using " << kDefaultFeatures << std::endl;
-    return kDefaultFeatures;
+    return ::promptCount("Features per view", kMaxFeatures, kDefaultFeatures);
 }
 
 void FeatureMatchState::onEnter(Simulation &sim)
@@ -155,17 +143,16 @@ void FeatureMatchState::handleMouseButton(Simulation &sim, Renderer &renderer,
     if (!building() || action != GLFW_PRESS || button != GLFW_MOUSE_BUTTON_LEFT)
         return;
 
-    double cursorX, cursorY;
-    glfwGetCursorPos(window, &cursorX, &cursorY);
+    const glm::dvec2 cursor = cursorPosPixels(window);
 
     // The 3D half is color-picked in the global (left) map, exactly like PICK.
     const Viewport &map = sim.globalView.viewport;
-    if (!map.contains(cursorX, cursorY)) {
+    if (!map.contains(cursor.x, cursor.y)) {
         std::cout << "FEATURES: color-pick the 3D point in the global (left) map."
                   << std::endl;
         return;
     }
-    int id = renderer.pickVertex((int)cursorX, (int)cursorY, sim.globalView);
+    int id = renderer.pickVertex((int)cursor.x, (int)cursor.y, sim.globalView);
     if (id < 0) {
         std::cout << "FEATURES: no terrain under the cursor -- try again." << std::endl;
         return;
@@ -204,7 +191,7 @@ void FeatureMatchState::renderGlobalOverlay(const Simulation &sim, Renderer &ren
     renderer.drawPath(sim.pathPoints, overlay::truePathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
     if (m_db && !m_db->anchors.empty()) {
-        const std::vector<glm::vec3> colors(m_db->anchors.size(), glm::vec3(0.2f, 1.0f, 0.2f));
+        const std::vector<glm::vec3> colors(m_db->anchors.size(), overlay::anchoredColor);
         renderer.drawPoints(m_db->anchors, colors, overlay::pickMarkerSize, mvp);
     }
 }
@@ -225,6 +212,7 @@ void FeatureMatchState::renderPlayerOverlay(const Simulation &sim, Renderer &ren
     if (m_build->active < m_build->markers.size()) {
         const glm::mat4 screen = glm::ortho(0.0f, 1.0f, 1.0f, 0.0f);
         const glm::vec3 pos(m_build->markers[m_build->active], 0.0f);
-        renderer.drawPoints({ pos }, { glm::vec3(1.0f, 0.0f, 0.0f) }, 22.0f, screen);
+        renderer.drawPoints({ pos }, { overlay::suggestionColor },
+                            overlay::suggestionMarkerSize, screen);
     }
 }

@@ -27,9 +27,10 @@ std::optional<CubemapFaces> loadSkybox(const std::string &dir)
                       << "): " << path << std::endl;
             return std::nullopt;
         }
-        if (i == 0)
+        if (i == 0) {
             faces.size = img.rows;
-        else if (img.rows != faces.size) {
+        } 
+        if (img.rows != faces.size) {
             std::cerr << "Skybox face size mismatch (" << img.rows << " vs "
                       << faces.size << "): " << path << std::endl;
             return std::nullopt;

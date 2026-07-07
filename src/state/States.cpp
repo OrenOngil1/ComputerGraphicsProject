@@ -13,6 +13,10 @@
 #include "../render/Renderer.h"
 #include "../vision/Pnp.h"        // computeCameraPose
 
+// Path-sampling threshold as a fraction of terrain size, so the recorded
+// path's density is resolution-independent across DEMs.
+static constexpr float kPathSampleFraction = 0.0001f;
+
 // Has the camera moved at least `minDist` since the previous sample? Thins out
 // path recording so a steady glide doesn't append a near-duplicate every frame.
 static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float minDist)
@@ -43,9 +47,8 @@ void RecordState::tick(Simulation &sim, GLFWwindow *window, float dt)
 
     fly(playerCamera, pollMovementIntent(window), sim.terrainSize, dt);
 
-    // Threshold scales with terrain size, so sampling is resolution-independent.
-    float threshold = sim.terrainSize * 0.0001f;
-    if (movedFarEnough(prevPosition, playerCamera.position, threshold))
+    if (movedFarEnough(prevPosition, playerCamera.position,
+                       sim.terrainSize * kPathSampleFraction))
         sim.pathPoints.push_back(playerCamera.position);
 }
 
@@ -145,21 +148,20 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
     if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
         return;
 
-    double cursorX, cursorY;
-    glfwGetCursorPos(window, &cursorX, &cursorY);
+    const glm::dvec2 cursor = cursorPosPixels(window);
 
     if (!m_pendingImageRay) {
         // Phase A, the 2D half: must land in the player view. Stored as a ray
         // (resize-proof); deliberately no color-pick here, so the 3D point
         // can't be read off the player view.
         const Viewport &viewport = sim.playerView.viewport;
-        if (!viewport.contains(cursorX, cursorY)) {
+        if (!viewport.contains(cursor.x, cursor.y)) {
             std::cout << "PICK: click a 2D point in the player (right) view first." << std::endl;
             return;
         }
 
-        glm::vec2 uv(((float)cursorX - viewport.x) / (float)viewport.width,
-                     ((float)cursorY - viewport.y) / (float)viewport.height);
+        glm::vec2 uv(((float)cursor.x - viewport.x) / (float)viewport.width,
+                     ((float)cursor.y - viewport.y) / (float)viewport.height);
         m_pendingImageRay = fractionToRay(uv, sim.playerView.camera.fov, viewport.aspect());
         std::cout << "PICK: 2D recorded at ray(" << m_pendingImageRay->x << ", " << m_pendingImageRay->y
                   << ") -- now color-pick its 3D point in the global (left) view." << std::endl;
@@ -169,12 +171,12 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
     // Phase B, the 3D half: color-pick the vertex under the cursor in the
     // global view (reading the map).
     const Viewport &viewport = sim.globalView.viewport;
-    if (!viewport.contains(cursorX, cursorY)) {
+    if (!viewport.contains(cursor.x, cursor.y)) {
         std::cout << "PICK: color-pick the matching 3D point in the global (left) view." << std::endl;
         return;
     }
 
-    int id = renderer.pickVertex((int)cursorX, (int)cursorY, sim.globalView);
+    int id = renderer.pickVertex((int)cursor.x, (int)cursor.y, sim.globalView);
     if (id < 0) {
         // Miss (sky / off-terrain): keep the pending 2D so the user can retry.
         std::cout << "PICK: no terrain under the cursor -- try the 3D pick again." << std::endl;

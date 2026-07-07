@@ -39,7 +39,7 @@ struct Tracker {
     float radius;       // world units, scaled to the terrain at placement
     glm::vec3 color;    // unique flat color -- the key the blob detector matches
 
-    // Places the renderer's shared unit sphere: scale to radius, move to center.
+    // Model matrix placing the renderer's shared unit-sphere mesh at this tracker.
     glm::mat4 modelMatrix() const
     {
         return glm::scale(glm::translate(glm::mat4(1.0f), center), glm::vec3(radius));

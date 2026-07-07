@@ -2,13 +2,21 @@
 
 #include <algorithm>
 #include <iostream>
-#include <string>
 
+#include "../core/Menu.h"                // promptCount
 #include "../core/Simulation.h"
 #include "../core/Random.h"              // randomIndex
 #include "../render/Renderer.h"
 #include "../vision/Pnp.h"               // computeCameraPose
 #include "../vision/TrackerDetection.h"  // findTrackerCentroids
+
+namespace {
+// Placement tuning, as fractions of terrain size so any DEM gets sensibly
+// sized, sensibly spread trackers.
+constexpr float kRadiusFraction        = 0.012f;   // sphere radius
+constexpr float kMinSeparationFraction = 0.08f;    // pairwise spacing floor
+constexpr int   kPlacementAttempts     = 40;       // re-rolls before a clumped spot stands
+}
 
 // 20 distinct tracker colors: every pair differs by >= 0.5 (~128/255) in at
 // least one channel -- far above the blob detector's channelTolerance, so
@@ -45,36 +53,17 @@ TrackersState::TrackersState(size_t count)
     : m_count(std::clamp(count, size_t(1), TrackersState::kMaxCount))
 {}
 
-// Reads one terminal line; anything that isn't a number in range falls back to
-// the default. Relies on every earlier cin reader discarding its own trailing
-// newline (see selectTerrain), so an empty line really is a plain Enter.
 size_t TrackersState::promptCount()
 {
-    std::cout << "Number of trackers (1-" << kMaxCount
-              << ", Enter = " << kDefaultCount << "): ";
-    std::string line;
-    std::getline(std::cin, line);
-
-    if (line.empty())
-        return kDefaultCount;
-    try {
-        const int n = std::stoi(line);
-        if (n >= 1 && (size_t)n <= kMaxCount)
-            return (size_t)n;
-    } catch (...) {}   // stoi: not a number at all
-
-    std::cout << "Invalid count -- using " << kDefaultCount << std::endl;
-    return kDefaultCount;
+    return ::promptCount("Number of trackers", kMaxCount, kDefaultCount);
 }
 
 void TrackersState::onEnter(Simulation &sim)
 {
     m_trackers.clear();
 
-    // Both knobs scale with the terrain, so any DEM gets sensibly sized,
-    // sensibly spread trackers.
-    const float radius        = sim.terrainSize * 0.012f;
-    const float minSeparation = sim.terrainSize * 0.08f;
+    const float radius        = sim.terrainSize * kRadiusFraction;
+    const float minSeparation = sim.terrainSize * kMinSeparationFraction;
 
     const Mesh &mesh = sim.mesh;
 
@@ -84,7 +73,7 @@ void TrackersState::onEnter(Simulation &sim)
         // trackers hand PnP a near-degenerate configuration); if the rolls run
         // out, the last candidate stands rather than failing.
         glm::vec3 position(0.0f);
-        for (int attempt = 0; attempt < 40; attempt++) {
+        for (int attempt = 0; attempt < kPlacementAttempts; attempt++) {
             position = mesh.worldPos(randomIndex(mesh.vertices.size()))
                      + glm::vec3(0.0f, radius, 0.0f);
 

@@ -20,6 +20,11 @@ struct CallbackContext {
 // Callbacks.cpp to keep GLFW out of the pure CameraControls TU.
 MovementIntent pollMovementIntent(GLFWwindow *window);
 
+// The cursor position in framebuffer PIXELS. GLFW reports the cursor in screen
+// coordinates, which HiDPI scaling decouples from pixels -- but the viewports
+// and glReadPixels work in pixels, so every cursor read goes through here.
+glm::dvec2 cursorPosPixels(GLFWwindow *window);
+
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height);

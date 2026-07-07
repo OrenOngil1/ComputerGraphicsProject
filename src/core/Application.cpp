@@ -19,6 +19,19 @@ namespace {
 constexpr int WIDTH  = 800;
 constexpr int HEIGHT = 600;
 
+// Shared lens for both cameras; the far plane scales with the terrain so any
+// DEM fits inside the frustum.
+constexpr float kFovDeg    = 45.0f;   // vertical, degrees
+constexpr float kNearPlane = 0.1f;    // world units
+constexpr float kFarFactor = 3.0f;    // far plane = terrainSize * this
+
+// Starting eye positions as factors of terrainSize (world x/z are centered on
+// the terrain, so 0.5 is the terrain edge).
+constexpr float kGlobalEyeHeight  = 0.8f;    // global: high above ...
+constexpr float kGlobalEyeSetback = 1.4f;    // ... and pulled back, whole terrain in frame
+constexpr float kPlayerEyeHeight  = 0.07f;   // player: low over the surface ...
+constexpr float kPlayerEyeSetback = 0.5f;    // ... at the near edge, looking in
+
 // Persistent GL state -- set once, applies to every draw call afterward.
 void configureGLState()
 {
@@ -32,25 +45,25 @@ void configureGLState()
 
 // Place the two cameras relative to the terrain: the global camera looks down
 // at the whole terrain, the player camera starts low at the edge looking in.
-// Both scale with terrainSize so any DEM frames sensibly.
+// Both aim at the terrain center (the world origin).
 void configureViews(Simulation &sim)
 {
     sim.globalView.camera = {
-        glm::vec3(0.0f, sim.terrainSize * 0.8f, sim.terrainSize * 1.4f),
+        glm::vec3(0.0f, sim.terrainSize * kGlobalEyeHeight, sim.terrainSize * kGlobalEyeSetback),
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(0.0f, 1.0f, 0.0f),
-        45.0f,
-        0.1f,
-        sim.terrainSize * 3.0f
+        kFovDeg,
+        kNearPlane,
+        sim.terrainSize * kFarFactor
     };
 
     sim.playerView.camera = {
-        glm::vec3(0.0f, sim.terrainSize * 0.07f, sim.terrainSize * 0.5f),
+        glm::vec3(0.0f, sim.terrainSize * kPlayerEyeHeight, sim.terrainSize * kPlayerEyeSetback),
         glm::vec3(0.0f, 0.0f, 0.0f),
         glm::vec3(0.0f, 1.0f, 0.0f),
-        45.0f,
-        0.1f,
-        sim.terrainSize * 3.0f
+        kFovDeg,
+        kNearPlane,
+        sim.terrainSize * kFarFactor
     };
 }
 
@@ -116,11 +129,17 @@ void Application::runSession()
         if (m_sim.currentState)
             m_sim.currentState->tick(m_sim, window, dt);
 
-        m_renderer.clear();
-        m_renderer.renderGlobalView(m_sim.globalView, m_sim);
-        m_renderer.renderPlayerView(m_sim.playerView, m_sim);
+        // A minimized window reports a 0x0 framebuffer: skip drawing (a zero
+        // viewport makes aspect() divide by zero) but keep polling, so the
+        // restore event that re-sizes the viewports still arrives.
+        const Viewport &viewport = m_sim.playerView.viewport;
+        if (viewport.width > 0 && viewport.height > 0) {
+            m_renderer.clear();
+            m_renderer.renderGlobalView(m_sim.globalView, m_sim);
+            m_renderer.renderPlayerView(m_sim.playerView, m_sim);
 
-        glfwSwapBuffers(window);
+            glfwSwapBuffers(window);
+        }
         glfwPollEvents();
     }
 }

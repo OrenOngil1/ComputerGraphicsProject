@@ -15,8 +15,11 @@ std::vector<std::optional<glm::vec2>>
 findTrackerCentroids(const FramePixels &frame, const std::vector<Tracker> &trackers)
 {
     // One accumulator per tracker. The centroid is the mean position of the
-    // blob's pixels -- for a rendered sphere that is (to sub-pixel accuracy)
-    // the projection of its center, the 3D point the correspondence pairs it with.
+    // blob's pixels -- for a FULLY VISIBLE sphere that is (to sub-pixel
+    // accuracy) the projection of its center, the 3D point the correspondence
+    // pairs it with. A sphere partially occluded or clipped by the screen edge
+    // still passes the size floor but with a centroid biased by up to a
+    // radius; that error flows into PnP undetected.
     struct Blob { long count = 0; double sumX = 0.0, sumY = 0.0; };
     std::vector<Blob> blobs(trackers.size());
 

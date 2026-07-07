@@ -44,8 +44,9 @@ public:
 
     // Color-pick pass: render the terrain with per-vertex id colors into the
     // back buffer (never swapped, so invisible) and read back the pixel under
-    // (mouseX, mouseY). Returns the vertex id there, or -1 on a miss.
-    int pickVertex(int mouseX, int mouseY, const View &playerView);
+    // (mouseX, mouseY). Returns the vertex id there, or -1 on a miss. The
+    // picking modes pass the GLOBAL view -- 3D points are picked off the map.
+    int pickVertex(int mouseX, int mouseY, const View &view);
 
     // The PnP "ghost": the terrain re-drawn from an estimated pose in one
     // translucent color, without depth, over the current view.
@@ -88,12 +89,10 @@ private:
     // program's resting state -- the exact-color draws depend on it).
     void applyLighting(const DirectionalLight &light);
 
-    // Lit 3D draws -- the one place the u_Lit raise/drop happens. The mesh's
-    // own vertex colors (the terrain), or one solid fill (a tracker sphere).
+    // Lit 3D draw of the mesh's own vertex colors (the terrain), bracketed by
+    // the u_Lit raise/drop.
     void drawMeshLit(const GpuMesh &gpu, const DirectionalLight &light,
                      const glm::mat4 &mvp);
-    void drawMeshLit(const GpuMesh &gpu, const glm::vec3 &fill,
-                     const DirectionalLight &light, const glm::mat4 &mvp);
 
     // Shared per-view pass: set the viewport, draw the lit terrain, then the
     // sky when a preset index is given -- the visible views pass the active
@@ -114,7 +113,8 @@ private:
     // Draw a mesh through the scene shader's override path (one fill color,
     // or a tint of the vertex colors), restoring the override to off
     // afterward -- every other draw through the shared program depends on it
-    // being off. Unlit unless the caller raised u_Lit (only drawMeshLit does).
+    // being off. Unlit unless the caller raised u_Lit around it (drawTrackersLit
+    // does, to shade the spheres in their exact palette fills).
     void drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tintStrength,
                       const glm::mat4 &mvp);
 

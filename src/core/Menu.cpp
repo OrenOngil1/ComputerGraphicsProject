@@ -1,12 +1,61 @@
 #include "Menu.h"
 
+#include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
-#include <limits>
+#include <optional>
+#include <system_error>
 #include <vector>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <io.h>
+#else
+#include <termios.h>
+#include <unistd.h>
+#endif
+
 namespace fs = std::filesystem;
+
+// Drop keystrokes typed before a prompt existed (e.g. into the terminal while
+// the window was minimized) -- otherwise the next getline answers the prompt
+// with them. TTY-only: flushing a redirected stdin would eat legitimate
+// scripted input. No portable call for this, hence the two OS branches.
+// Failure warns instead of throwing: prompts run inside GLFW callbacks, where
+// an exception would unwind through C code, and a failed flush only costs a
+// stale line -- which the parse below already survives.
+#ifdef _WIN32
+static void discardPendingInput()
+{
+    if (!_isatty(_fileno(stdin)))
+        return;
+    if (!FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE)))
+        std::cerr << "Warning: could not flush pending console input" << std::endl;
+}
+#else
+static void discardPendingInput()
+{
+    if (!isatty(STDIN_FILENO))
+        return;
+    if (tcflush(STDIN_FILENO, TCIFLUSH) != 0)
+        std::cerr << "Warning: could not flush pending terminal input" << std::endl;
+}
+#endif
+
+// One line -> number in [1, max]; nullopt on anything else.
+static std::optional<size_t> parseCount(const std::string &line, size_t max)
+{
+    try {
+        const int n = std::stoi(line);
+        if (n >= 1 && (size_t)n <= max)
+            return (size_t)n;
+    } catch (...) {}   // stoi: not a number at all
+    return std::nullopt;
+}
 
 // Is `path` an image we can load as a DEM? Lowercased extension against the
 // raster formats cv::imread reads on every platform.
@@ -21,13 +70,28 @@ static bool isImageFile(const fs::path &path)
 
 std::optional<std::string> selectTerrain(const std::string &dir)
 {
+    // The error_code overload keeps a missing directory from throwing -- the
+    // asset paths are relative, so running from outside the repo root lands
+    // here, and it should read as a usage error, not a crash.
+    std::error_code ec;
+    fs::directory_iterator it(dir, ec);
+    if (ec) {
+        std::cerr << "Cannot read terrain directory '" << dir << "' ("
+                  << ec.message() << ") -- run from the repository root." << std::endl;
+        return std::nullopt;
+    }
+
     std::vector<std::string> files;
-    for (const fs::directory_entry &entry : fs::directory_iterator(dir)) {
+    for (const fs::directory_entry &entry : it) {
         if (entry.is_regular_file() && isImageFile(entry.path()))
             files.push_back(entry.path().filename().string());
     }
+    // Directory iteration order is unspecified; sort so the numbering is
+    // stable across runs and platforms.
+    std::sort(files.begin(), files.end());
     files.push_back("Exit");   // final numbered entry
 
+    discardPendingInput();
     size_t choice = 0;
     while (true) {
         std::cout << "Available terrains:" << std::endl;
@@ -35,21 +99,17 @@ std::optional<std::string> selectTerrain(const std::string &dir)
             std::cout << "  " << i + 1 << ". " << files[i] << std::endl;
         std::cout << "Select a terrain by number: ";
 
-        if (std::cin >> choice && choice >= 1 && choice <= files.size())
+        std::string line;
+        if (!std::getline(std::cin, line)) {   // stdin closed: treat as Exit
+            std::cout << "Exiting..." << std::endl;
+            return std::nullopt;
+        }
+        if (const std::optional<size_t> n = parseCount(line, files.size())) {
+            choice = *n;
             break;
-
-        // Bad input: clear the fail bit and discard the rest of the line
-        // before re-prompting -- otherwise cin stays failed and the loop spins
-        // without ever waiting for new input.
-        std::cin.clear();
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        }
         std::cout << "Invalid choice, try again." << std::endl;
     }
-
-    // Discard the accepted line's trailing newline too: the next cin reader
-    // (the tracker/feature count prompts use getline) must start from a clean
-    // line, not inherit ours.
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
     if (choice == files.size()) {   // the trailing "Exit" entry
         std::cout << "Exiting..." << std::endl;
@@ -57,4 +117,21 @@ std::optional<std::string> selectTerrain(const std::string &dir)
     }
 
     return dir + files[choice - 1];
+}
+
+// Line-based like every cin reader here: getline consumes whole lines, so no
+// reader leaves a stray newline behind for the next one.
+size_t promptCount(const std::string &label, size_t max, size_t fallback)
+{
+    discardPendingInput();
+    std::cout << label << " (1-" << max << ", Enter = " << fallback << "): ";
+
+    std::string line;
+    if (!std::getline(std::cin, line) || line.empty())
+        return fallback;
+    if (const std::optional<size_t> n = parseCount(line, max))
+        return *n;
+
+    std::cout << "Invalid count -- using " << fallback << std::endl;
+    return fallback;
 }

@@ -69,15 +69,6 @@ void Renderer::drawMeshLit(const GpuMesh &gpu, const DirectionalLight &light,
     m_sceneShader.SetUniform1i("u_Lit", 0);
 }
 
-void Renderer::drawMeshLit(const GpuMesh &gpu, const glm::vec3 &fill,
-                           const DirectionalLight &light, const glm::mat4 &mvp)
-{
-    // The override path supplies the solid fill; the raised u_Lit shades it.
-    applyLighting(light);
-    drawMeshFlat(gpu, glm::vec4(fill, 1.0f), 1.0f, mvp);
-    m_sceneShader.SetUniform1i("u_Lit", 0);
-}
-
 glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport,
                                 const DirectionalLight &light,
                                 std::optional<size_t> skyPreset)
@@ -194,10 +185,10 @@ void Renderer::renderPickPass(const Camera &camera, const Viewport &viewport)
     drawMesh(m_terrain, m_pickShader, viewProjection(camera, viewport));
 }
 
-int Renderer::pickVertex(int mouseX, int mouseY, const View &playerView)
+int Renderer::pickVertex(int mouseX, int mouseY, const View &view)
 {
-    const Viewport &viewport = playerView.viewport;
-    renderPickPass(playerView.camera, viewport);
+    const Viewport &viewport = view.viewport;
+    renderPickPass(view.camera, viewport);
 
     // glReadPixels uses framebuffer coords (origin bottom-left); the cursor is
     // top-left, hence the (height-1 - mouseY) flip. Assumes full-height
@@ -251,8 +242,11 @@ void Renderer::drawTrackers(const std::vector<Tracker> &trackers, const glm::mat
 void Renderer::drawTrackersLit(const std::vector<Tracker> &trackers,
                                const DirectionalLight &light, const glm::mat4 &viewProj)
 {
-    for (const Tracker &tracker : trackers)
-        drawMeshLit(m_sphere, tracker.color, light, viewProj * tracker.modelMatrix());
+    // The flat draw wrapped in a raised u_Lit: same palette fills, shaded.
+    // Raised once -- the lighting uniforms are constant across the spheres.
+    applyLighting(light);
+    drawTrackers(trackers, viewProj);
+    m_sceneShader.SetUniform1i("u_Lit", 0);
 }
 
 // ── Read-back captures ────────────────────────────────────────
