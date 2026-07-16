@@ -7,15 +7,15 @@
 
 #include "OverlayStyle.h"
 #include "../core/Simulation.h"
-#include "../input/Movement.h"
+#include "../input/CameraControls.h"   // fly, MovementIntent
+#include "../input/Callbacks.h"        // pollMovementIntent (GLFW glue)
 #include "../render/Renderer.h"
 
 void PoseComparisonState::tick(Simulation &sim, GLFWwindow *window, float dt)
 {
-    // Free flight, same as NAVIGATION: the user positions the camera for the
-    // next capture. moveCamera only changes the pose while movement keys are
-    // held, so a pose snapped to by N/M stays put until the user flies off.
-    moveCamera(sim.playerView.camera, sim.terrainSize, window, dt);
+    // fly only changes the pose while movement keys are held, so a pose
+    // snapped to by N/M stays put until the user flies off.
+    fly(sim.playerView.camera, pollMovementIntent(window), sim.terrainSize, dt);
 }
 
 void PoseComparisonState::snapToCurrent(Simulation &sim) const
@@ -33,10 +33,8 @@ void PoseComparisonState::handleKey(Simulation &sim, Renderer &renderer, int key
     switch (key) {
         case GLFW_KEY_B: {
             // Capture a timestep: the camera's pose right now is the ground
-            // truth; computePose estimates that same pose from the rendered
-            // frame alone. Both go in the log -- computed may be empty.
-            Waypoint truePose{ sim.playerView.camera.position,
-                               sim.playerView.camera.target };
+            // truth; computePose estimates it from the rendered frame alone.
+            Waypoint truePose = sim.playerView.camera.pose();
             m_log.add({ truePose, computePose(sim, renderer) });
 
             const PoseEntry &entry = m_log.entries.back();
@@ -50,9 +48,8 @@ void PoseComparisonState::handleKey(Simulation &sim, Renderer &renderer, int key
             break;
         }
 
-        // N steps to the next captured timestep, M back to the previous one
-        // (mnemonic: N = next, M = minus). The camera snaps to the timestep's
-        // true pose, so the player view + ghost show that capture's diff.
+        // N = next timestep, M = previous (mnemonic: minus). The camera snaps
+        // to the timestep's true pose, so the ghost shows that capture's diff.
         case GLFW_KEY_N:
         case GLFW_KEY_M: {
             if (m_log.entries.empty()) {
@@ -75,7 +72,7 @@ void PoseComparisonState::renderGlobalOverlay(const Simulation &sim, Renderer &r
         return;
 
     // Split the log into the two trajectories. The computed one may be shorter
-    // (skipped solves leave gaps); its path simply connects the poses that exist.
+    // (skipped solves leave gaps); its path connects the poses that exist.
     std::vector<Waypoint>  truePoses;
     std::vector<glm::vec3> truePositions, computedPositions;
     truePoses.reserve(m_log.entries.size());
@@ -87,12 +84,10 @@ void PoseComparisonState::renderGlobalOverlay(const Simulation &sim, Renderer &r
             computedPositions.push_back(entry.computedPose->position);
     }
 
-    // True fly-through, in RECORD's visual language: blue path, red waypoint
-    // dots, green for the timestep the camera sits on (the one under review).
+    // True fly-through in RECORD's visual language; computed in the estimate color.
     renderer.drawPath(truePositions, overlay::truePathColor, mvp);
     renderer.drawWaypoints(truePoses, sim.playerView.camera.position, mvp);
 
-    // Computed fly-through, in the estimate's signature shade.
     renderer.drawPath(computedPositions, overlay::estimateColor, mvp);
     renderer.drawPoints(computedPositions,
                         std::vector<glm::vec3>(computedPositions.size(),
@@ -113,11 +108,11 @@ void PoseComparisonState::renderPlayerOverlay(const Simulation &sim, Renderer &r
         return;
 
     // Show the diff only while the camera actually sits on the reviewed true
-    // pose (B just captured it, or N/M snapped to it) -- the same position-match
-    // trick as the waypoint highlight. Once the user flies off toward the next
-    // capture, the ghost would be compared against the wrong view, so it hides.
-    if (sim.playerView.camera.position != entry.truePose.position)
+    // pose (the pose was applied by copy, so Waypoint's exact equality holds).
+    // Once the user moves, the ghost would compare against the wrong view.
+    if (sim.playerView.camera.pose() != entry.truePose)
         return;
+
 
     Camera estimated = sim.playerView.camera;   // inherit fov/near/far/up
     estimated.applyPose(*entry.computedPose);

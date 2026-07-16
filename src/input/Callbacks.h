@@ -2,25 +2,28 @@
 
 #include <GLFW/glfw3.h>
 
-// Non-owning bundle of the collaborators a GLFW callback needs. The window's single
-// user pointer points at one of these; the Application owns the actual Simulation and
-// Renderer (as members) -- CallbackContext only refers to them. Lets a callback reach a
-// service (Renderer) without a global/singleton.
+#include "CameraControls.h"   // OrbitController, MovementIntent
+
 struct Simulation;
 class Renderer;
 
+// What the GLFW callbacks reach through the window user pointer. Owned by
+// Application::run(); sim/renderer are non-owning.
 struct CallbackContext {
     Simulation *sim = nullptr;
     Renderer *renderer = nullptr;
-
-    // Global-map drag state: middle-button drag pans the overview camera,
-    // right-button drag orbits it. Held here (lifetime = the session) so the
-    // press/move/release callbacks share it. Only one is active at a time.
-    bool   panning   = false;
-    bool   rotating  = false;
-    double lastDragX = 0.0;
-    double lastDragY = 0.0;
+    OrbitController globalControls;   // middle/right-drag state for the global map
 };
+
+// Gather the currently-held movement keys into a device-neutral intent.
+// Declared here (input layer) so states can poll it each frame; defined in
+// Callbacks.cpp to keep GLFW out of the pure CameraControls TU.
+MovementIntent pollMovementIntent(GLFWwindow *window);
+
+// The cursor position in framebuffer PIXELS. GLFW reports the cursor in screen
+// coordinates, which HiDPI scaling decouples from pixels -- but the viewports
+// and glReadPixels work in pixels, so every cursor read goes through here.
+glm::dvec2 cursorPosPixels(GLFWwindow *window);
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
@@ -28,8 +31,8 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height);
 
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 
-// Global-map view controls: scroll zooms, middle-drag pans -- both move only the
-// global (overview) camera, to make color-picking 3D points there easier.
+// Global-map view controls: scroll zooms, middle-drag pans, right-drag orbits
+// -- all move only the global (overview) camera.
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
 void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);

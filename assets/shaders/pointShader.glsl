@@ -28,10 +28,10 @@ in vec3 v_Color;
 void main()
 {
     // gl_PointCoord runs (0,0)->(1,1) across the square point sprite. Keep only
-    // the inscribed disc (radius 0.5, so r^2 = 0.25) and discard the corners.
-    // This is the Core-profile stand-in for the deprecated GL_POINT_SMOOTH that
-    // gave the legacy build round, square-free markers. gl_PointCoord is only
-    // defined while rasterizing GL_POINTS, which is the sole use of this shader.
+    // the inscribed disc (radius 0.5, so r^2 = 0.25) and discard the corners --
+    // the core profile has no built-in round points (GL_POINT_SMOOTH is gone),
+    // so the disc is carved by hand. gl_PointCoord is only defined while
+    // rasterizing GL_POINTS, which is the sole use of this shader.
     vec2 d = gl_PointCoord - vec2(0.5);
     if (dot(d, d) > 0.25)
         discard;

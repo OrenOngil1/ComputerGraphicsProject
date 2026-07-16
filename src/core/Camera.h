@@ -1,84 +1,100 @@
 #pragma once
 
+#include <cmath>
+
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include "Viewport.h"
 
 // A recorded camera pose (position + look-at target) -- a waypoint along the
 // flight path, captured in RECORD mode for later playback.
 struct Waypoint {
-    glm::vec3 position;
+    glm::vec3 position;   // centered world space
     glm::vec3 target;
+
+    // Exact float equality: two poses match only when one was copied from the
+    // other (applyPose / pose()), never when recomputed.
+    bool operator==(const Waypoint &other) const
+    {
+        return position == other.position && target == other.target;
+    }
+    bool operator!=(const Waypoint &other) const { return !(*this == other); }
 };
 
-// A camera answers "what does the world look like from here?" -- purely the
-// eye's pose and lens. It carries no notion of where on screen it is drawn;
-// that is the Viewport's job. Keeping these apart lets the camera be passed
-// as read-only (const&) data: the renderer never has to mutate it.
+// An eye's pose and lens -- "what does the world look like from here?". It
+// carries no notion of where on screen it is drawn; that is the Viewport's
+// job, which lets the renderer take cameras as read-only data.
 struct Camera {
-    glm::vec3 position;
-    glm::vec3 target;
+    glm::vec3 position;   // centered world space
+    glm::vec3 target;     // the point looked at
     glm::vec3 up;
 
-    float fov;
-    float near;
+    float fov;    // VERTICAL field of view, degrees (glm::perspective convention)
+    float near;   // clip planes, world units
     float far;
 
-    // Put a camera on a recorded pose. A Waypoint records WHERE, not what lens:
-    // fov/near/far/up keep their current values. The one place the two-field copy
-    // lives -- playback, pick seeding, timestep review, ghosts, and the feature
-    // pre-phase all snap cameras to waypoints, and they must all mean the same
-    // thing by it.
+    // Put the camera on a recorded pose. A Waypoint records WHERE, not what
+    // lens: fov/near/far/up keep their current values. The one definition of
+    // this two-field copy -- playback, pick seeding, timestep review, and
+    // ghosts must all mean the same thing by it.
     void applyPose(const Waypoint &waypoint)
     {
         position = waypoint.position;
         target   = waypoint.target;
     }
+
+    // The current pose as a Waypoint -- applyPose's outward counterpart.
+    Waypoint pose() const { return { position, target }; }
 };
 
-// A viewport answers "which rectangle of the window do I paint into?" -- pure
-// render configuration. Recomputed on resize (see leftHalf/rightHalf below) and
-// stored inside the View it belongs to.
-struct Viewport {
-    int x = 0;
-    int y = 0;
-    int width = 0;
-    int height = 0;
-
-    // Hit-test a pixel against this rectangle. Half-open on the far edges so a
-    // pixel never counts as inside two abutting viewports (the global/player
-    // split shares the column at x + width). Cursor coords arrive as doubles
-    // from GLFW, hence the parameter type.
-    bool contains(double px, double py) const
-    {
-        return px >= x && px < x + width &&
-               py >= y && py < y + height;
-    }
-
-    // Width-to-height ratio of the painted rectangle -- the factor that maps a
-    // symmetric vertical FOV to the wider horizontal one when building a
-    // projection or a viewing ray. Float because it feeds GL/ray math directly.
-    float aspect() const { return (float)width / (float)height; }
-};
-
-// A View pairs an eye (Camera) with the screen rectangle it paints into
-// (Viewport). The two always travel together; bundling them into one object
-// prevents handing a camera one viewport and accidentally drawing it into
-// another, and gives the resize callback a single place to update the layout.
+// An eye (Camera) paired with the screen rectangle it paints into (Viewport).
+// Bundled so a camera can't be drawn into the wrong viewport, and resize has
+// one place to update.
 struct View {
     Camera   camera;
     Viewport viewport;
 };
 
-// Window-layout helpers: the two viewports are pure functions of the current
-// framebuffer size. They live here (next to Viewport) rather than in Renderer.h
-// because they're pure layout with no renderer dependency -- the resize callback
-// computes layout without pulling in the renderer. `inline` lets the definitions
-// sit in this widely-included header without an ODR/multiple-definition link error.
-inline Viewport leftHalf(int windowWidth, int windowHeight)
+// The projection * view matrix a (camera, viewport) pair renders with:
+// vertical FOV and clip planes from the camera, aspect from the viewport, no
+// model part. The one definition of the app's camera model -- the pinhole
+// intrinsics in vision/Pnp.cpp describe this same camera, and the headless
+// camera-model check holds the two to it.
+inline glm::mat4 viewProjection(const Camera &camera, const Viewport &viewport)
 {
-    return Viewport{ 0, 0, windowWidth / 2, windowHeight };
+    glm::mat4 proj = glm::perspective(glm::radians(camera.fov), viewport.aspect(),
+                                      camera.near, camera.far);
+    glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
+    return proj * view;
 }
 
-inline Viewport rightHalf(int windowWidth, int windowHeight)
+// viewProjection with the view's translation stripped (rotation-only view):
+// the sky pass renders directions, not positions, so the viewer is pinned to
+// the origin and the skybox can never be approached or left behind. The
+// mat3 round-trip keeps the rotation block and zeroes the translation column.
+inline glm::mat4 skyViewProjection(const Camera &camera, const Viewport &viewport)
 {
-    return Viewport{ windowWidth / 2, 0, windowWidth / 2, windowHeight };
+    glm::mat4 proj = glm::perspective(glm::radians(camera.fov), viewport.aspect(),
+                                      camera.near, camera.far);
+    glm::mat4 view = glm::lookAt(camera.position, camera.target, camera.up);
+    return proj * glm::mat4(glm::mat3(view));
+}
+
+// Convert between a viewport fraction ([0,1] x [0,1], origin top-left) and the
+// camera-space viewing ray (x/z, y/z), for this same camera model at a given
+// vertical FOV (degrees) and aspect:
+//   ray = ((u - 0.5)*2*tan(fov/2)*aspect, (v - 0.5)*2*tan(fov/2)).
+// Only the horizontal term carries the aspect, which is why the ray form
+// survives a resize and a stored fraction doesn't (see PickState::Observation).
+inline glm::vec2 fractionToRay(glm::vec2 uv, float fovDeg, float aspect)
+{
+    const float t = std::tan(glm::radians(fovDeg) * 0.5f);
+    return { (uv.x - 0.5f) * 2.0f * t * aspect, (uv.y - 0.5f) * 2.0f * t };
+}
+
+inline glm::vec2 rayToFraction(glm::vec2 ray, float fovDeg, float aspect)
+{
+    const float t = std::tan(glm::radians(fovDeg) * 0.5f);
+    return { 0.5f + ray.x / (2.0f * t * aspect), 0.5f + ray.y / (2.0f * t) };
 }

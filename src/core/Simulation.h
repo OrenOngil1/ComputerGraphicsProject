@@ -6,44 +6,42 @@
 #include "Camera.h"
 #include "Lighting.h"
 
-// The active mode is a polymorphic State (see src/state/). Simulation only stores a
-// pointer to it, so a forward declaration suffices here; State's methods take this
-// Simulation by reference and are defined in .cpp files that see it complete.
+// The active mode is a polymorphic State (see src/state/); a forward
+// declaration suffices for the unique_ptr member.
 class State;
 
+// The per-session application state: everything the modes, callbacks, and
+// renderer share. Owned by Application, reset per terrain in loadTerrain.
 struct Simulation {
-    std::unique_ptr<State> currentState;   // the active mode (replaces `Mode mode`)
-    float terrainSize = 0.0f;
-    Mesh mesh;
-    View globalView;   // left half:  global camera + its viewport
-    View playerView;   // right half: player camera + its viewport
-    std::vector<glm::vec3> pathPoints;
-    std::vector<Waypoint> waypoints;
+    std::unique_ptr<State> currentState;   // the active mode
+    float terrainSize = 0.0f;              // max(cols, rows) of the mesh; scales speeds/sizes
+    Mesh mesh;                             // the loaded terrain (uncentered)
+    View globalView;                       // left half:  overview camera + viewport
+    View playerView;                       // right half: player camera + viewport
+    std::vector<glm::vec3> pathPoints;     // the recorded flight path (RECORD)
+    std::vector<Waypoint> waypoints;       // recorded camera poses (RECORD's 'B')
 
-    // The scene's sun: always one of kLightPresets, stored as the index so a
-    // separate light copy can't drift from it. Deliberately NOT reset per
-    // terrain (unlike the recording state above): a user-chosen lighting
-    // setup survives menu round-trips, which Mode 4's pre/run lighting
-    // experiment relies on.
+    // The scene's sun, stored as an index into kLightPresets so a separate
+    // light copy can't drift from the preset. Deliberately NOT reset per
+    // terrain: a user-chosen lighting setup survives menu round-trips, which
+    // Mode 4's pre/run lighting experiment relies on.
     size_t lightPreset = 0;
 
     const DirectionalLight &light() const { return kLightPresets[lightPreset].light; }
 
-    // Advance to the next preset (the L key) and return its display name, so
-    // every future writer of the light goes through the same one-liner.
+    // Advance to the next preset (the L key); returns its display name.
     const char *cycleLightPreset()
     {
         lightPreset = (lightPreset + 1) % kLightPresetCount;
         return kLightPresets[lightPreset].name;
     }
 
-    // Session exit: Escape sets this to leave the current terrain and return to the
-    // menu. Quitting the program is the other signal -- glfwWindowShouldClose, raised
-    // by Ctrl+Q or the OS close button. The session loop checks both; run() tells the
-    // "back to menu" flag apart from a quit.
+    // Set by Escape: leave the current terrain, back to the menu. Quitting the
+    // program is a separate signal (glfwWindowShouldClose, via Ctrl+Q or the
+    // OS close button); the session loop checks both.
     bool returnToMenu = false;
 
-    // Out-of-line (Simulation.cpp): a unique_ptr to the forward-declared State can
-    // only be destroyed where State is a complete type.
+    // Out-of-line (Simulation.cpp): the unique_ptr<State> can only be
+    // destroyed where State is a complete type.
     ~Simulation();
 };

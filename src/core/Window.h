@@ -2,18 +2,16 @@
 
 struct GLFWwindow;
 
-// RAII owner of the GLFW library + the single window/context. Construction brings
-// the whole platform layer up (glfwInit -> 3.3-core window -> GLAD); destruction
-// tears it down (glfwTerminate). Declaring a Window member *before* the Renderer
-// makes member-init order guarantee the GL context is live when the Renderer
-// compiles its shaders, and reverse destruction runs ~Renderer (glDelete*) before
-// ~Window (glfwTerminate) -- the ordering main() used to guard with a manual scope.
+// RAII owner of the GLFW library + the single window/context. Construction
+// brings the platform layer up (glfwInit -> 3.3-core window -> GLAD);
+// destruction tears it down (glfwTerminate, which must run after every GL
+// object is deleted -- Application's member order guarantees that).
 class Window {
 public:
     Window(int width, int height, const char *title);   // throws on any init failure
     ~Window();
 
-    // Owns a process-global resource (the GLFW library); never duplicated.
+    // Non-copyable: owns a process-global resource (the GLFW library).
     Window(const Window &) = delete;
     Window &operator=(const Window &) = delete;
 

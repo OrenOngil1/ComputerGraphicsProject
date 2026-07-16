@@ -67,11 +67,11 @@ hard-to-see spots, including behind mountains. Each placement stores
 done the database is built. The 2D ORB position is *only* on-screen guidance — it
 is never stored or fed to PnP; the database's 3D comes entirely from the user.
 
-**Run-phase (B)** — unchanged and automatic: capture the current view, detect
+**Run-phase (B)** — fully automatic: capture the current view, detect
 ORB features, brute-force Hamming `knnMatch` against the hand-built database,
 keep matches passing Lowe's ratio test (0.75), and solve with
 `computeCameraPoseRansac`. Because the hand-built database is small (≈N per
-view), the inlier floor is modest (6) rather than the automatic version's 25.
+view), the inlier floor is modest (6).
 
 The console reports keypoints → confident matches → RANSAC inliers per capture.
 
@@ -169,9 +169,12 @@ worth knowing when reading the numbers.
 
 ## Headless checks
 
-`make check` builds `tests/headless_checks.cpp` against the vision + loader
-objects only and verifies on synthetic inputs: terrain normals against the
-analytic plane normal, blob centroids (including the not-visible and
-too-small cases), and both PnP solvers round-tripping a known camera — the
-RANSAC variant with 3 of 11 correspondences corrupted. Exit code = number of
-failed checks.
+`ctest --preset linux` (or `--preset windows`) builds and runs the checks in `tests/` against the
+GL-free code (no window, no GPU) and verifies on synthetic inputs:
+terrain normals against the analytic plane normal, blob centroids (including
+the not-visible and too-small cases), the camera-control verbs, the color-pick
+id encoding round trip, the split-screen viewport layout, the pose-review log
+cursor, ORB feature suggestion (ordering and descriptor alignment), the
+render↔vision camera-model agreement (projection and viewing rays), and both
+PnP solvers round-tripping a known camera — the RANSAC variant with 3 of 11
+correspondences corrupted. Exit code = number of failed checks.

@@ -1,17 +1,56 @@
 #include "Pnp.h"
 
+#include <cmath>
 #include <iostream>
 
 #include <opencv2/calib3d.hpp>
 
-#include "../core/Utils.h"
+// glm <-> OpenCV point conversions.
+static cv::Point3f glmToCvPoint3f(const glm::vec3 &v)
+{
+    return cv::Point3f(v.x, v.y, v.z);
+}
+
+static cv::Point2f glmToCvPoint2f(const glm::vec2 &v)
+{
+    return cv::Point2f(v.x, v.y);
+}
+
+static glm::vec3 cvToGlmVec3(const cv::Mat &p)
+{
+    return glm::vec3(p.at<double>(0), p.at<double>(1), p.at<double>(2));
+}
+
+// The 3x3 pinhole intrinsic matrix K for a VERTICAL fov (degrees) rendered
+// onto a width x height viewport, principal point at the center.
+//
+// Square pixels: fx == fy. The aspect is carried entirely by width/height (and
+// cx, cy) -- it must NOT also be folded into the focal length. glm::perspective
+// takes a vertical FOV and renders square pixels, deriving the horizontal FOV
+// from the aspect; the matching pinhole therefore shares one focal length.
+// (Folding width/height into fx makes solvePnP assume a wider horizontal FOV
+// than GL drew and pulls every estimated camera 20-30% too close.)
+static cv::Mat_<double> getCameraIntrinsicMatrix(double fov, double width, double height)
+{
+    double fovyRadians = glm::radians(fov);
+
+    double fy = height / (2.0 * std::tan(fovyRadians / 2.0));
+    double fx = fy;
+
+    double cx = width / 2.0;
+    double cy = height / 2.0;
+
+    return (cv::Mat_<double>(3, 3) <<
+        fx, 0,  cx,
+        0,  fy, cy,
+        0,  0,  1
+    );
+}
 
 // Split a correspondence list into the parallel point arrays OpenCV wants.
-// 3D object points are already in centered world space (every producer stores
-// them centered), so no offset is applied. Image points are stored NORMALIZED
-// ([0,1] of the viewport, see Correspondence) and denormalized to pixels here against
-// the viewport PnP is solving for -- so the points match the intrinsics K, which
-// is built from the same width/height, even if the window was resized after picking.
+// 3D points are already in centered world space; image points are stored
+// normalized and denormalized here against the viewport PnP solves for, so
+// they match the intrinsics K built from the same width/height.
 static void toCvPoints(const std::vector<Correspondence> &points, int width, int height,
                        std::vector<cv::Point3f> &objectPoints,
                        std::vector<cv::Point2f> &imagePoints)
@@ -24,10 +63,9 @@ static void toCvPoints(const std::vector<Correspondence> &points, int width, int
     }
 }
 
-// Shared tail of both solvers. solvePnP returns the world->camera transform
-// (R, t); invert it to recover the camera's world pose: eye = -R^T t, and a
-// look-at target one unit along the camera's forward axis (+Z in OpenCV's
-// camera frame) -> R^T * (0,0,1) in world.
+// solvePnP returns the world->camera transform (R, t); invert it to recover
+// the camera's world pose: eye = -R^T t, and a look-at target one unit along
+// the camera's forward axis (+Z in OpenCV's camera frame) -> R^T (0,0,1).
 static Waypoint extrinsicsToPose(const cv::Mat &rvec, const cv::Mat &tvec)
 {
     cv::Mat R;
@@ -54,11 +92,10 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &pic
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 
-    // The `false` is useExtrinsicGuess. Drop it and cv::SOLVEPNP_SQPNP (an int
-    // enum) binds to that bool parameter instead of `flags`, so solvePnP runs
-    // the default ITERATIVE solver with useExtrinsicGuess=true and asserts on
-    // the empty rvec/tvec (it expects them to hold an initial guess). Passing it
-    // explicitly keeps SQPnP in the flags slot.
+    // The explicit `false` is useExtrinsicGuess. Without it, SOLVEPNP_SQPNP
+    // (an int enum) binds to that bool parameter instead of `flags`, and the
+    // default ITERATIVE solver asserts on the empty rvec/tvec it then expects
+    // to hold an initial guess.
     cv::Mat rvec, tvec;
     bool ok = cv::solvePnP(objectPoints, imagePoints, K, cv::Mat(),
                            rvec, tvec, false, cv::SOLVEPNP_SQPNP);
@@ -86,10 +123,8 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 
-    // 100 iterations and an 8px reprojection tolerance (the OpenCV defaults,
-    // spelled out because the inlier list parameter forces naming them): a
-    // correspondence is an inlier when the candidate pose reprojects its 3D
-    // point within 8px of its matched pixel.
+    // 100 iterations, 8px reprojection tolerance (the OpenCV defaults, named
+    // only because the inlier list parameter forces spelling them out).
     cv::Mat rvec, tvec;
     std::vector<int> inliers;
     bool ok = cv::solvePnPRansac(objectPoints, imagePoints, K, cv::Mat(),

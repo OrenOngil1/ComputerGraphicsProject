@@ -43,7 +43,7 @@ if ($hasMsvc) {
         if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
             Write-Error "winget is unavailable. Install Build Tools manually: https://aka.ms/vs/17/release/vs_BuildTools.exe"
         }
-        Write-Host "     Installing Visual Studio Build Tools (this takes a while)..."
+        Write-Host "     Installing Visual Studio Build Tools (this will take a while)..."
         winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
         Write-Host "[ok] Build Tools installed. Build from the 'Developer PowerShell for VS 2022' so cl.exe is on PATH."
     } else {

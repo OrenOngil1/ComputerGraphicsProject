@@ -2,8 +2,11 @@
 #version 330 core
 
 // Color-pick pass: render each triangle in a flat color that encodes the id of
-// its provoking vertex, so reading one pixel back tells us which vertex was clicked.
-layout(location = 0) in vec3 a_Position;   // attribute 1 (color) is ignored here
+// its provoking vertex, so reading one pixel back tells us which vertex was
+// clicked. The encoding is CPU-side (PickEncoding.h) and arrives pre-baked as
+// a per-vertex attribute -- this shader carries no packing rule of its own.
+layout(location = 0) in vec3 a_Position;      // attributes 1-2 (color, normal) are ignored here
+layout(location = 3) in vec3 a_IdColor;       // encodeVertexId(index), baked at terrain upload
 
 // `flat` = no interpolation: every fragment of a triangle gets the provoking
 // vertex's value verbatim, so it decodes to one whole vertex id (a smooth/
@@ -12,21 +15,10 @@ flat out vec3 v_Id;
 
 uniform mat4 u_MVP;
 
-// Pack a vertex index into an RGB color (8 bits per channel = up to ~16.7M ids).
-vec3 encodeId(int id)
-{
-    int r =  id        & 0xFF;
-    int g = (id >> 8)  & 0xFF;
-    int b = (id >> 16) & 0xFF;
-    return vec3(r, g, b) / 255.0;
-}
-
 void main()
 {
     gl_Position = u_MVP * vec4(a_Position, 1.0);
-    // gl_VertexID under indexed drawing is the value pulled from the element
-    // buffer -- i.e. the mesh vertex index -- so no CPU-side color table is needed.
-    v_Id = encodeId(gl_VertexID);
+    v_Id = a_IdColor;
 }
 
 #shader fragment

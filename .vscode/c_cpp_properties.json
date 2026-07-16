@@ -12,7 +12,8 @@
                 "/usr/include/GLFW",
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include",
-                "${workspaceFolder}/src/engine"
+                "${workspaceFolder}/external/engine",
+                "${workspaceFolder}/external/glad/include"
             ],
             "compilerPath": "/usr/bin/g++",
             "cppStandard": "c++17"

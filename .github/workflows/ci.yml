@@ -1,0 +1,92 @@
+# Build + headless checks on every platform the README claims to support.
+# Adapted from the GitHub multi-platform CMake starter workflow:
+# https://github.com/actions/starter-workflows/blob/main/ci/cmake-multi-platform.yml
+#
+# Matrix: <Linux, GCC>, <Linux, Clang>, <Windows, MSVC>. Linux gets its
+# dependencies from scripts/setup.sh (the same path a developer uses); Windows
+# gets them from the runner's preinstalled vcpkg via the manifest (vcpkg.json),
+# with the built packages cached so only the first run pays the OpenCV build.
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # Deliver feedback for every matrix leg even when one fails.
+      fail-fast: false
+
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        build_type: [Release]
+        c_compiler: [gcc, clang, cl]
+        include:
+          - os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
+          - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          - os: ubuntu-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+        exclude:
+          - os: windows-latest
+            c_compiler: gcc
+          - os: windows-latest
+            c_compiler: clang
+          - os: ubuntu-latest
+            c_compiler: cl
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+
+    - name: Install dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: ./scripts/setup.sh
+
+    # vcpkg keeps compiled packages in its binary cache; restoring it turns the
+    # ~40-minute OpenCV source build into a download. Keyed on vcpkg.json, so
+    # changing a dependency or the baseline rebuilds once and re-caches.
+    - name: Cache vcpkg binary packages (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/cache@v5
+      with:
+        path: ~\AppData\Local\vcpkg\archives
+        key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+
+    - name: Configure CMake
+      # On Windows the runner's preinstalled vcpkg (C:/vcpkg) supplies GLFW and
+      # OpenCV through its toolchain file + the manifest, mirroring the local
+      # `windows` preset; Linux finds the system packages without one.
+      # CMAKE_BUILD_TYPE only matters for the single-config Linux generators;
+      # the Visual Studio generator is multi-config and uses --config instead.
+      # Default shell on purpose (pwsh on Windows): bash would eat the
+      # backslashes in the Windows workspace path. The ${{ }} conditional is
+      # resolved by the template engine before any shell runs.
+      run: >
+        cmake -B ${{ steps.strings.outputs.build-output-dir }}
+        -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
+        -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
+        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        ${{ runner.os == 'Windows' && '-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake' || '' }}
+        -S ${{ github.workspace }}
+
+    - name: Build
+      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }} --parallel
+
+    - name: Test
+      working-directory: ${{ steps.strings.outputs.build-output-dir }}
+      run: ctest --build-config ${{ matrix.build_type }} --output-on-failure

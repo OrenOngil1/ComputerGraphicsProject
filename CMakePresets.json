@@ -8,7 +8,7 @@
       "displayName": "Linux (system packages)",
       "description": "GCC + apt/brew-installed GLFW & OpenCV. No toolchain file needed.",
       "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
@@ -16,7 +16,7 @@
       "displayName": "Windows (MSVC + vcpkg, Ninja)",
       "description": "Ninja + MSVC; vcpkg supplies GLFW & OpenCV. CMake Tools sources the VS dev env so cl.exe is found. Arch (x64) comes from that env.",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
