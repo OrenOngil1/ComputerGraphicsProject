@@ -151,12 +151,17 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
     const glm::dvec2 cursor = cursorPosPixels(window);
 
     if (!m_pendingImageRay) {
-        // Phase A, the 2D half: must land in the player view. Stored as a ray
-        // (resize-proof); deliberately no color-pick here, so the 3D point
-        // can't be read off the player view.
+        // Phase A, the 2D half: must land in the player view AND on terrain.
+        // Stored as a ray (resize-proof); the color-pick is a validity gate
+        // only -- its id is discarded, so the 3D point still can't be read
+        // off the player view.
         const Viewport &viewport = sim.playerView.viewport;
         if (!viewport.contains(cursor.x, cursor.y)) {
             std::cout << "PICK: click a 2D point in the player (right) view first." << std::endl;
+            return;
+        }
+        if (renderer.pickVertex((int)cursor.x, (int)cursor.y, sim.playerView) < 0) {
+            std::cout << "PICK: no terrain under the cursor -- click a 2D point on the terrain." << std::endl;
             return;
         }
 

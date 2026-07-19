@@ -44,8 +44,9 @@ public:
 
     // Color-pick pass: render the terrain with per-vertex id colors into the
     // back buffer (never swapped, so invisible) and read back the pixel under
-    // (mouseX, mouseY). Returns the vertex id there, or -1 on a miss. The
-    // picking modes pass the GLOBAL view -- 3D points are picked off the map.
+    // (mouseX, mouseY). Returns the vertex id there, or -1 on a miss. Callers
+    // pass the GLOBAL view to pick 3D points off the map, or the player view
+    // as a terrain hit-test.
     int pickVertex(int mouseX, int mouseY, const View &view);
 
     // The PnP "ghost": the terrain re-drawn from an estimated pose in one
