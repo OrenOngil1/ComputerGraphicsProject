@@ -32,11 +32,13 @@ Pipeline (`src/state/TrackersState.cpp` + `src/vision/TrackerDetection.cpp`):
    default 7) and scatters that many spheres on random terrain vertices,
    re-rolling for minimum separation (clumped trackers hand PnP a
    near-degenerate configuration). Each sphere has a unique palette color;
-   every palette pair differs by ≥ 0.5 in at least one channel.
+   every palette pair differs by ≥ 0.5 in at least one channel, and no palette
+   color comes within the detector's tolerance of any color the lit terrain
+   can render.
 2. **Capture pass** — on B, `Renderer::captureTrackersFrame` re-renders the
-   player view with the terrain flat black and the spheres in their flat,
-   unlit palette colors (depth-tested, so occlusion matches the visible
-   frame), and reads the pixels back.
+   player view with the terrain lit as the player sees it and the spheres in
+   their flat, unlit palette colors (depth-tested, so occlusion matches the
+   visible frame), and reads the pixels back.
 3. **Detection** — `findTrackerCentroids` classifies every pixel against the
    palette (tolerance ±3 per channel) and returns each blob's centroid; blobs
    under 6 pixels are dropped as untrustworthy.
@@ -46,6 +48,10 @@ Pipeline (`src/state/TrackersState.cpp` + `src/vision/TrackerDetection.cpp`):
 The colored spheres are artificial fiducials: the unique color *is* the data
 association, so "which 2D point matches which 3D point" — usually the hard
 part — is answered by a single pixel scan.
+
+The terrain is lit rather than blanked so that scan faces real distractors:
+the separation comes from a palette chosen to avoid the terrain's reachable
+colors, not from deleting the terrain before looking at it.
 
 ## Mode D — Feature Matching (`F`, requires recorded waypoints)
 

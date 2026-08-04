@@ -96,32 +96,28 @@ GpuMesh uploadTerrain(const Mesh &mesh)
 }
 
 // The white vertex color satisfies the layout -- tracker draws always override
-// it. On a unit sphere at the origin the outward normal IS the vertex
-// position, and the per-tracker uniform scale + translation leave its
-// direction intact, so it doubles as the world normal.
+// it. No normal attribute: trackers draw flat, never lit.
 GpuMesh buildSphereMesh(int stacks, int sectors)
 {
     std::vector<float> verts;
-    verts.reserve((stacks + 1) * (sectors + 1) * 9);
+    verts.reserve((stacks + 1) * (sectors + 1) * 6);
     for (int i = 0; i <= stacks; i++) {
         // phi sweeps pole to pole, theta around the equator; the seam column
         // (j == sectors) duplicates j == 0 so the index grid can wrap simply.
         float phi = glm::pi<float>() * i / stacks;
         for (int j = 0; j <= sectors; j++) {
             float theta = 2.0f * glm::pi<float>() * j / sectors;
-            float x = std::sin(phi) * std::cos(theta);
-            float y = std::cos(phi);
-            float z = std::sin(phi) * std::sin(theta);
-            verts.push_back(x); verts.push_back(y); verts.push_back(z);
+            verts.push_back(std::sin(phi) * std::cos(theta));
+            verts.push_back(std::cos(phi));
+            verts.push_back(std::sin(phi) * std::sin(theta));
             verts.push_back(1.0f); verts.push_back(1.0f); verts.push_back(1.0f);
-            verts.push_back(x); verts.push_back(y); verts.push_back(z);
         }
     }
 
     // The seam column makes the sphere a plain (stacks + 1) x (sectors + 1)
     // vertex grid, so gridIndices applies.
     return uploadBuffers(verts, gridIndices(stacks + 1, sectors + 1),
-                         { 3, 3, 3 });   // position, color, normal
+                         { 3, 3 });   // position, color
 }
 
 // Viewed from inside -- the sky pass puts the camera at its center, so face

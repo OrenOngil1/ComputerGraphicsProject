@@ -20,7 +20,8 @@ void testCentroids()
 {
     std::cout << "findTrackerCentroids:" << std::endl;
 
-    // A black 100x80 detection frame -- as captureTrackersFrame would produce.
+    // A blank 100x80 frame. The real capture holds lit terrain here; both are
+    // background as far as the palette scan is concerned.
     FramePixels frame;
     frame.width = 100;
     frame.height = 80;

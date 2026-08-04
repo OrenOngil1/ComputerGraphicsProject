@@ -61,22 +61,21 @@ public:
                     float size, const glm::mat4 &mvp);
 
     // Draw the trackers as flat-colored spheres -- the exact palette colors the
-    // blob detector classifies, so this is what the detection capture uses.
-    // Depth-tested, unlike the markers above: a tracker behind a hill is hidden,
-    // in the visible frame and the capture read-back alike -- the occlusion
-    // semantics automatic correspondence needs. viewProj carries no model part.
+    // blob detector classifies, in the visible frame and the detection capture
+    // alike. Depth-tested, unlike the markers above: a tracker behind a hill is
+    // hidden in both, the occlusion semantics automatic correspondence needs.
+    // viewProj carries no model part.
     void drawTrackers(const std::vector<Tracker> &trackers, const glm::mat4 &viewProj);
 
-    // The visible-frame tracker draw: same spheres, Lambert-lit like the terrain.
-    void drawTrackersLit(const std::vector<Tracker> &trackers,
-                         const DirectionalLight &light, const glm::mat4 &viewProj);
-
-    // Tracker detection pass: the player view with the terrain flat black and
-    // the trackers in their flat palette colors, read back. Every non-black
-    // pixel belongs to a tracker, occlusion already resolved by the depth
+    // Tracker detection pass: the player view -- terrain lit as the player
+    // sees it, trackers in their flat palette colors -- read back. The
+    // detector separates the two by color alone, which holds because the
+    // palette is disjoint from every color the lit terrain can render (see
+    // trackerPalette in TrackersState.cpp). Occlusion comes from the depth
     // buffer. Back buffer only, never swapped.
     FramePixels captureTrackersFrame(const View &playerView,
-                                     const std::vector<Tracker> &trackers);
+                                     const std::vector<Tracker> &trackers,
+                                     const DirectionalLight &light);
 
     // Feature-matching capture: the lit scene exactly as the player view draws
     // it, minus overlays -- the pixels ORB runs on. Takes the light explicitly:
@@ -85,13 +84,12 @@ public:
     FramePixels captureSceneFrame(const View &view, const DirectionalLight &light);
 
 private:
-    // Bind the scene shader and raise u_Lit with this light's uniforms; the
-    // caller must drop u_Lit after its lit draws (unlit is the shared
-    // program's resting state -- the exact-color draws depend on it).
+    // Bind the scene shader and raise u_Lit with this light's uniforms.
     void applyLighting(const DirectionalLight &light);
 
     // Lit 3D draw of the mesh's own vertex colors (the terrain), bracketed by
-    // the u_Lit raise/drop.
+    // the u_Lit raise/drop -- unlit is the shared program's resting state,
+    // which every exact-color draw depends on.
     void drawMeshLit(const GpuMesh &gpu, const DirectionalLight &light,
                      const glm::mat4 &mvp);
 
@@ -114,8 +112,8 @@ private:
     // Draw a mesh through the scene shader's override path (one fill color,
     // or a tint of the vertex colors), restoring the override to off
     // afterward -- every other draw through the shared program depends on it
-    // being off. Unlit unless the caller raised u_Lit around it (drawTrackersLit
-    // does, to shade the spheres in their exact palette fills).
+    // being off. Always unlit: the override path bypasses the shader's lit
+    // branch, so these draws land in exact colors.
     void drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tintStrength,
                       const glm::mat4 &mvp);
 

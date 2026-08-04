@@ -18,9 +18,11 @@ constexpr float kMinSeparationFraction = 0.08f;    // pairwise spacing floor
 constexpr int   kPlacementAttempts     = 40;       // re-rolls before a clumped spot stands
 }
 
-// 20 distinct tracker colors: every pair differs by >= 0.5 (~128/255) in at
-// least one channel -- far above the blob detector's channelTolerance, so
-// misclassification is impossible even with rendering imprecision.
+// 20 distinct tracker colors on the {0, 0.5, 1} lattice, under two constraints
+// the blob detector depends on: every pair differs by >= 0.5 (~128/255) in at
+// least one channel, and none lies within channelTolerance of any color the lit
+// terrain can render. The second bars the achromatic lattice points -- sunlit
+// snow saturates to white, half-lit snow passes through grey.
 static const glm::vec3 trackerPalette[] = {
     { 1.0f, 0.0f, 0.0f },  // red
     { 0.0f, 1.0f, 0.0f },  // green
@@ -28,7 +30,7 @@ static const glm::vec3 trackerPalette[] = {
     { 1.0f, 1.0f, 0.0f },  // yellow
     { 1.0f, 0.0f, 1.0f },  // magenta
     { 0.0f, 1.0f, 1.0f },  // cyan
-    { 1.0f, 1.0f, 1.0f },  // white
+    { 1.0f, 0.5f, 1.0f },  // orchid
     { 1.0f, 0.5f, 0.0f },  // orange
     { 0.5f, 0.0f, 1.0f },  // violet
     { 0.0f, 0.5f, 0.0f },  // dark green
@@ -97,7 +99,8 @@ void TrackersState::onEnter(Simulation &sim)
 std::optional<Waypoint> TrackersState::computePose(Simulation &sim, Renderer &renderer)
 {
     // 2D side: render the detection frame and locate each tracker's blob.
-    FramePixels frame = renderer.captureTrackersFrame(sim.playerView, m_trackers);
+    FramePixels frame = renderer.captureTrackersFrame(sim.playerView, m_trackers,
+                                                      sim.light());
     std::vector<std::optional<glm::vec2>> centroids =
         findTrackerCentroids(frame, m_trackers);
 
@@ -128,13 +131,13 @@ void TrackersState::renderGlobalOverlay(const Simulation &sim, Renderer &rendere
                                         const glm::mat4 &mvp) const
 {
     // Spheres first (depth-tested scene objects), comparison overlay on top.
-    renderer.drawTrackersLit(m_trackers, sim.light(), mvp);
+    renderer.drawTrackers(m_trackers, mvp);
     PoseComparisonState::renderGlobalOverlay(sim, renderer, mvp);
 }
 
 void TrackersState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,
                                         const glm::mat4 &mvp) const
 {
-    renderer.drawTrackersLit(m_trackers, sim.light(), mvp);
+    renderer.drawTrackers(m_trackers, mvp);
     PoseComparisonState::renderPlayerOverlay(sim, renderer, mvp);   // ghost over all
 }

@@ -52,6 +52,7 @@ void Renderer::loadTerrain(const Mesh &terrain)
 
 void Renderer::applyLighting(const DirectionalLight &light)
 {
+    // Locals, not temporaries: SetUniform4f takes a non-const glm::vec4 &.
     glm::vec4 lightDir(light.direction, 0.0f);
     glm::vec4 lightColor(light.color, 1.0f);
     m_sceneShader.Bind();
@@ -239,16 +240,6 @@ void Renderer::drawTrackers(const std::vector<Tracker> &trackers, const glm::mat
                      viewProj * tracker.modelMatrix());
 }
 
-void Renderer::drawTrackersLit(const std::vector<Tracker> &trackers,
-                               const DirectionalLight &light, const glm::mat4 &viewProj)
-{
-    // The flat draw wrapped in a raised u_Lit: same palette fills, shaded.
-    // Raised once -- the lighting uniforms are constant across the spheres.
-    applyLighting(light);
-    drawTrackers(trackers, viewProj);
-    m_sceneShader.SetUniform1i("u_Lit", 0);
-}
-
 // ── Read-back captures ────────────────────────────────────────
 
 FramePixels Renderer::readViewportPixels(const Viewport &viewport)
@@ -282,20 +273,20 @@ FramePixels Renderer::readViewportPixels(const Viewport &viewport)
 }
 
 FramePixels Renderer::captureTrackersFrame(const View &playerView,
-                                           const std::vector<Tracker> &trackers)
+                                           const std::vector<Tracker> &trackers,
+                                           const DirectionalLight &light)
 {
     const Viewport &viewport = playerView.viewport;
 
+    // Black background, no sky pass: above the horizon there is no terrain to
+    // separate the trackers from, and no palette color is near black.
     ScopedClearColor black(0.0f, 0.0f, 0.0f, 1.0f);
     clear();
 
     setupViewport(viewport);
     glm::mat4 viewProj = viewProjection(playerView.camera, viewport);
 
-    // Terrain flat black, full tint: it still writes depth (occlusion as in
-    // the visible frame) but contributes no color that could collide with a
-    // tracker's.
-    drawMeshFlat(m_terrain, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, viewProj);
+    drawMeshLit(m_terrain, light, viewProj);
     drawTrackers(trackers, viewProj);
 
     return readViewportPixels(viewport);
