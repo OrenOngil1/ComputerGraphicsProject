@@ -13,15 +13,14 @@
 #include "../render/Renderer.h"
 #include "../vision/Pnp.h"        // computeCameraPose
 
-// Path-sampling threshold as a fraction of terrain size, so the recorded
-// path's density is resolution-independent across DEMs.
-static constexpr float kPathSampleFraction = 0.0001f;
-
-// Has the camera moved at least `minDist` since the previous sample? Thins out
-// path recording so a steady glide doesn't append a near-duplicate every frame.
-static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float minDist)
+// Has the camera moved far enough since the previous sample to be worth
+// recording? Thins out path recording so a steady glide doesn't append a
+// near-duplicate every frame. The threshold is a fraction of terrain size, so
+// the recorded path's density is resolution-independent across DEMs.
+static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float terrainSize)
 {
-    return glm::distance(from, to) > minDist;
+    constexpr float kPathSampleFraction = 0.0001f;
+    return glm::distance(from, to) > terrainSize * kPathSampleFraction;
 }
 
 // ── NavigationState ──────────────────────────────────────────
@@ -47,8 +46,7 @@ void RecordState::tick(Simulation &sim, GLFWwindow *window, float dt)
 
     fly(playerCamera, pollMovementIntent(window), sim.terrainSize, dt);
 
-    if (movedFarEnough(prevPosition, playerCamera.position,
-                       sim.terrainSize * kPathSampleFraction))
+    if (movedFarEnough(prevPosition, playerCamera.position, sim.terrainSize))
         sim.pathPoints.push_back(playerCamera.position);
 }
 
