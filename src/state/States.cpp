@@ -13,15 +13,14 @@
 #include "../render/Renderer.h"
 #include "../vision/Pnp.h"        // computeCameraPose
 
-// Path-sampling threshold as a fraction of terrain size, so the recorded
-// path's density is resolution-independent across DEMs.
-static constexpr float kPathSampleFraction = 0.0001f;
-
-// Has the camera moved at least `minDist` since the previous sample? Thins out
-// path recording so a steady glide doesn't append a near-duplicate every frame.
-static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float minDist)
+// Has the camera moved far enough since the previous sample to be worth
+// recording? Thins out path recording so a steady glide doesn't append a
+// near-duplicate every frame. The threshold is a fraction of terrain size, so
+// the recorded path's density is resolution-independent across DEMs.
+static bool movedFarEnough(const glm::vec3 &from, const glm::vec3 &to, float terrainSize)
 {
-    return glm::distance(from, to) > minDist;
+    constexpr float kPathSampleFraction = 0.0001f;
+    return glm::distance(from, to) > terrainSize * kPathSampleFraction;
 }
 
 // ── NavigationState ──────────────────────────────────────────
@@ -47,8 +46,7 @@ void RecordState::tick(Simulation &sim, GLFWwindow *window, float dt)
 
     fly(playerCamera, pollMovementIntent(window), sim.terrainSize, dt);
 
-    if (movedFarEnough(prevPosition, playerCamera.position,
-                       sim.terrainSize * kPathSampleFraction))
+    if (movedFarEnough(prevPosition, playerCamera.position, sim.terrainSize))
         sim.pathPoints.push_back(playerCamera.position);
 }
 
@@ -151,12 +149,17 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
     const glm::dvec2 cursor = cursorPosPixels(window);
 
     if (!m_pendingImageRay) {
-        // Phase A, the 2D half: must land in the player view. Stored as a ray
-        // (resize-proof); deliberately no color-pick here, so the 3D point
-        // can't be read off the player view.
+        // Phase A, the 2D half: must land in the player view AND on terrain.
+        // Stored as a ray (resize-proof); the color-pick is a validity gate
+        // only -- its id is discarded, so the 3D point still can't be read
+        // off the player view.
         const Viewport &viewport = sim.playerView.viewport;
         if (!viewport.contains(cursor.x, cursor.y)) {
             std::cout << "PICK: click a 2D point in the player (right) view first." << std::endl;
+            return;
+        }
+        if (renderer.pickVertex((int)cursor.x, (int)cursor.y, sim.playerView) < 0) {
+            std::cout << "PICK: no terrain under the cursor -- click a 2D point on the terrain." << std::endl;
             return;
         }
 

@@ -16,8 +16,8 @@
 
 namespace {
 
-constexpr int WIDTH  = 800;
-constexpr int HEIGHT = 600;
+constexpr int kWidth  = 800;
+constexpr int kHeight = 600;
 
 // Shared lens for both cameras; the far plane scales with the terrain so any
 // DEM fits inside the frustum.
@@ -70,7 +70,7 @@ void configureViews(Simulation &sim)
 } // namespace
 
 Application::Application()
-    : m_window(WIDTH, HEIGHT, "OpenGL Window")
+    : m_window(kWidth, kHeight, "OpenGL Window")
 {
     GLFWwindow *window = m_window.handle();
 
@@ -81,7 +81,7 @@ Application::Application()
     glfwSetCursorPosCallback(window, cursorPosCallback);    // global-map pan/orbit drag
 
     // Seed the split-screen layout from the framebuffer size in PIXELS -- the
-    // requested WIDTH/HEIGHT are screen coords, which HiDPI scaling may not
+    // requested kWidth/kHeight are screen coords, which HiDPI scaling may not
     // match. Same layout helpers the resize callback uses for later resizes.
     int fbWidth, fbHeight;
     glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
@@ -118,11 +118,12 @@ void Application::runSession()
     m_sim.returnToMenu = false;
 
     // Seed `last` before the loop so the first dt is tiny, not since-epoch.
+    float now, dt;
     float last = (float)glfwGetTime();
 
     while (!glfwWindowShouldClose(window) && !m_sim.returnToMenu) {
-        const float now = (float)glfwGetTime();
-        const float dt = now - last;   // seconds; makes motion frame-rate independent
+        now = (float)glfwGetTime();
+        dt = now - last;   // seconds; makes motion frame-rate independent
         last = now;
 
         // The active mode advances itself (the moving modes poll held keys).

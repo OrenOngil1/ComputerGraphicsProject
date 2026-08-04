@@ -123,13 +123,20 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 
-    // 100 iterations, 8px reprojection tolerance (the OpenCV defaults, named
-    // only because the inlier list parameter forces spelling them out).
+    // Budget and gate sized for hand-anchored correspondences: with a small
+    // descriptor database most matches are false (the ratio test passes too
+    // easily), so the iteration count must cover true-inlier fractions down to
+    // ~15%, and the pixel gate must absorb the world-space error of a human
+    // map-pick on top of keypoint noise.
+    constexpr int    kIterations    = 2000;
+    constexpr float  kReprojErrorPx = 12.0f;
+    constexpr double kConfidence    = 0.99;
+
     cv::Mat rvec, tvec;
     std::vector<int> inliers;
     bool ok = cv::solvePnPRansac(objectPoints, imagePoints, K, cv::Mat(),
                                  rvec, tvec, false,
-                                 100, 8.0f, 0.99, inliers);
+                                 kIterations, kReprojErrorPx, kConfidence, inliers);
     if (!ok || (int)inliers.size() < minInliers) {
         std::cerr << "cv::solvePnPRansac found no trustworthy pose ("
                   << inliers.size() << " inliers, need " << minInliers << ")"
