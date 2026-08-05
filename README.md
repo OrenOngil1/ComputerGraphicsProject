@@ -30,11 +30,13 @@ recovers the camera's six degrees of freedom. The four modes are four ways of
 | **A - Navigation** | - | none (fly, record path `R`, play back `Ctrl+R`) | Dual-view free-flight camera + path recording |
 | **B - Picking** | `P` | *manual* - click a 2D point in the camera view, then its 3D match on the map | Human-in-the-loop PnP (the baseline) |
 | **C - Trackers** | `T` | *fiducial* - uniquely coloured spheres with known 3D centres; find each colour's blob, its centroid is the 2D point | Automatic correspondence with trivial data association |
-| **D - Feature Matching** | `F` | *ORB-assisted manual* - ORB suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
+| **D - Feature Matching** | `F` | *SIFT-assisted manual* - SIFT suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
 
 Modes C and D share a base (`PoseComparisonState`) that records
-`(true pose, computed pose)` per timestep (`B` to capture, `N`/`M` to review)
-and draws the comparison identically.
+`(true pose, computed pose)` per capture (`B` to capture, `N`/`M` to review,
+`Ctrl+B` to capture at every recorded view at once) and draws the comparison
+identically. Every result is reported the same way — position error in units
+*and* as a percentage of the terrain, plus how far off the heading is.
 
 Full controls and a per-mode walkthrough: **[docs/pose-estimation-modes.md](docs/pose-estimation-modes.md)**.
 
@@ -107,14 +109,37 @@ sources the MSVC environment, the debugger runs the binary from the project root
 - **Mode C (blobs).** Classify each read-back pixel against the known sphere
   palette; each colour's mean pixel is its centroid (the 2D point), paired with
   the sphere's known 3D centre.
-- **Mode D (ORB + RANSAC), manual anchoring.** Pre-phase is by hand: for each
-  recorded view ORB suggests its strongest N points one at a time and the user
-  color-picks each one's 3D spot on the global map → a `FeatureDb` of
-  hand-placed `(descriptor, 3D)` pairs. Run-phase detects features in the live
-  view, matches them against that database (Hamming + Lowe's ratio test), and
-  solves with **RANSAC PnP** for robustness to wrong matches.
+- **Mode D (SIFT + RANSAC), manual anchoring.** Pre-phase is by hand: for each
+  recorded view SIFT suggests N strong points, spread across the frame, one at a
+  time, and the user color-picks each one's 3D spot on the global map → a
+  `FeatureDb` of hand-placed `(descriptor, 3D)` pairs. Each click is snapped onto
+  the suggestion's viewing ray first, since the pose and the pixel are both known
+  exactly and only the depth along that ray is the user's to give. Each placed
+  point then collects its appearance in the *other* recorded views by projecting
+  through their known poses — one descriptor per point is not enough, since no
+  descriptor is viewpoint-invariant on shading, and the 3D still comes only from
+  the click. Run-phase detects features in the live view, asks the database where
+  each of its points is (cross-checked, distance-capped), and solves with
+  **RANSAC PnP** for robustness to wrong matches. (SIFT rather than ORB by
+  measurement: ORB's binary descriptor stops separating true matches from
+  lookalike ridges on texture-free shading, at any threshold.) `Ctrl+G`
+  generates a test database automatically — arc path, human aim error
+  simulated as depth noise along each sight line — for experiments; the hand
+  build remains the mode. `Ctrl+S`/`Ctrl+O` keep the hand-built
+  database across runs; `Ctrl+B` measures it at every recorded waypoint at once.
 - **Lighting.** A directional light (Lambert + ambient) with per-vertex normals
   from the height map; `L` cycles presets. Required for the Mode D experiment.
+- **View aids for the manual modes** (`V`). Matching a point seen in the camera
+  view against the whole-terrain map is the hard part of B and D, so the map
+  draws the camera's **view cone** (which wedge is in frame) and the **sight
+  line** of the observation being placed (the line its 3D point lies on).
+  The lines stop short of the terrain on purpose — a pixel fixes a direction,
+  and supplying the depth along it is exactly the manual step being taught.
+- **Seeing what a capture has to work with.** In Mode D's run phase the map also
+  shows the whole hand-built database as violet dots, with the anchors the
+  current view can actually use — inside the frustum *and* not behind a ridge —
+  lit up. Read with the cone, it says whether a spot is worth capturing from
+  before you capture from it.
 
 Architecture (composition root, State pattern, Renderer/vision separation):
 **[docs/architecture-notes.md](docs/architecture-notes.md)**.
@@ -122,9 +147,9 @@ Architecture (composition root, State pattern, Renderer/vision separation):
 ## The lighting experiment
 
 Because the terrain's appearance is **shading-driven, not texture-driven**,
-moving the sun flips the very intensity gradients ORB encodes. With the manual
-Mode D this shows up in the *detection* step: a light-direction change relocates
-which points ORB suggests for the same view. The earlier automatic-matching
+moving the sun flips the very intensity gradients the descriptors encode. With
+the manual Mode D this shows up in the *detection* step: a light-direction
+change relocates which points are suggested for the same view. The earlier automatic-matching
 version made the same cause measurable as a near-total collapse (matches
 30–303 → 2–14, pose refused), recorded in full at
 **[docs/lighting-experiment.md](docs/lighting-experiment.md)**.
@@ -134,7 +159,7 @@ version made the same cause measurable as a near-total collapse (matches
 `ctest --preset linux` / `ctest --preset windows` (or CMake Tools' **Run
 Tests**) builds and runs the checks in `tests/` (no window, no GPU), one file
 per topic: the geometry math (terrain normals, camera controls, viewport
-layout), the vision steps (tracker blob centroids, ORB feature suggestion, both
+layout), the vision steps (tracker blob centroids, SIFT feature suggestion, both
 PnP solvers including RANSAC outlier rejection), and the cross-layer contracts
 (color-pick id round trip, the render↔vision camera model), each on synthetic
 inputs with known answers. The camera-model checks project through an
@@ -147,7 +172,7 @@ aspect mistakes in the intrinsics fail the suite.
 src/core/      composition root, scene state, camera, lighting
 src/state/     one State per mode (Navigation, Pick, Trackers, FeatureMatch)
 src/render/    Renderer; all GPU work and read-back captures
-src/vision/    OpenCV: PnP solvers, blob detection, ORB feature matching
+src/vision/    OpenCV: PnP solvers, blob detection, SIFT feature matching
 src/loader/    DEM image -> terrain mesh + normals
 external/      vendored code built from source: BasicOpenGL toolkit, glad (do not modify)
 include/       vendored header-only libraries: glm (do not modify)

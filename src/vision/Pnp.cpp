@@ -109,7 +109,7 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &pic
 
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,
-                                                int minInliers)
+                                                int minInliers, float reprojErrorPx)
 {
     if (points.size() < 4) {
         std::cerr << "PnP (RANSAC) needs at least 4 correspondences (have "
@@ -123,24 +123,41 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 
-    // Budget and gate sized for hand-anchored correspondences: with a small
-    // descriptor database most matches are false (the ratio test passes too
-    // easily), so the iteration count must cover true-inlier fractions down to
-    // ~15%, and the pixel gate must absorb the world-space error of a human
-    // map-pick on top of keypoint noise.
-    constexpr int    kIterations    = 2000;
-    constexpr float  kReprojErrorPx = 12.0f;
-    constexpr double kConfidence    = 0.99;
+    // The agreement gate scales with the frame unless the caller pinned it:
+    // pixels of tolerance only mean anything relative to how many pixels the
+    // frame has (see kHandPlacedReprojFraction).
+    if (reprojErrorPx <= 0.0f)
+        reprojErrorPx = kHandPlacedReprojFraction * (float)viewportHeight;
 
+    // Iteration budget sized for hand-anchored correspondences: with a small
+    // descriptor database a good share of the matches are false, so the count
+    // must still find a clean minimal sample at true-match fractions down to
+    // ~15% (there, a 4-point draw is clean with p ~ 5e-4, so 5000 draws land
+    // one with >90% certainty). Milliseconds either way.
+    constexpr int    kIterations = 5000;
+    constexpr double kConfidence = 0.99;
+
+    // SOLVEPNP_AP3P, explicitly, and it matters twice. The flag selects the
+    // solver RANSAC fits each minimal sample with. P3P-family solvers draw
+    // 4-point samples where the EPnP default draws 5 -- at true-match fraction
+    // w, the odds of a clean draw are w^4 vs w^5, several times better at the
+    // fractions descriptor matching leaves us. And a P3P fit is exact on its
+    // sample, where an EPnP fit of 5 nearly coplanar points -- a DEM seen from
+    // altitude -- wobbles enough that the true pairs miss the reprojection
+    // gate and no consensus ever forms. OpenCV refits the winning consensus
+    // with EPnP afterwards, which is well-behaved once it has many inliers to
+    // average over (and unlike the ITERATIVE default, does not seed from a
+    // DLT, which is ill-conditioned on near-coplanar points).
     cv::Mat rvec, tvec;
     std::vector<int> inliers;
     bool ok = cv::solvePnPRansac(objectPoints, imagePoints, K, cv::Mat(),
                                  rvec, tvec, false,
-                                 kIterations, kReprojErrorPx, kConfidence, inliers);
+                                 kIterations, reprojErrorPx, kConfidence, inliers,
+                                 cv::SOLVEPNP_AP3P);
     if (!ok || (int)inliers.size() < minInliers) {
-        std::cerr << "cv::solvePnPRansac found no trustworthy pose ("
-                  << inliers.size() << " inliers, need " << minInliers << ")"
-                  << std::endl;
+        std::cerr << "PnP (RANSAC): no trustworthy pose -- " << inliers.size()
+                  << " of " << points.size() << " correspondences agree, need "
+                  << minInliers << std::endl;
         return std::nullopt;
     }
 

@@ -1,6 +1,10 @@
 #include "Renderer.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <iostream>
+#include <optional>
 #include <vector>
 
 #include <glad/glad.h>
@@ -12,10 +16,31 @@
 
 #include "PickEncoding.h"
 #include "../state/State.h"
+#include "../state/OverlayStyle.h"
 
 static void setupViewport(const Viewport &viewport)
 {
     glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
+}
+
+// How far to draw the player camera's view cone: out to where its center ray
+// meets the terrain, so the cone visibly lands on the patch of map the player
+// view is showing. A ray that misses (aimed at the sky or off the edge) has no
+// such distance, and falls back to a terrain-sized reach, which still
+// communicates the direction.
+static float viewConeReach(const Simulation &sim)
+{
+    const Camera &camera = sim.playerView.camera;
+    const glm::vec3 direction = glm::normalize(camera.target - camera.position);
+
+    // Fine enough to land on the right hillside, coarse enough to stay cheap:
+    // this runs once per frame.
+    const float step = std::max(sim.terrainSize * 0.004f, 0.05f);
+    if (const std::optional<float> hit = raycastTerrain(sim.mesh, camera.position,
+                                                        direction, sim.terrainSize * 2.0f, step))
+        return std::max(*hit, sim.terrainSize * 0.02f);   // never collapse to a dot up close
+
+    return sim.terrainSize * 0.75f;
 }
 
 static void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
@@ -52,6 +77,7 @@ void Renderer::loadTerrain(const Mesh &terrain)
 
 void Renderer::applyLighting(const DirectionalLight &light)
 {
+    // Locals, not temporaries: SetUniform4f takes a non-const glm::vec4 &.
     glm::vec4 lightDir(light.direction, 0.0f);
     glm::vec4 lightColor(light.color, 1.0f);
     m_sceneShader.Bind();
@@ -86,6 +112,17 @@ glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport,
 void Renderer::renderGlobalView(const View &view, const Simulation &sim)
 {
     glm::mat4 mvp = renderScene(view.camera, view.viewport, sim.light(), sim.lightPreset);
+
+    // The view cone is drawn here rather than in a State's overlay because it
+    // is not mode-specific: "where is the player camera pointing" is the same
+    // question in every mode, and putting it here keeps five states from
+    // repeating the same call. Mode-specific aids (the sight lines) stay in
+    // the overlays below, where they belong.
+    if (sim.showViewAids)
+        drawViewCone(sim.playerView.camera, sim.playerView.viewport.aspect(),
+                     viewConeReach(sim), overlay::viewConeColor,
+                     overlay::viewConeWidth, mvp);
+
     if (sim.currentState)
         sim.currentState->renderGlobalOverlay(sim, *this, mvp);
 }
@@ -239,16 +276,6 @@ void Renderer::drawTrackers(const std::vector<Tracker> &trackers, const glm::mat
                      viewProj * tracker.modelMatrix());
 }
 
-void Renderer::drawTrackersLit(const std::vector<Tracker> &trackers,
-                               const DirectionalLight &light, const glm::mat4 &viewProj)
-{
-    // The flat draw wrapped in a raised u_Lit: same palette fills, shaded.
-    // Raised once -- the lighting uniforms are constant across the spheres.
-    applyLighting(light);
-    drawTrackers(trackers, viewProj);
-    m_sceneShader.SetUniform1i("u_Lit", 0);
-}
-
 // ── Read-back captures ────────────────────────────────────────
 
 FramePixels Renderer::readViewportPixels(const Viewport &viewport)
@@ -282,20 +309,20 @@ FramePixels Renderer::readViewportPixels(const Viewport &viewport)
 }
 
 FramePixels Renderer::captureTrackersFrame(const View &playerView,
-                                           const std::vector<Tracker> &trackers)
+                                           const std::vector<Tracker> &trackers,
+                                           const DirectionalLight &light)
 {
     const Viewport &viewport = playerView.viewport;
 
+    // Black background, no sky pass: above the horizon there is no terrain to
+    // separate the trackers from, and no palette color is near black.
     ScopedClearColor black(0.0f, 0.0f, 0.0f, 1.0f);
     clear();
 
     setupViewport(viewport);
     glm::mat4 viewProj = viewProjection(playerView.camera, viewport);
 
-    // Terrain flat black, full tint: it still writes depth (occlusion as in
-    // the visible frame) but contributes no color that could collide with a
-    // tracker's.
-    drawMeshFlat(m_terrain, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), 1.0f, viewProj);
+    drawMeshLit(m_terrain, light, viewProj);
     drawTrackers(trackers, viewProj);
 
     return readViewportPixels(viewport);
@@ -308,6 +335,48 @@ FramePixels Renderer::captureSceneFrame(const View &view, const DirectionalLight
     // terrain 3D position and differ per preset).
     renderScene(view.camera, view.viewport, light, std::nullopt);
     return readViewportPixels(view.viewport);
+}
+
+FramePixels Renderer::captureSceneFrameAt(int width, int height, const Camera &camera,
+                                          const DirectionalLight &light)
+{
+    // Throwaway FBO per call: captures are keypress-triggered or a build pass
+    // of a few dozen, never per-frame, so creation cost is irrelevant and
+    // nothing GPU-side outlives the call.
+    GLuint fbo = 0, colorRb = 0, depthRb = 0;
+    GLCall(glGenFramebuffers(1, &fbo));
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+
+    GLCall(glGenRenderbuffers(1, &colorRb));
+    GLCall(glBindRenderbuffer(GL_RENDERBUFFER, colorRb));
+    GLCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB8, width, height));
+    GLCall(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                     GL_RENDERBUFFER, colorRb));
+
+    // Depth too: occlusion must hide back terrain in the capture exactly as it
+    // does on screen.
+    GLCall(glGenRenderbuffers(1, &depthRb));
+    GLCall(glBindRenderbuffer(GL_RENDERBUFFER, depthRb));
+    GLCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height));
+    GLCall(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                     GL_RENDERBUFFER, depthRb));
+
+    FramePixels frame;
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+        const Viewport full{ 0, 0, width, height };
+        clear();
+        renderScene(camera, full, light, std::nullopt);   // nullopt sky, as above
+        frame = readViewportPixels(full);
+    } else {
+        std::cerr << "capture: offscreen framebuffer incomplete at " << width << "x"
+                  << height << " -- capture skipped" << std::endl;
+    }
+
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    GLCall(glDeleteRenderbuffers(1, &depthRb));
+    GLCall(glDeleteRenderbuffers(1, &colorRb));
+    GLCall(glDeleteFramebuffers(1, &fbo));
+    return frame;
 }
 
 void Renderer::drawPoints(const std::vector<glm::vec3> &positions,
@@ -329,4 +398,66 @@ void Renderer::drawPoints(const std::vector<glm::vec3> &positions,
     GLCall(glPointSize(size));
     drawVertexBatch(verts, GL_POINTS, m_pointShader, mvp);
     GLCall(glEnable(GL_DEPTH_TEST));
+}
+
+// ── View aids ─────────────────────────────────────────────────
+
+void Renderer::drawLines(const std::vector<glm::vec3> &segments, const glm::vec3 &color,
+                         float width, const glm::mat4 &mvp)
+{
+    if (segments.size() < 2) return;
+
+    std::vector<float> verts;
+    verts.reserve(segments.size() * 6);
+    for (const glm::vec3 &p : segments) {
+        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
+        verts.push_back(color.r); verts.push_back(color.g); verts.push_back(color.b);
+    }
+
+    GLCall(glLineWidth(width));
+    GLCall(glDisable(GL_DEPTH_TEST));
+    drawVertexBatch(verts, GL_LINES, m_sceneShader, mvp);
+    GLCall(glEnable(GL_DEPTH_TEST));
+}
+
+void Renderer::drawViewCone(const Camera &camera, float aspect, float reach,
+                            const glm::vec3 &color, float width, const glm::mat4 &mvp)
+{
+    // The frustum corners are just the viewing rays through the four corners
+    // of the image -- the same fractionToRay mapping at uv = (0,0)..(1,1) --
+    // so the cone drawn on the map is exactly the wedge the player pane shows.
+    const float t = std::tan(glm::radians(camera.fov) * 0.5f);
+    const glm::vec2 cornerRays[4] = {
+        { -t * aspect, -t },   // top-left
+        {  t * aspect, -t },   // top-right
+        {  t * aspect,  t },   // bottom-right
+        { -t * aspect,  t },   // bottom-left
+    };
+
+    glm::vec3 corners[4];
+    for (int i = 0; i < 4; i++)
+        corners[i] = camera.position + rayDirection(camera, cornerRays[i]) * reach;
+
+    std::vector<glm::vec3> segments;
+    segments.reserve(16);
+    for (int i = 0; i < 4; i++) {
+        segments.push_back(camera.position);          // edge from the eye ...
+        segments.push_back(corners[i]);
+        segments.push_back(corners[i]);               // ... and the far rectangle
+        segments.push_back(corners[(i + 1) % 4]);
+    }
+    drawLines(segments, color, width, mvp);
+}
+
+void Renderer::drawSightLines(const Camera &camera, const std::vector<glm::vec2> &imageRays,
+                              float reach, const glm::vec3 &color, float width,
+                              const glm::mat4 &mvp)
+{
+    std::vector<glm::vec3> segments;
+    segments.reserve(imageRays.size() * 2);
+    for (const glm::vec2 &ray : imageRays) {
+        segments.push_back(camera.position);
+        segments.push_back(camera.position + rayDirection(camera, ray) * reach);
+    }
+    drawLines(segments, color, width, mvp);
 }

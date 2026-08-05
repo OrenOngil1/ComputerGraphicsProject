@@ -17,16 +17,9 @@
 
 namespace {
 
-// The render half: clip space via viewProjection, perspective divide to NDC,
-// then the viewport transform to image pixels (origin top-left, y down --
-// the convention FramePixels hands to vision).
-glm::vec2 rasterize(const Camera &camera, const Viewport &viewport, const glm::vec3 &p)
-{
-    const glm::vec4 clip = viewProjection(camera, viewport) * glm::vec4(p, 1.0f);
-    const glm::vec3 ndc = glm::vec3(clip) / clip.w;
-    return { (ndc.x * 0.5f + 0.5f) * viewport.width,
-             (1.0f - (ndc.y * 0.5f + 0.5f)) * viewport.height };
-}
+// The render half is Camera.h's own `rasterize` -- clip space via
+// viewProjection, perspective divide, viewport transform -- held here against
+// the independent standard below rather than restated.
 
 // The vision half: the square-pixel pinhole (fx == fy from the VERTICAL fov,
 // principal point at the center) -- the same outside standard test_pnp.cpp

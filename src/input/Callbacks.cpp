@@ -1,5 +1,6 @@
 #include "Callbacks.h"
 
+#include <filesystem>
 #include <iostream>
 #include <memory>
 
@@ -7,6 +8,7 @@
 #include "../state/States.h"
 #include "../state/TrackersState.h"
 #include "../state/FeatureMatchState.h"
+#include "../vision/FeatureDbIo.h"   // featureDbPath: F may enter to load a saved db
 
 // 1 while `key` is physically held, else 0 -- int, so opposing keys cancel via
 // plain subtraction below.
@@ -55,9 +57,10 @@ static void setState(Simulation &sim, std::unique_ptr<State> next)
     sim.currentState->onEnter(sim);
 }
 
-// Shared transition guard: PLAYBACK, PICK, and FEATURE MATCH all need at least
-// one recorded waypoint. Checked before the swap is committed -- onEnter runs
-// after it and would be too late to refuse.
+// Shared transition guard: PLAYBACK and PICK need at least one recorded
+// waypoint (FEATURE MATCH too, but with its own exception below). Checked
+// before the swap is committed -- onEnter runs after it and would be too late
+// to refuse.
 static bool requireWaypoints(const Simulation &sim)
 {
     if (sim.waypoints.empty()) {
@@ -101,13 +104,24 @@ static bool tryTransition(Simulation &sim, int key, int mods)
             std::cout << "Switched to TRACKERS mode" << std::endl;
             return true;
 
-        // Waypoint guard like PICK: the recorded waypoints are the views the
-        // feature database is built from.
+        // Waypoint guard like PICK -- except when a saved database exists for
+        // this terrain. Its waypoints were saved with it and come back on
+        // Ctrl+O, so demanding a throwaway recording first would only replace
+        // the views the database was actually built from. Without this
+        // exception, a fresh run could never reach Ctrl+O at all.
         case GLFW_KEY_F:
-            if (!requireWaypoints(sim))
+            if (sim.waypoints.empty() &&
+                !std::filesystem::exists(featureDbPath(sim.terrainFile))) {
+                std::cout << "Record camera waypoints in RECORD mode first"
+                          << std::endl;
                 return true;
+            }
             setState(sim, std::make_unique<FeatureMatchState>(FeatureMatchState::promptCount()));
             std::cout << "Switched to FEATURE MATCH mode" << std::endl;
+            if (sim.waypoints.empty())
+                std::cout << "FEATURES: no recorded views -- Ctrl+O loads the saved"
+                             " database, and the views it was built from come back"
+                             " with it" << std::endl;
             return true;
     }
 
@@ -161,6 +175,14 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
     // between its pre and run phases).
     if (key == GLFW_KEY_L) {
         std::cout << "Light: " << sim->cycleLightPreset() << std::endl;
+        return;
+    }
+
+    // V toggles the global map's view aids. Global like L rather than a mode
+    // key: the cone belongs to the map, and every mode draws the same one.
+    if (key == GLFW_KEY_V) {
+        sim->showViewAids = !sim->showViewAids;
+        std::cout << "View aids: " << (sim->showViewAids ? "on" : "off") << std::endl;
         return;
     }
 

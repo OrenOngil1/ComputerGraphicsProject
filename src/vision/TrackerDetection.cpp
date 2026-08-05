@@ -3,8 +3,9 @@
 #include <cstdlib>   // abs
 
 // Per-channel distance within which a pixel matches a tracker's palette color.
-// The capture pass draws flat colors, so values should match exactly; the
-// slack only absorbs rounding when the driver quantizes the float color to 8 bits.
+// The trackers draw flat, so their pixels should match exactly; the slack only
+// absorbs 8-bit quantization. Widening it eats into the palette's clearance
+// from the lit terrain (see trackerPalette in TrackersState.cpp).
 static const int channelTolerance = 3;
 
 // Blobs smaller than this are treated as "not visible": a sphere reduced to a
@@ -30,8 +31,8 @@ findTrackerCentroids(const FramePixels &frame, const std::vector<Tracker> &track
         palette.push_back(glm::ivec3(tracker.color * 255.0f + 0.5f));
 
     // Single pass over the frame, classifying each pixel against the palette.
-    // The black background fails every test: each palette color has at least
-    // one full-intensity channel.
+    // Terrain and background pixels fall through: the palette is kept clear of
+    // every color the lit terrain can render, and of black.
     for (int y = 0; y < frame.height; y++) {
         for (int x = 0; x < frame.width; x++) {
             const unsigned char *px = frame.at(x, y);

@@ -65,7 +65,8 @@ std::vector<Correspondence> exactCorrespondences()
     return exact;
 }
 
-// The same set with 3 of 11 pairs corrupted far beyond the 8px inlier band --
+// The same set with 3 of 11 pairs corrupted far beyond the inlier band (which
+// defaults to kHandPlacedReprojFraction of the frame height, ~18 px here) --
 // a plain least-squares solve would be dragged off; consensus must not be.
 std::vector<Correspondence> correspondencesWithOutliers()
 {
