@@ -43,13 +43,20 @@ quit. All three unwind normally, so destructors run. No global state.
   - `Camera.h` — `Camera` (eye pose + lens), `View` (camera + viewport pair),
     `Waypoint` (recorded pose), and `viewProjection` — the one definition of
     the projection the renderer draws with, which `Pnp.cpp`'s intrinsics must
-    mirror (a headless check holds the two together).
+    mirror (a headless check holds the two together). `rasterize` is that
+    projection applied to a point (world → pixel); `cameraBasis` /
+    `rayDirection` are its inverse: pixel → world ray, what the sight-line aids
+    draw. `snapToViewRay` puts a hand-placed point back on that ray, and
+    `isInFrame` tests a world point against the same projection's clip volume
+    (Mode D's "can this view use that anchor").
   - `Viewport.h` — `Viewport` (screen rectangle, pure layout) and the
     `leftHalf` / `rightHalf` split-screen helpers.
   - `Scene.h` — `Vertex`, `Correspondence` (3D point + normalized 2D
     observation), `Mesh` (the height grid, with the `center()` /
-    `worldPos(id)` centering authority), `Tracker`, and `FramePixels` (a
-    CPU-side viewport read-back, top-down RGB — the renderer→vision hand-off).
+    `worldPos(id)` centering authority, plus `heightAt` and the free
+    `raycastTerrain` — GL-free surface queries behind the view cone's reach),
+    `Tracker`, and `FramePixels` (a CPU-side viewport read-back, top-down RGB
+    — the renderer→vision hand-off).
   - `Lighting.h` — `DirectionalLight` + the `kLightPresets` table the `L` key
     cycles. Lives on `Simulation` and survives terrain swaps (the Mode D
     experiment depends on that).
@@ -63,10 +70,15 @@ quit. All three unwind normally, so destructors run. No global state.
   in the visible views — the vision captures and the pick pass never see it.
   Public surface:
   the two per-view draws, the overlay primitives (`drawPath`, `drawWaypoints`,
-  `drawPoints`, `drawTrackers`, `drawGhost`), the color-pick pass
+  `drawPoints`, `drawLines`, `drawTrackers`, `drawGhost`), the view aids
+  (`drawViewCone`, `drawSightLines`), the color-pick pass
   (`pickVertex`), and the vision read-backs (`captureSceneFrame`,
   `captureTrackersFrame`) — all capture passes render to the back buffer and
   never swap, so they are invisible.
+  The view cone is the one overlay drawn by `renderGlobalView` itself rather
+  than by a `State`: "where is the player camera looking" is the same question
+  in every mode, so hanging it off the global view keeps five states from
+  repeating one call. Mode-specific aids (the sight lines) stay in the overlays.
 - `src/render/GpuMesh.{h,cpp}` — the GPU-resident mesh bundle (VAO + VBO +
   IBO) and its builders (`uploadTerrain`, `buildSphereMesh`,
   `buildSkyboxCube`). Construction only; drawing stays in `Renderer`.
@@ -91,16 +103,31 @@ quit. All three unwind normally, so destructors run. No global state.
 - `src/vision/` — the OpenCV layer, decoupled from rendering: it operates on
   `Correspondence`s and `FramePixels`, never GL.
   - `Pnp.{h,cpp}` — `computeCameraPose` (SQPnP, exact correspondences) and
-    `computeCameraPoseRansac(..., minInliers)` (noisy feature matches). The
-    pinhole intrinsics **K** is a file-local detail here — square pixels
-    (`fx == fy`), aspect carried by width/height, matching what
-    `glm::perspective` renders.
+    `computeCameraPoseRansac(..., minInliers, reprojErrorPx)` (noisy feature
+    matches). The pinhole intrinsics **K** is a file-local detail here — square
+    pixels (`fx == fy`), aspect carried by width/height, matching what
+    `glm::perspective` renders. The RANSAC flavor's inlier gate defaults to
+    `kHandPlacedReprojErrorPx` (40 px), wide enough for anchors a person placed
+    by hand, and it refits on `SOLVEPNP_EPNP` rather than the default
+    `SOLVEPNP_ITERATIVE`, whose DLT seed is ill-conditioned on near-planar
+    terrain.
   - `TrackerDetection.{h,cpp}` — `findTrackerCentroids`: classify each
     read-back pixel against the tracker palette; each color's blob centroid is
     its 2D point.
-  - `FeatureMatching.{h,cpp}` — `detectTopFeatures` (Mode D's suggestions) and
-    `estimatePoseFromFeatures` (match the live view against the hand-built
-    `FeatureDb`, then RANSAC PnP).
+  - `FeatureMatching.{h,cpp}` — `detectSpreadFeatures` (Mode D's suggestions,
+    spread across the frame so a human can tell them apart and a pose is
+    actually constrained), `detectAllFeatures` (the full population both phases
+    match through), `matchFeaturesToDb` (database → frame, **cross-checked**, so
+    a place can be matched at most once and no ratio test is needed — see the
+    mode doc for why Lowe's test fails on shading-driven terrain),
+    `resemblesAnchoredPoint` (the gate on collecting a place's appearance from a
+    second view), and `estimatePoseFromFeatures` (match, then RANSAC PnP with a
+    consensus floor scaled to the match count). A `FeatureDb` row is one
+    *appearance*; `places()` is the distinct points a human placed.
+  - `FeatureDbIo.{h,cpp}` — the hand-built `FeatureDb` on disk
+    (`cv::FileStorage` YAML, `captures/featuredb_<terrain>.yml`), with its
+    waypoints, refusing a file from a different terrain. Placing anchors is
+    human time, so it is an input to a measurement rather than part of one.
 - `src/loader/TerrainLoader.{h,cpp}` — DEM image → `Mesh` (heights, elevation
   ramp colors, central-difference normals).
 - `src/loader/SkyboxLoader.{h,cpp}` — skybox folder → `CubemapFaces` (six
@@ -119,9 +146,11 @@ quit. All three unwind normally, so destructors run. No global state.
   dt)` (continuous movement, dt-scaled), then clear, then each view: set
   viewport → build MVP → draw terrain lit → call the state's
   `render*Overlay(sim, renderer, mvp)`.
-- **Key input** (`keyCallback`): ignores releases; Escape / `Ctrl+Q` / `L`
-  are handled globally, then `tryTransition` (mode hotkeys) short-circuits,
-  otherwise the event routes to `currentState->handleKey`.
+- **Key input** (`keyCallback`): ignores releases; Escape / `Ctrl+Q` / `L` /
+  `V` are handled globally, then `tryTransition` (mode hotkeys) short-circuits,
+  otherwise the event routes to `currentState->handleKey`. `V` flips
+  `Simulation::showViewAids`; like the light preset it is session state, not
+  per-mode, because every mode draws the same aids.
 - **Mouse input** (`mouseButtonCallback`): middle/right are intercepted for the
   global-map controls; left routes to `currentState->handleMouseButton` —
   `PickState` and the `FeatureMatchState` build use it to color-pick a vertex.
@@ -147,11 +176,14 @@ an app-level concern in `Callbacks.cpp`; states never name other states.
 - `PickState` (Mode B) — seeds the camera at a random waypoint (the unknown
   pose); two clicks per correspondence (2D in the player view — stored as an
   aspect-invariant camera ray so picks survive a resize — then 3D color-picked
-  on the map); `C` solves PnP; overlays markers, the estimate, and the ghost.
+  on the map); `X` cancels a half-finished pair, `U` undoes the last one, `C`
+  solves PnP; overlays markers, sight lines, the estimate, and the ghost.
 - `PoseComparisonState` — shared base of the two automatic-display modes:
   flight, `B` captures a `(true, computed)` pose pair into a `PoseLog`,
-  `N`/`M` review, dual-path + ghost display. The one pure virtual is
-  `computePose`.
+  `Ctrl+B` does that at every recorded view, `N`/`M` review, dual-path + ghost
+  display. Results go through one `describe` phrase over `poseError`
+  (`core/PoseLog.h`, position *and* heading), so a capture, a review, and a
+  table row are directly comparable. The one pure virtual is `computePose`.
 - `TrackersState` (Mode C) — scatters colored fiducial spheres; `computePose` =
   detection-frame read-back → blob centroids → PnP. No clicks.
 - `FeatureMatchState` (Mode D) — `G` runs the interactive database build (a
@@ -187,8 +219,18 @@ read-back), extract a dedicated `PickPass` rather than widening `Renderer`.
 `tests/` builds one headless binary (no window, no GL) from per-topic files:
 terrain normals, tracker centroids, both PnP solvers, the camera verbs, the
 pick-id encoding round trip, the split-screen viewport layout, the pose-review
-log cursor, the ORB suggestion step (`detectTopFeatures`, including its
-keypoint↔descriptor row alignment), and the render↔vision camera-model contract
+log cursor, the ORB suggestion step (`detectSpreadFeatures` — its
+keypoint↔descriptor row alignment, checked against ORB's own recomputation, and
+its spreading on a frame built to cluster), the match step
+(`matchFeaturesToDb`, pinning the invariant that a six-anchor database can never
+yield more than six matches or place one anchor twice), the hand-placed anchor
+correction (`snapToViewRay` — on the ray, strictly closer to the truth, and
+reprojecting onto the pixel it was placed for), the reported pose error
+(`poseError` — including the camera that is in the right place looking 30° off,
+which a position-only measure calls a success), the view-aid geometry
+(`heightAt`, `raycastTerrain`, `rayDirection`, and `isInFrame` held against the
+renderer's own projection — a y-sign slip there mirrors every sight line while
+still looking plausible on screen), and the render↔vision camera-model contract
 (`viewProjection` and the viewing-ray mapping vs. an independent pinhole) —
 each against synthetic inputs with known answers. The PnP round-trip projects
 through an independently-derived square-pixel pinhole on a non-square viewport,

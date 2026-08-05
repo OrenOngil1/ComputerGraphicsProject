@@ -137,7 +137,11 @@ void PickState::onEnter(Simulation &sim)
     std::cout << "PICK: camera seeded at a random waypoint -- recover its pose. "
                  "Left-click a 2D point in the player (right) view, then color-pick "
                  "its 3D match in the global (left) view; repeat for at least 4, "
-                 "then press C to solve." << std::endl;
+                 "then press C to solve.\n"
+                 "      The cyan cone on the map is what the player view sees; the "
+                 "white line is where your pending pick's 3D point must lie (judge "
+                 "how far along it). X cancels a pending pick, U undoes the last "
+                 "correspondence, V hides the aids." << std::endl;
 }
 
 void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
@@ -153,6 +157,12 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
         // Stored as a ray (resize-proof); the color-pick is a validity gate
         // only -- its id is discarded, so the 3D point still can't be read
         // off the player view.
+        //
+        // Starting a new pair drops any previous solve, so the overlays go
+        // back to showing the correspondences being built rather than a ghost
+        // computed from a set the user is still editing.
+        m_computedCamera.reset();
+
         const Viewport &viewport = sim.playerView.viewport;
         if (!viewport.contains(cursor.x, cursor.y)) {
             std::cout << "PICK: click a 2D point in the player (right) view first." << std::endl;
@@ -199,8 +209,38 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
 void PickState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
 {
     (void)renderer; (void)mods;
-    if (key != GLFW_KEY_C)
-        return;
+
+    switch (key) {
+        // X abandons a half-finished pair -- the same "drop the thing you are
+        // being asked about" key FEATURE MATCH's build uses to skip.
+        case GLFW_KEY_X:
+            if (!m_pendingImageRay) {
+                std::cout << "PICK: no pending 2D pick to cancel." << std::endl;
+                return;
+            }
+            m_pendingImageRay.reset();
+            std::cout << "PICK: pending 2D pick cancelled." << std::endl;
+            return;
+
+        // U removes the last completed correspondence. Without it a misclick
+        // is permanent, and one bad pair is enough to wreck the solve.
+        case GLFW_KEY_U:
+            if (m_pickedPoints.empty()) {
+                std::cout << "PICK: nothing to undo." << std::endl;
+                return;
+            }
+            m_pickedPoints.pop_back();
+            m_computedCamera.reset();   // that solve no longer describes this set
+            std::cout << "PICK: undid the last correspondence -- "
+                      << m_pickedPoints.size() << " left." << std::endl;
+            return;
+
+        case GLFW_KEY_C:
+            break;      // the solve, below
+
+        default:
+            return;
+    }
 
     // Project each stored ray into the CURRENT player viewport: ray -> fraction
     // -> pixels + intrinsics (all at this aspect, inside computeCameraPose).
@@ -270,6 +310,39 @@ void PickState::drawImageMarkers(Renderer &renderer, float fov, const Viewport &
                             { overlay::pendingPickColor }, overlay::pickMarkerSize, screen);
 }
 
+// The map-side aids for the correspondences being built. The pending
+// observation's line is drawn in the same white as its marker in the player
+// view, so the two read as one object; the completed ones are dim, and double
+// as a self-check -- a 3D marker that does not sit on its own line was
+// mis-picked, and U removes it.
+//
+// A line gives the DIRECTION only. Where along it the point sits is precisely
+// the depth one image cannot determine, and supplying it is the whole manual
+// step, so the lines are never intersected with the terrain.
+void PickState::drawSightAids(const Simulation &sim, Renderer &renderer,
+                              const glm::mat4 &mvp) const
+{
+    if (!sim.showViewAids)
+        return;
+
+    const Camera &camera = sim.playerView.camera;
+    const float reach = sim.terrainSize * 1.5f;   // clears the map from anywhere on it
+
+    if (!m_pickedPoints.empty()) {
+        std::vector<glm::vec2> rays;
+        rays.reserve(m_pickedPoints.size());
+        for (const Observation &observation : m_pickedPoints)
+            rays.push_back(observation.imageRay);
+
+        renderer.drawSightLines(camera, rays, reach, overlay::sightLineDimColor,
+                                overlay::sightLineDimWidth, mvp);
+    }
+
+    if (m_pendingImageRay)
+        renderer.drawSightLines(camera, { *m_pendingImageRay }, reach,
+                                overlay::pendingPickColor, overlay::sightLineWidth, mvp);
+}
+
 void PickState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                                     const glm::mat4 &mvp) const
 {
@@ -278,11 +351,16 @@ void PickState::renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
     renderer.drawPath(sim.pathPoints, overlay::truePathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
 
-    if (m_computedCamera)
+    if (m_computedCamera) {
         renderer.drawPoints({ m_computedCamera->position },
                             { overlay::estimateColor }, overlay::estimateMarkerSize, mvp);
-    else
-        drawWorldMarkers(renderer, mvp);
+        return;
+    }
+
+    // Aids first, markers second: both draw with depth off, so paint order is
+    // what keeps the picked points readable on top of their lines.
+    drawSightAids(sim, renderer, mvp);
+    drawWorldMarkers(renderer, mvp);
 }
 
 void PickState::renderPlayerOverlay(const Simulation &sim, Renderer &renderer,

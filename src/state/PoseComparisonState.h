@@ -12,9 +12,10 @@
 // pose is computed from the rendered frame differs -- the one pure virtual.
 //
 // Keys: 'B' captures a timestep (the camera's current pose is the ground
-// truth; computePose estimates it from the frame alone). 'N'/'M' step the
-// review cursor through the captured timesteps, snapping the camera to each
-// one's true pose.
+// truth; computePose estimates it from the frame alone). Ctrl+B does that at
+// every recorded waypoint in one go and prints the errors as a table. 'N'/'M'
+// step the review cursor through the captured timesteps, snapping the camera to
+// each one's true pose.
 //
 // Display: the global view draws both fly-through paths (true in RECORD's
 // visual language, computed in the estimate color); the player view, while the
@@ -37,11 +38,26 @@ protected:
 
     // Help text for the keys this class handles, for subclasses' onEnter banners.
     static constexpr const char *kCaptureHelp =
-        "B = capture timestep, N/M = step through timesteps";
+        "B = capture timestep, Ctrl+B = capture at every recorded waypoint, "
+        "N/M = step through timesteps";
 
     PoseLog m_log;
 
 private:
     // Put the player camera on the reviewed timestep's true pose.
     void snapToCurrent(Simulation &sim) const;
+
+    // Ctrl+B: what pressing B at each recorded waypoint would have done, in one
+    // keypress, with the errors printed as a table.
+    void evaluateAllWaypoints(Simulation &sim, Renderer &renderer);
+
+    // When evaluateAllWaypoints last ran. A held key autorepeats, and this one
+    // costs a render and a solve per waypoint, so a repeat that arrives while
+    // the first run is still fresh is dropped.
+    double m_lastBulkRun = -1.0;
+
+    // Whether the one-line explanation of what N/M is for has been printed.
+    // It answers a question the user only has once; repeating it on every step
+    // would bury the numbers it is there to explain.
+    bool m_reviewHintShown = false;
 };

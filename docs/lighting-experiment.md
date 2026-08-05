@@ -10,8 +10,15 @@
 > particular the 9 792-descriptor database — is not reproducible with the
 > current app. The *result* stands on its own: the match collapse is a property
 > of ORB descriptors under relighting of a shading-driven scene, independent of
-> how the database was anchored. A rerun under the current manual pipeline is
-> planned.
+> how the database was anchored.
+>
+> A rerun under the current manual pipeline is now one keypress: build a database
+> by hand once, `Ctrl+S` it, then `Ctrl+B` under each light preset (`L`) for the
+> whole error table. Expect different *absolute* numbers — 20–40 hand-placed
+> anchors cannot match what 9 792 machine-precise ones did, the match now runs
+> database → frame so the counts below are not comparable to the new ones, and
+> the inlier guard discussed at the end of this page is scaled to the database
+> size rather than fixed at 25.
 
 The mini-project (PDF p. 54) asks us to change the lighting between the
 feature-matching **pre-phase** (building the descriptor database) and the
@@ -84,8 +91,10 @@ graceful decline.
 
 ## The inlier guard's role
 
-`estimatePoseFromFeatures` requires RANSAC to reach **25 inliers** before it
-trusts a pose. This is what turns the changed-light captures into honest
+`estimatePoseFromFeatures` required RANSAC to reach **25 inliers** before it
+trusted a pose (it is now half the frame's matches, clamped to 5–25, so the same
+demand holds for a hand-built database of twenty). This is what turns
+the changed-light captures into honest
 `no trustworthy pose` refusals instead of the confident-but-wrong estimates a
 few clustered matches would otherwise yield (a pre-guard run of this same
 experiment logged stray poses 190–600 units off from 4–7 inliers). The guard

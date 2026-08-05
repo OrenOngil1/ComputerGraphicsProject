@@ -16,7 +16,11 @@ void testCameraModel();
 void testViewport();
 void testPoseLog();
 void testFeatures();
+void testFeatureMatching();
+void testFeatureDbIo();
 void testSkyboxLoader();
+void testViewAids();
+void testRayAnchor();
 
 int main()
 {
@@ -29,7 +33,11 @@ int main()
     testViewport();
     testPoseLog();
     testFeatures();
+    testFeatureMatching();
+    testFeatureDbIo();
     testSkyboxLoader();
+    testViewAids();
+    testRayAnchor();
 
     if (failures == 0)
         std::cout << "All checks passed." << std::endl;
