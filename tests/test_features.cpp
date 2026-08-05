@@ -39,14 +39,27 @@ FramePixels whiteFrame(int width, int height)
     return frame;
 }
 
-// Four well-separated squares: maximal-contrast corners for ORB to find, kept
-// well clear of the border (descriptors need a 31-pixel patch around each).
+// Soften the painted squares. SIFT is a blob-and-gradient detector: on
+// razor-edged binary squares it collapses each square into a stack of
+// duplicate keypoints (or a phantom blob BETWEEN squares), while a small blur
+// turns every corner into a clean, distinct detection. The blur also makes
+// the fixture honest -- the production input is a smooth-shaded terrain
+// render, which never contains a binary step edge.
+void soften(FramePixels &frame)
+{
+    cv::Mat rgb(frame.height, frame.width, CV_8UC3, frame.rgb.data());
+    cv::GaussianBlur(rgb, rgb, cv::Size(), 2.0);
+}
+
+// Four well-separated squares: contrast corners for the detector to find,
+// kept well clear of the border (descriptors need a patch around each).
 FramePixels makeFrame()
 {
     FramePixels frame = whiteFrame(256, 256);
     const int centers[][2] = { { 70, 70 }, { 180, 60 }, { 90, 170 }, { 190, 180 } };
     for (const auto &c : centers)
         paintSquare(frame, c[0], c[1], 12);
+    soften(frame);
     return frame;
 }
 
@@ -66,6 +79,7 @@ FramePixels makeClusteredFrame()
     const int isolated[][2] = { { 330, 80 }, { 80, 330 }, { 330, 330 } };
     for (const auto &c : isolated)
         paintSquare(frame, c[0], c[1], 12);
+    soften(frame);
     return frame;
 }
 
@@ -103,14 +117,14 @@ void testFeatures()
         ordered = ordered && all[i - 1].response >= all[i].response;
     check(ordered, "keypoints are ordered by response, strongest first");
 
-    // Row alignment, against an independent oracle: ask ORB to recompute
+    // Row alignment, against an independent oracle: ask SIFT to recompute
     // descriptors for exactly the keypoints that came back, and require each
     // returned row to equal the recomputation for ITS keypoint. Checking it
     // this way rather than against the head of the ranking is what spreading
     // forces -- the result is a subset of the ranking, not a prefix of it --
     // and it pins the failure that matters: a descriptor filed under someone
     // else's keypoint, which anchors a database row to the wrong 3D point
-    // without anything looking wrong. (ORB may hand the keypoints back in a
+    // without anything looking wrong. (SIFT may hand the keypoints back in a
     // different order, so the pairing is matched up by keypoint.)
     std::vector<cv::KeyPoint> top;
     cv::Mat topDesc;
@@ -118,21 +132,39 @@ void testFeatures()
 
     std::vector<cv::KeyPoint> recomputedKps = top;
     cv::Mat recomputedDesc;
-    cv::ORB::create(1000)->compute(grayOf(frame), recomputedKps, recomputedDesc);
+    cv::SIFT::create(1000)->compute(grayOf(frame), recomputedKps, recomputedDesc);
 
     bool aligned = top.size() == 3 && topDesc.rows == 3 &&
                    recomputedKps.size() == top.size() &&
                    recomputedDesc.rows == topDesc.rows;
+    // Matched by position, octave AND angle: SIFT emits one keypoint per
+    // dominant orientation, so a location can host several twins whose
+    // descriptors legitimately differ. And near-equality rather than bit
+    // equality: OpenCV's provided-keypoints path rebuilds a slightly
+    // shallower pyramid, so a recomputed descriptor lands ~10 (L2) from the
+    // original on a descriptor of norm 512. A row misfiled under someone
+    // else's keypoint would sit hundreds away, so the invariant that
+    // actually pins alignment is nearest-recomputation-wins, with an
+    // absolute bound as the sanity belt.
     for (size_t i = 0; aligned && i < top.size(); i++) {
         int match = -1;
         for (size_t j = 0; j < recomputedKps.size(); j++)
-            if (recomputedKps[j].pt == top[i].pt && recomputedKps[j].octave == top[i].octave)
+            if (recomputedKps[j].pt == top[i].pt && recomputedKps[j].octave == top[i].octave &&
+                recomputedKps[j].angle == top[i].angle)
                 match = (int)j;
-        aligned = match >= 0 &&
-                  cv::norm(recomputedDesc.row(match), topDesc.row((int)i),
-                           cv::NORM_HAMMING) == 0;
+        if (match < 0) {
+            aligned = false;
+            break;
+        }
+        const double own = cv::norm(recomputedDesc.row(match), topDesc.row((int)i),
+                                    cv::NORM_L2);
+        aligned = own < 50.0;
+        for (int j = 0; aligned && j < recomputedDesc.rows; j++)
+            if (j != match)
+                aligned = own < cv::norm(recomputedDesc.row(j), topDesc.row((int)i),
+                                         cv::NORM_L2);
     }
-    check(aligned, "each descriptor row is ORB's own descriptor for its own keypoint");
+    check(aligned, "each descriptor row is SIFT's own descriptor for its own keypoint");
 
     // ── spreading ─────────────────────────────────────────────
     const FramePixels clustered = makeClusteredFrame();

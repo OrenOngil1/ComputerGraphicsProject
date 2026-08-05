@@ -77,15 +77,17 @@ colors, not from deleting the terrain before looking at it.
 
 ## Mode D — Feature Matching (`F`, requires recorded waypoints)
 
-No markers; the salient points come from ORB features
-(`src/vision/FeatureMatching.cpp`). Like Mode B, the 2D→3D correspondence is
-**manual** — ORB only *suggests* where to look; the user supplies the 3D. `F`
-prompts for the number of features per view (default 8). Two phases:
+No markers; the salient points come from SIFT features
+(`src/vision/FeatureMatching.cpp`; SIFT rather than ORB, and the switch was
+forced by measurement — see the run-phase section). Like Mode B, the 2D→3D
+correspondence is **manual** — SIFT only *suggests* where to look; the user
+supplies the 3D. `F` prompts for the number of features per view (default 8).
+Two phases:
 
 **Pre-phase (G) — interactive, by hand.** The build steps through each recorded
-waypoint: it poses the player (right) view at that waypoint and runs ORB on it
+waypoint: it poses the player (right) view at that waypoint and runs SIFT on it
 (`detectSpreadFeatures`), keeping N strong keypoints **spread across the frame**.
-Spreading matters because ORB's strongest responses cluster — several fire on one
+Spreading matters because the strongest responses cluster — several fire on one
 corner a few pixels apart — and a clustered set is bad twice over: the dots are
 indistinguishable on the map, and points crowded into one spot barely constrain a
 pose however well they are placed.
@@ -112,17 +114,19 @@ outlier. (This is why the placed violet markers always sit exactly on their own
 sight lines.)
 
 Each placement stores `(descriptor, snapped 3D anchor)` in the `FeatureDb`. The
-2D ORB position is *only* on-screen guidance and the ray it defines — it is never
-stored or fed to PnP; the depth, which is what a single view cannot recover,
-comes entirely from the user.
+suggestion's 2D position is *only* on-screen guidance and the ray it defines — it
+is never stored or fed to PnP; the depth, which is what a single view cannot
+recover, comes entirely from the user.
 
-**When the build finishes, each placed point collects its appearance in the other
-recorded views** (`addOtherViewAppearances`). A human places a point *once*, in
-*one* view, so the hand-build leaves exactly one descriptor per point — one
-appearance, from one angle. ORB is not viewpoint-invariant and this terrain's
-appearance is shading rather than texture, so from anywhere else that single
-appearance frequently fails to match at all. It is precisely why capturing while
-sitting on a recorded waypoint worked and free flight between them did not.
+**When the build finishes, each placed point collects its appearance in the
+other recorded views** (`addOtherViewAppearances`). A human places a point
+*once*, in *one* view, so the hand-build leaves exactly one descriptor per
+point — one appearance, from one angle. No descriptor is truly
+viewpoint-invariant, and this terrain's appearance is shading rather than
+texture, so from anywhere else that single appearance can fail to match at all.
+It is precisely why capturing while sitting on a recorded waypoint works best
+and matching degrades with distance from the recorded views. Only the recorded
+waypoints are used — nothing is synthesized between them, per the course brief.
 
 Nothing about this is automatic anchoring. The recorded poses are known exactly
 and the point is the user's own, so *where that point falls in every other
@@ -139,16 +143,27 @@ looks like it, and gains nothing — a bad placement cannot poison the database.
 So a `FeatureDb` row is one **appearance**, not one place: `anchors` repeats a
 position once per appearance, and `places()` is what the user actually placed.
 
-**Ctrl+S / Ctrl+O** write the database to `captures/featuredb_<terrain>.yml` and
-read it back (`src/vision/FeatureDbIo.cpp`, `cv::FileStorage` YAML). The recorded
-waypoints travel with it, since the anchors were placed from those views; a file
-saved under a different terrain is refused. Placing thirty points by hand is
-minutes of work, and without this every measurement would start by redoing it.
-A file holding only one appearance per point — one saved before those were
-collected — has them collected on load, so an old database is upgraded rather
-than re-placed.
+**Ctrl+S / Ctrl+O** write the database to `captures/featuredb_<terrain>.yml`
+(relative to the directory the app was launched from) and read it back
+(`src/vision/FeatureDbIo.cpp`, `cv::FileStorage` YAML). The recorded waypoints
+travel with it, since the anchors were placed from those views — which is also
+why a **fresh run needs no recording first**: when a saved database exists, `F`
+enters the mode without waypoints so `Ctrl+O` can bring both back. The
+**capture resolution travels with it too**, and every capture renders
+offscreen at that stored size (`captureSceneFrameAt`): SIFT descriptors shift
+when the same scene is rasterised at another resolution, so a database is only
+exact against frames of the size it was built at — measured as a 0.7 → 4.0
+unit `Ctrl+B` regression on an identical database when the window size
+differed between sessions. With the size pinned, the window may be anything,
+any session. A file saved
+under a different terrain is refused, as is one from the earlier ORB build.
+Placing thirty points by hand is minutes of work, and without this every
+measurement would start by redoing it. Every load re-runs the appearance
+collection (recorded views only), which skips rows a place already owns — so
+an older file holding only the hand-placed rows is topped up rather than
+re-placed, and a current file passes through unchanged.
 
-**Run-phase (B)** — fully automatic: capture the current view, detect ORB
+**Run-phase (B)** — fully automatic: capture the current view, detect SIFT
 features, and match **database → frame, cross-checked** (`matchFeaturesToDb`),
 asking "where is each of my anchors in this view, and does that keypoint agree?".
 
@@ -168,18 +183,31 @@ hand-built database it kept **1–4 of the 10–15 anchors that were genuinely i
 frame**, which is far below what any pose needs. Mutual agreement asks something
 this scene can answer, and outlier rejection is left to RANSAC, which is the
 stage that belongs to it. A single absolute bar remains
-(`kMaxDescriptorDistance`, 96 of 256 bits): past that, the "best" match is no
-better than the nearest of a bag of random descriptors.
+(`kMaxDescriptorDistance`, L2 on SIFT's 128 floats), and it is why Mode D runs
+on SIFT rather than ORB. A database row picks its best match out of ~1000
+keypoints, so the bar must separate "the same place seen again" from the
+*best-of-noise* draw of a lookalike ridge — and with ORB's 256 binary
+brightness comparisons, on shading-only imagery, no bar does: measured on two
+hand-built databases, a 96-bit cap admitted 22–28 of 30 places in every frame
+and a 64-bit cap still admitted 25–34 of 48 with as few as **one** place
+actually on screen. The bands overlap; the descriptor simply does not carry
+the information on this terrain. SIFT's gradient-orientation histograms do
+(this is the classic smooth-gradient-imagery case), and every capture prints
+the accepted distances so the bar can be read against reality.
 
-The surviving pairs go to `computeCameraPoseRansac`. Two settings there are sized
-for hand-placed anchors rather than machine-precise ones: the inlier gate is
-**40 px** (`kHandPlacedReprojErrorPx`) so a click that is tens of world units off
-can still be recognised as correct, and the consensus floor is **a quarter of the
-matches** (clamped to 6–25) instead of a fixed number that is a high bar at 20
-anchors and trivial at 9 000. Scaled to the *matches* rather than the database,
-deliberately: a frame only sees the anchors of the views near it, so any fraction
-of the database total becomes unmeetable once the database spans more views than
-one frame can contain.
+The surviving pairs go to `computeCameraPoseRansac`. Two settings there are
+sized for ray-snapped human anchors: the inlier gate is **16 px**
+(`kHandPlacedReprojErrorPx`) — wide enough for keypoint jitter plus the
+parallax of a misjudged depth along the sight line, and deliberately no wider,
+because on self-similar terrain the false matches are lookalike ridges that can
+assemble a rival consensus in any slack left past the true error (measured at a
+40 px gate: coalitions of 6–9 false pairs winning with poses hundreds of units
+off). The consensus floor is **a quarter of the matches** (clamped to 6–25)
+instead of a fixed number that is a high bar at 20 anchors and trivial at
+9 000. Scaled to the *matches* rather than the database, deliberately: a frame
+only sees the anchors of the views near it, so any fraction of the database
+total becomes unmeetable once the database spans more views than one frame can
+contain.
 
 **Ctrl+B** runs a capture at *every* recorded waypoint and prints the errors as a
 table with the mean and the terrain's size — one keypress instead of flying the
@@ -195,8 +223,8 @@ good place to press B?*
 
 "Can use" is `isInFrame` (`src/core/Camera.h`, the clip volume of the matrix the
 renderer draws with) **and** unoccluded — the existing `raycastTerrain` marches
-from the eye and stops short of the anchor itself, because ORB matches what was
-drawn and a feature behind a ridge was not. (An anchor buried well *under* the
+from the eye and stops short of the anchor itself, because the matcher matches
+what was drawn and a feature behind a ridge was not. (An anchor buried well *under* the
 surface also reads as hidden. That is honest rather than a false negative: it
 means the depth was misjudged when it was placed, and the run phase will not
 match it well either.) `FeatureMatchState::tick` recomputes the split once per
@@ -277,26 +305,27 @@ green waypoint dot), and the exercise is building correspondences and watching
 PnP converge, not guessing where the camera is — but press **V** for a clean run
 if you want the mode fully blind.
 
-## The lighting experiment (PDF p. 54) — reframed around ORB detection
+## The lighting experiment (PDF p. 54) — reframed around detection
 
 The scene has one directional light (Lambert + ambient, `src/core/Lighting.h`)
 with four presets cycled by **L**: late-morning sun, noon sun, low warm sun,
 overcast. The light deliberately survives terrain swaps and menu round-trips.
 
-Because Mode D's anchoring is now manual, the experiment is about **what ORB
-detects**, not about automatic descriptor matching. ORB keys on local intensity
-gradients, and on this shading-driven terrain those gradients *are* the relief
-lit by the sun — so moving the light moves the salient points themselves.
+Because Mode D's anchoring is now manual, the experiment is about **what the
+detector finds**, not about automatic descriptor matching. SIFT keys on local
+intensity gradients, and on this shading-driven terrain those gradients *are*
+the relief lit by the sun — so moving the light moves the salient points
+themselves.
 
 Procedure:
 
 1. Record a flight with several waypoints (R, B, B, ...).
-2. Press F, then G, and note where ORB highlights its suggestions for the first
-   view (their on-screen positions).
+2. Press F, then G, and note where the highlighted suggestions land for the
+   first view (their on-screen positions).
 3. Press Escape back, change the light with **L**, re-enter F → G on the *same*
    waypoints. Compare: the suggested points land in **different places** (and
-   different counts survive), because the corners ORB finds shifted with the
-   shading.
+   different counts survive), because the gradients the detector keys on
+   shifted with the shading.
 
 Observed: a light-*direction* change relocates most suggestions and changes
 which features are even detected; only a brightness/ambient change (same
@@ -370,7 +399,7 @@ worth knowing when reading the numbers.
 | X | FEATURE MATCH build | skip the active (unplaceable) suggestion |
 | U | FEATURE MATCH build | undo the last anchor placed in this view |
 | Ctrl+S | FEATURE MATCH run-phase | save the database (+ waypoints) to `captures/` |
-| Ctrl+O | FEATURE MATCH run-phase | load it back |
+| Ctrl+O | FEATURE MATCH run-phase | load it back (with its recorded views; works on a fresh run) |
 | click | PICK | pick a 2D–3D correspondence |
 | X | PICK | cancel the pending 2D pick |
 | U | PICK | undo the last completed correspondence |
@@ -383,7 +412,7 @@ GL-free code (no window, no GPU) and verifies on synthetic inputs:
 terrain normals against the analytic plane normal, blob centroids (including
 the not-visible and too-small cases), the camera-control verbs, the color-pick
 id encoding round trip, the split-screen viewport layout, the pose-review log
-cursor, ORB feature suggestion (ordering and descriptor alignment), the
+cursor, SIFT feature suggestion (ordering and descriptor alignment), the
 render↔vision camera-model agreement (projection and viewing rays), and both
 PnP solvers round-tripping a known camera — the RANSAC variant with 3 of 11
 correspondences corrupted. Exit code = number of failed checks.

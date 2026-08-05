@@ -26,7 +26,7 @@ inline const glm::vec3 pendingPickColor(1.0f, 1.0f, 1.0f);
 // a correspondence reads as the same dot in both views. GL_POINTS px.
 inline const float pickMarkerSize = 10.0f;
 
-// FEATURE MATCH's build phase: the active ORB suggestion in the player view --
+// FEATURE MATCH's build phase: the active SIFT suggestion in the player view --
 // red and oversized, the one dot awaiting its 3D anchor.
 inline const glm::vec3 suggestionColor(1.0f, 0.0f, 0.0f);
 inline const float     suggestionMarkerSize = 22.0f;   // GL_POINTS px

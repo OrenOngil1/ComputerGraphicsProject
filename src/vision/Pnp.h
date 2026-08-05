@@ -25,13 +25,18 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &cor
 // pose.
 //
 // reprojErrorPx is how far an observation may sit from where the candidate pose
-// would put it and still count as agreeing. It must cover the error in the
-// correspondences themselves, not just pixel noise: a 3D point placed by hand
-// on the map lands tens of world units from the feature it belongs to, which is
-// tens of pixels of reprojection error. Gate below that and the correct-but-
-// imprecise pairs are voted out as outliers, leaving the consensus to be built
-// from the wrong ones -- a confident pose hundreds of units off.
-constexpr float kHandPlacedReprojErrorPx = 40.0f;
+// would put it and still count as agreeing. It must cover the real error of a
+// TRUE pair and little more: every pixel past that is room in which false
+// matches -- on self-similar terrain they are lookalike ridges, spatially
+// coherent, not random scatter -- can assemble a rival consensus. Hand-placed
+// anchors used to need tens of pixels here, because a raw map click landed
+// tens of world units from the feature it belonged to; snapping the click onto
+// the suggestion's exact viewing ray removed that, leaving keypoint jitter of
+// a few pixels plus the parallax of a misjudged depth ALONG the ray seen from
+// another angle. 16 px covers those. 40 px was measured to let six-strong
+// coalitions of lookalikes outvote the truth -- confident poses hundreds of
+// units off.
+constexpr float kHandPlacedReprojErrorPx = 16.0f;
 
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,

@@ -17,13 +17,13 @@ struct BuildScratch;
 // Mode D: pose estimation by 2D feature matching, with manual anchoring.
 // Two phases share this one State:
 //
-//   G (pre-phase) -- interactive build: step through each recorded view; ORB
+//   G (pre-phase) -- interactive build: step through each recorded view; SIFT
 //                    highlights its strongest N points one at a time in the
 //                    player view and the user color-picks each one's 3D spot
 //                    in the global map. The hand-placed (descriptor, 3D)
 //                    pairs are the database.
 //   B (run-phase) -- inherited capture flow: record the true pose, match the
-//                    live view's ORB features against the database, RANSAC PnP.
+//                    live view's SIFT features against the database, RANSAC PnP.
 //
 // Lighting (L) feeds the experiment: a database anchored under one light
 // degrades under another. Requires recorded waypoints (the views to anchor).
@@ -67,9 +67,9 @@ private:
     void finishBuild(Simulation &sim, Renderer &renderer);
 
     // Give every hand-placed point the descriptors of its appearances in the
-    // OTHER recorded views. ORB is not viewpoint-invariant, so one appearance
-    // per point is what makes free flight fail where a recorded waypoint works;
-    // the 3D still comes entirely from the user's click.
+    // OTHER recorded views. No descriptor is truly viewpoint-invariant, so one
+    // appearance per point is what makes free flight fail where a recorded
+    // waypoint works; the 3D still comes entirely from the user's click.
     void addOtherViewAppearances(Simulation &sim, Renderer &renderer);
 
     // Ctrl+S / Ctrl+O: the database on disk. Placing anchors is minutes of
@@ -97,6 +97,17 @@ private:
     // most twice a second -- it churns continuously while flying.
     void reportAnchorCount();
 
+    // The frame size every capture and collection renders at -- part of the
+    // DATABASE's identity, not the window's. SIFT descriptors shift when the
+    // same scene is rasterised at another resolution, so a database is only
+    // exact against frames of the size it was built from; captures render
+    // offscreen at this size so the window may be anything, any session.
+    // Set by startBuild (from the live pane) and by loadDatabase (from the
+    // file). Zero until either happens; captureViewport then falls back to
+    // the live pane.
+    Viewport captureViewport(const Simulation &sim) const;
+    int m_captureWidth = 0, m_captureHeight = 0;
+
     size_t                     m_featureCount;
     std::unique_ptr<FeatureDb> m_db;         // hand-built; empty until a build completes
     std::unique_ptr<BuildScratch> m_build;   // non-null only while building (G in progress)
@@ -110,4 +121,9 @@ private:
     // first refresh always reports) and when.
     size_t m_reportedInView  = (size_t)-1;
     double m_lastCountReport = -1.0;
+
+    // Said once, on the first capture of the session: captures are easy to
+    // misread as growing the database, since both a capture and an anchor draw
+    // as a small dot on the same map. They do not -- only G does that.
+    bool m_captureHintShown = false;
 };

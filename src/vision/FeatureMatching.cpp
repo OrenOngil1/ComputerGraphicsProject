@@ -10,7 +10,7 @@
 
 #include "Pnp.h"   // computeCameraPoseRansac
 
-// ORB works on intensity; collapse the captured RGB to grayscale. The wrap
+// The detector works on intensity; collapse the captured RGB to grayscale. The wrap
 // constructor shares frame's bytes (no copy); cvtColor writes a fresh gray
 // Mat, so the frame is never modified (the const_cast is only because cv::Mat's
 // wrap constructor has no const overload).
@@ -26,19 +26,33 @@ static cv::Mat toGray(const FramePixels &frame)
 // The one detection entry for every phase: matching compares pre-phase and
 // run-phase descriptors, so they must be computed identically -- routing every
 // detection through here makes that structural, not a convention.
+//
+// SIFT, not ORB, and the choice is measured, not taste. This terrain has no
+// texture -- every feature is a shading gradient -- and ORB's descriptor, 256
+// binary brightness comparisons, collapses on exactly that imagery: the
+// distance between "the same place seen again" and "a different ridge that
+// looks alike" stops separating. Two hand-built databases measured it. With
+// the acceptance cap at 96 bits the matcher claimed 22-28 of 30 places in
+// every frame; tightened to 64 it still claimed 25-34 of 48 with as few as
+// ONE place actually on screen. No threshold works when the bands overlap.
+// SIFT's 128 gradient-orientation histograms are the standard remedy for
+// smooth gradient imagery, and it is on the course brief's tool list.
 void detectAllFeatures(const FramePixels &frame,
                        std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
 {
-    static const cv::Ptr<cv::ORB> orb = cv::ORB::create(1000);
-    orb->detectAndCompute(toGray(frame), cv::noArray(), keypoints, descriptors);
+    static const cv::Ptr<cv::SIFT> sift = cv::SIFT::create(1000);
+    sift->detectAndCompute(toGray(frame), cv::noArray(), keypoints, descriptors);
 }
 
-// Two ORB descriptors are 256 bits each, and two UNRELATED ones differ in about
-// half of them; the nearest of a thousand random descriptors lands around 100
-// bits away. Anything past this is no better than the best of a bag of noise,
-// whoever it claims to be -- a cheap second net behind the cross-check, and the
-// only absolute quality bar in the pipeline.
-static constexpr float kMaxDescriptorDistance = 96.0f;
+// SIFT descriptors are 128 floats, normalised by OpenCV so unrelated pairs sit
+// around 400-500 apart (L2) and genuine re-sightings under a moderate
+// viewpoint change land well under 300. The cap is the pipeline's only
+// absolute quality bar (the cross-check is relative), and it also gates which
+// detections may join a place as a new appearance (resemblesAnchoredPoint),
+// so what the database stores and what it accepts at match time are one
+// standard. Every capture prints the accepted distances -- read them against
+// this number before turning it.
+static constexpr float kMaxDescriptorDistance = 250.0f;
 
 void detectSpreadFeatures(const FramePixels &frame, int maxCount,
                           std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
@@ -110,7 +124,7 @@ bool resemblesAnchoredPoint(const FeatureDb &db, const glm::vec3 &place,
     for (size_t i = 0; i < db.anchors.size(); i++) {
         if (db.anchors[i] != place)
             continue;
-        if (cv::norm(db.descriptors.row((int)i), descriptor, cv::NORM_HAMMING)
+        if (cv::norm(db.descriptors.row((int)i), descriptor, cv::NORM_L2)
                 <= kMaxDescriptorDistance)
             return true;
     }
@@ -150,7 +164,7 @@ std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePi
     // can actually answer, keeps the one-correspondence-per-anchor property the
     // ratio test was brought in for (and adds one-per-keypoint), and leaves the
     // outlier rejection to RANSAC, where it belongs.
-    cv::BFMatcher matcher(cv::NORM_HAMMING, /*crossCheck=*/true);
+    cv::BFMatcher matcher(cv::NORM_L2, /*crossCheck=*/true);
     std::vector<cv::DMatch> matches;
     matcher.match(db.descriptors, descriptors, matches);
 
@@ -184,8 +198,20 @@ std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePi
         }
     }
 
-    std::cout << "FEATURES: " << correspondences.size() << " anchors matched (from "
-              << keypoints.size() << " keypoints in the frame)" << std::endl;
+    // The accepted distances are the calibration readout for the cap above: a
+    // healthy capture reads tight (well under the cap); a median hugging the
+    // cap means the list is best-of-noise again.
+    if (correspondences.empty()) {
+        std::cout << "FEATURES: 0 anchors matched (from " << keypoints.size()
+                  << " keypoints in the frame)" << std::endl;
+    } else {
+        std::vector<float> sorted = bestDistance;
+        std::sort(sorted.begin(), sorted.end());
+        std::cout << "FEATURES: " << correspondences.size() << " anchors matched (from "
+                  << keypoints.size() << " keypoints; accepted distances "
+                  << (int)sorted.front() << "-" << (int)sorted.back()
+                  << ", median " << (int)sorted[sorted.size() / 2] << ")" << std::endl;
+    }
     return correspondences;
 }
 

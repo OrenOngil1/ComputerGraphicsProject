@@ -22,14 +22,15 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// A small database with distinguishable rows: descriptor byte values track the
-// row index, so a row landing in the wrong place is visible.
+// A small database with distinguishable rows: descriptor values track the
+// row index, so a row landing in the wrong place is visible. Shaped like the
+// real thing (128-float SIFT rows), because the loader refuses anything else.
 FeatureDb makeDb(int rows)
 {
     FeatureDb db;
-    db.descriptors = cv::Mat(rows, 32, CV_8U);
+    db.descriptors = cv::Mat(rows, 128, CV_32F);
     for (int i = 0; i < rows; i++) {
-        db.descriptors.row(i).setTo((unsigned char)(i * 7 + 1));
+        db.descriptors.row(i).setTo((float)(i * 7 + 1));
         db.anchors.push_back(glm::vec3((float)i, (float)i * 2.5f, (float)-i));
     }
     return db;
@@ -63,20 +64,27 @@ void testFeatureDbIo()
         { { -7, 8, -9 }, { 0, 1, 2 } },
     };
 
-    check(saveFeatureDb(path, original, waypoints, terrain), "a built database saves");
+    check(saveFeatureDb(path, original, waypoints, terrain, 960, 540),
+          "a built database saves");
 
     FeatureDb loaded;
     std::vector<Waypoint> loadedWaypoints;
-    check(loadFeatureDb(path, loaded, loadedWaypoints, terrain), "and loads back");
+    int loadedW = 0, loadedH = 0;
+    check(loadFeatureDb(path, loaded, loadedWaypoints, terrain, loadedW, loadedH),
+          "and loads back");
     check(sameDb(original, loaded), "descriptors and anchors survive the round trip exactly");
     check(loadedWaypoints == waypoints,
           "the waypoints travel with it (the views the anchors were placed from)");
+    check(loadedW == 960 && loadedH == 540,
+          "the capture resolution travels with it (the size its descriptors need)");
 
     // A database anchored on one DEM describes points that do not exist on
     // another, so loading it there must fail rather than localise onto nothing.
     FeatureDb other = makeDb(3);
     std::vector<Waypoint> otherWaypoints;
-    check(!loadFeatureDb(path, other, otherWaypoints, "assets/terrains/terrain2.png"),
+    int otherW = 0, otherH = 0;
+    check(!loadFeatureDb(path, other, otherWaypoints, "assets/terrains/terrain2.png",
+                         otherW, otherH),
           "a database built on another terrain is refused");
     check(other.anchors.size() == 3, "and the refusal leaves the current database intact");
 
@@ -84,17 +92,71 @@ void testFeatureDbIo()
     // exception escaping would unwind through C.
     const std::string junkPath = (dir / "junk.yml").string();
     std::ofstream(junkPath) << "this is not a YAML FileStorage document {{{\n";
-    check(!loadFeatureDb(junkPath, other, otherWaypoints, terrain),
+    check(!loadFeatureDb(junkPath, other, otherWaypoints, terrain, otherW, otherH),
           "a malformed file is refused, not thrown out of");
 
-    check(!loadFeatureDb((dir / "nope.yml").string(), other, otherWaypoints, terrain),
+    check(!loadFeatureDb((dir / "nope.yml").string(), other, otherWaypoints, terrain,
+                         otherW, otherH),
           "a missing file is refused");
 
-    check(!saveFeatureDb(path, FeatureDb{}, waypoints, terrain),
+    // A valid file from before the capture size was recorded must load, with
+    // the size reported as 0x0 so the caller knows to fall back.
+    const std::string presizePath = (dir / "presize.yml").string();
+    {
+        cv::FileStorage fs(presizePath, cv::FileStorage::WRITE);
+        fs << "terrain" << terrain << "descriptors" << original.descriptors
+           << "anchors" << cv::Mat((int)original.anchors.size(), 3, CV_32F,
+                                   (void *)original.anchors.data()).clone();
+    }
+    FeatureDb presize;
+    int presizeW = 7, presizeH = 7;
+    check(loadFeatureDb(presizePath, presize, otherWaypoints, terrain, presizeW, presizeH) &&
+              presizeW == 0 && presizeH == 0,
+          "a file without a recorded capture size loads and reports 0x0");
+
+    // A file from the earlier ORB build carries 32-byte binary rows; SIFT
+    // matching cannot use them, so the load must refuse rather than hand the
+    // matcher rows of the wrong type.
+    const std::string orbPath = (dir / "orb-era.yml").string();
+    {
+        cv::Mat orbRows(4, 32, CV_8U, cv::Scalar(7));
+        cv::Mat anchorRows(4, 3, CV_32F, cv::Scalar(1.0f));
+        cv::FileStorage fs(orbPath, cv::FileStorage::WRITE);
+        fs << "terrain" << terrain << "descriptors" << orbRows << "anchors" << anchorRows;
+    }
+    check(!loadFeatureDb(orbPath, other, otherWaypoints, terrain, otherW, otherH),
+          "a database saved by the ORB-era build is refused");
+
+    // A database with several appearances of one place -- the normal state
+    // after addOtherViewAppearances -- must keep its repeats: collapsing them
+    // on the round trip would quietly undo the collection.
+    const std::string variantPath = (dir / "variants.yml").string();
+    FeatureDb multi = makeDb(4);
+    multi.descriptors.push_back(multi.descriptors.row(1).clone());
+    multi.anchors.push_back(multi.anchors[1]);
+    check(saveFeatureDb(variantPath, multi, waypoints, terrain, 960, 540),
+          "a multi-appearance database saves");
+    FeatureDb multiBack;
+    std::vector<Waypoint> multiWps;
+    check(loadFeatureDb(variantPath, multiBack, multiWps, terrain, otherW, otherH) &&
+              sameDb(multi, multiBack) && multiBack.places().size() == 4,
+          "five appearances of four places survive exactly");
+
+    // Zero waypoints is legal on disk and must not block the anchors; a
+    // preloaded waypoint list must come back empty, not stale.
+    check(saveFeatureDb(variantPath, original, {}, terrain, 960, 540),
+          "a database saves with no waypoints");
+    FeatureDb noWp;
+    std::vector<Waypoint> noWpWps = waypoints;
+    check(loadFeatureDb(variantPath, noWp, noWpWps, terrain, otherW, otherH) &&
+              sameDb(original, noWp) && noWpWps.empty(),
+          "and loads back with an empty waypoint list");
+
+    check(!saveFeatureDb(path, FeatureDb{}, waypoints, terrain, 960, 540),
           "an empty database is not written over a good one");
     FeatureDb stillThere;
     std::vector<Waypoint> stillWaypoints;
-    check(loadFeatureDb(path, stillThere, stillWaypoints, terrain) &&
+    check(loadFeatureDb(path, stillThere, stillWaypoints, terrain, otherW, otherH) &&
           sameDb(original, stillThere),
           "the saved database is still the one that was built");
 

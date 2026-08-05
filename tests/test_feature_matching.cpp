@@ -22,7 +22,7 @@
 
 namespace {
 
-// Deterministic per-pixel noise: hundreds of ORB keypoints, and no two of them
+// Deterministic per-pixel noise: hundreds of keypoints, and no two of them
 // alike, which is the population Lowe's ratio test is supposed to be judged
 // against. A fixed seed keeps the check reproducible.
 FramePixels makeTexturedFrame(int width, int height)
@@ -50,7 +50,7 @@ void testFeatureMatching()
     const FramePixels frame = makeTexturedFrame(400, 600);
 
     // A database the size a human actually builds in one view: six anchors,
-    // each an ORB descriptor from this very frame paired with a distinct 3D
+    // each a SIFT descriptor from this very frame paired with a distinct 3D
     // point. Matching it against the frame it came from is the friendliest
     // possible case -- and the one that used to produce 140 matches.
     std::vector<cv::KeyPoint> keypoints;

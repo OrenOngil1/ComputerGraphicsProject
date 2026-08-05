@@ -22,13 +22,20 @@
 // Where `terrainFile`'s database lives: captures/featuredb_<terrain>.yml.
 std::string featureDbPath(const std::string &terrainFile);
 
-// Write the database, its waypoints, and the terrain they belong to. Creates
-// the containing directory. False (with a message) if there is nothing to save
-// or the file cannot be written.
+// Write the database, its waypoints, the terrain they belong to, and the
+// capture resolution the descriptors were computed at. The resolution is part
+// of the database's identity: SIFT descriptors shift when the same scene is
+// rasterised at a different size, so matching is only exact against frames of
+// the size the database was built from. Creates the containing directory.
+// False (with a message) if there is nothing to save or the file cannot be
+// written.
 bool saveFeatureDb(const std::string &path, const FeatureDb &db,
-                   const std::vector<Waypoint> &waypoints, const std::string &terrainFile);
+                   const std::vector<Waypoint> &waypoints, const std::string &terrainFile,
+                   int captureWidth, int captureHeight);
 
-// Read a database back, replacing `db` and `waypoints` only on success.
+// Read a database back, replacing `db`, `waypoints`, and the capture size only
+// on success. A file from before the size was recorded loads with 0x0 -- the
+// caller falls back to the live viewport and the next save records it.
 //
 // Refuses a file saved under a different terrain -- the anchors are world-space
 // points on one DEM and mean nothing on another -- and refuses one whose
@@ -36,4 +43,5 @@ bool saveFeatureDb(const std::string &path, const FeatureDb &db,
 // in lockstep. A malformed file is a refusal too, not an exception: this is
 // reached from a GLFW key callback, and unwinding through C is undefined.
 bool loadFeatureDb(const std::string &path, FeatureDb &db,
-                   std::vector<Waypoint> &waypoints, const std::string &terrainFile);
+                   std::vector<Waypoint> &waypoints, const std::string &terrainFile,
+                   int &captureWidth, int &captureHeight);

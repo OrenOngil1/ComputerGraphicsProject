@@ -30,7 +30,7 @@ recovers the camera's six degrees of freedom. The four modes are four ways of
 | **A - Navigation** | - | none (fly, record path `R`, play back `Ctrl+R`) | Dual-view free-flight camera + path recording |
 | **B - Picking** | `P` | *manual* - click a 2D point in the camera view, then its 3D match on the map | Human-in-the-loop PnP (the baseline) |
 | **C - Trackers** | `T` | *fiducial* - uniquely coloured spheres with known 3D centres; find each colour's blob, its centroid is the 2D point | Automatic correspondence with trivial data association |
-| **D - Feature Matching** | `F` | *ORB-assisted manual* - ORB suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
+| **D - Feature Matching** | `F` | *SIFT-assisted manual* - SIFT suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
 
 Modes C and D share a base (`PoseComparisonState`) that records
 `(true pose, computed pose)` per capture (`B` to capture, `N`/`M` to review,
@@ -109,18 +109,20 @@ sources the MSVC environment, the debugger runs the binary from the project root
 - **Mode C (blobs).** Classify each read-back pixel against the known sphere
   palette; each colour's mean pixel is its centroid (the 2D point), paired with
   the sphere's known 3D centre.
-- **Mode D (ORB + RANSAC), manual anchoring.** Pre-phase is by hand: for each
-  recorded view ORB suggests N strong points, spread across the frame, one at a
+- **Mode D (SIFT + RANSAC), manual anchoring.** Pre-phase is by hand: for each
+  recorded view SIFT suggests N strong points, spread across the frame, one at a
   time, and the user color-picks each one's 3D spot on the global map → a
   `FeatureDb` of hand-placed `(descriptor, 3D)` pairs. Each click is snapped onto
   the suggestion's viewing ray first, since the pose and the pixel are both known
   exactly and only the depth along that ray is the user's to give. Each placed
   point then collects its appearance in the *other* recorded views by projecting
-  through their known poses — one descriptor per point is not enough for ORB,
-  which is not viewpoint-invariant, and the 3D still comes only from the click.
-  Run-phase detects features in the live view, asks the database where each of
-  its points is (cross-checked Hamming), and solves with **RANSAC PnP** for
-  robustness to wrong matches. `Ctrl+S`/`Ctrl+O` keep the hand-built
+  through their known poses — one descriptor per point is not enough, since no
+  descriptor is viewpoint-invariant on shading, and the 3D still comes only from
+  the click. Run-phase detects features in the live view, asks the database where
+  each of its points is (cross-checked, distance-capped), and solves with
+  **RANSAC PnP** for robustness to wrong matches. (SIFT rather than ORB by
+  measurement: ORB's binary descriptor stops separating true matches from
+  lookalike ridges on texture-free shading, at any threshold.) `Ctrl+S`/`Ctrl+O` keep the hand-built
   database across runs; `Ctrl+B` measures it at every recorded waypoint at once.
 - **Lighting.** A directional light (Lambert + ambient) with per-vertex normals
   from the height map; `L` cycles presets. Required for the Mode D experiment.
@@ -142,9 +144,9 @@ Architecture (composition root, State pattern, Renderer/vision separation):
 ## The lighting experiment
 
 Because the terrain's appearance is **shading-driven, not texture-driven**,
-moving the sun flips the very intensity gradients ORB encodes. With the manual
-Mode D this shows up in the *detection* step: a light-direction change relocates
-which points ORB suggests for the same view. The earlier automatic-matching
+moving the sun flips the very intensity gradients the descriptors encode. With
+the manual Mode D this shows up in the *detection* step: a light-direction
+change relocates which points are suggested for the same view. The earlier automatic-matching
 version made the same cause measurable as a near-total collapse (matches
 30–303 → 2–14, pose refused), recorded in full at
 **[docs/lighting-experiment.md](docs/lighting-experiment.md)**.
@@ -154,7 +156,7 @@ version made the same cause measurable as a near-total collapse (matches
 `ctest --preset linux` / `ctest --preset windows` (or CMake Tools' **Run
 Tests**) builds and runs the checks in `tests/` (no window, no GPU), one file
 per topic: the geometry math (terrain normals, camera controls, viewport
-layout), the vision steps (tracker blob centroids, ORB feature suggestion, both
+layout), the vision steps (tracker blob centroids, SIFT feature suggestion, both
 PnP solvers including RANSAC outlier rejection), and the cross-layer contracts
 (color-pick id round trip, the render↔vision camera model), each on synthetic
 inputs with known answers. The camera-model checks project through an

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iostream>
 #include <optional>
 #include <vector>
 
@@ -334,6 +335,48 @@ FramePixels Renderer::captureSceneFrame(const View &view, const DirectionalLight
     // terrain 3D position and differ per preset).
     renderScene(view.camera, view.viewport, light, std::nullopt);
     return readViewportPixels(view.viewport);
+}
+
+FramePixels Renderer::captureSceneFrameAt(int width, int height, const Camera &camera,
+                                          const DirectionalLight &light)
+{
+    // Throwaway FBO per call: captures are keypress-triggered or a build pass
+    // of a few dozen, never per-frame, so creation cost is irrelevant and
+    // nothing GPU-side outlives the call.
+    GLuint fbo = 0, colorRb = 0, depthRb = 0;
+    GLCall(glGenFramebuffers(1, &fbo));
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+
+    GLCall(glGenRenderbuffers(1, &colorRb));
+    GLCall(glBindRenderbuffer(GL_RENDERBUFFER, colorRb));
+    GLCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB8, width, height));
+    GLCall(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                     GL_RENDERBUFFER, colorRb));
+
+    // Depth too: occlusion must hide back terrain in the capture exactly as it
+    // does on screen.
+    GLCall(glGenRenderbuffers(1, &depthRb));
+    GLCall(glBindRenderbuffer(GL_RENDERBUFFER, depthRb));
+    GLCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height));
+    GLCall(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                     GL_RENDERBUFFER, depthRb));
+
+    FramePixels frame;
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+        const Viewport full{ 0, 0, width, height };
+        clear();
+        renderScene(camera, full, light, std::nullopt);   // nullopt sky, as above
+        frame = readViewportPixels(full);
+    } else {
+        std::cerr << "capture: offscreen framebuffer incomplete at " << width << "x"
+                  << height << " -- capture skipped" << std::endl;
+    }
+
+    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    GLCall(glDeleteRenderbuffers(1, &depthRb));
+    GLCall(glDeleteRenderbuffers(1, &colorRb));
+    GLCall(glDeleteFramebuffers(1, &fbo));
+    return frame;
 }
 
 void Renderer::drawPoints(const std::vector<glm::vec3> &positions,

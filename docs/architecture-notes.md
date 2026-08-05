@@ -107,8 +107,9 @@ quit. All three unwind normally, so destructors run. No global state.
     matches). The pinhole intrinsics **K** is a file-local detail here — square
     pixels (`fx == fy`), aspect carried by width/height, matching what
     `glm::perspective` renders. The RANSAC flavor's inlier gate defaults to
-    `kHandPlacedReprojErrorPx` (40 px), wide enough for anchors a person placed
-    by hand, and it refits on `SOLVEPNP_EPNP` rather than the default
+    `kHandPlacedReprojErrorPx` (16 px) — sized for ray-snapped human anchors
+    and kept tight so lookalike false matches cannot build a rival consensus —
+    and it refits on `SOLVEPNP_EPNP` rather than the default
     `SOLVEPNP_ITERATIVE`, whose DLT seed is ill-conditioned on near-planar
     terrain.
   - `TrackerDetection.{h,cpp}` — `findTrackerCentroids`: classify each
@@ -187,9 +188,11 @@ an app-level concern in `Callbacks.cpp`; states never name other states.
 - `TrackersState` (Mode C) — scatters colored fiducial spheres; `computePose` =
   detection-frame read-back → blob centroids → PnP. No clicks.
 - `FeatureMatchState` (Mode D) — `G` runs the interactive database build (a
-  `.cpp`-private `BuildScratch` sub-state): per recorded view, ORB suggests
+  `.cpp`-private `BuildScratch` sub-state): per recorded view, SIFT suggests
   points one at a time and the user anchors each on the map. `computePose`
-  matches the live view against that database + RANSAC.
+  matches the live view against that database + RANSAC, then refuses any
+  estimate landing implausibly far from the terrain (judged on the estimate
+  alone — truth is never consulted).
 
 ## Load-bearing invariants
 
@@ -219,8 +222,8 @@ read-back), extract a dedicated `PickPass` rather than widening `Renderer`.
 `tests/` builds one headless binary (no window, no GL) from per-topic files:
 terrain normals, tracker centroids, both PnP solvers, the camera verbs, the
 pick-id encoding round trip, the split-screen viewport layout, the pose-review
-log cursor, the ORB suggestion step (`detectSpreadFeatures` — its
-keypoint↔descriptor row alignment, checked against ORB's own recomputation, and
+log cursor, the SIFT suggestion step (`detectSpreadFeatures` — its
+keypoint↔descriptor row alignment, checked against SIFT's own recomputation, and
 its spreading on a frame built to cluster), the match step
 (`matchFeaturesToDb`, pinning the invariant that a six-anchor database can never
 yield more than six matches or place one anchor twice), the hand-placed anchor
