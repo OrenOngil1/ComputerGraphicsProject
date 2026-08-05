@@ -66,7 +66,7 @@ void FeatureMatchState::onEnter(Simulation &sim)
               << "right-drag = rotate.\n"
               << "               Then " << kCaptureHelp
               << ". Ctrl+S saves the database, Ctrl+O loads it back. Ctrl+G auto-builds"
-              << " and saves one (orbit path, simulated aim error) when you just need"
+              << " and saves one (arc path, simulated aim error) when you just need"
               << " a database to test against." << std::endl;
 }
 
@@ -382,31 +382,39 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     const size_t features = ::promptCount("Features per view", kMaxFeatures,
                                           kDefaultAutoFeatures);
 
-    // The path: eyes on a ring around the terrain's middle, all looking at it.
-    // This is the shape the successful manual sessions kept converging on --
-    // every frame filled with relief at a consistent scale, and adjacent view
-    // cones overlapping over the middle so appearance collection has overlap
-    // to work with.
-    const float tau      = 6.28318530718f;
+    // The path: an ARC of views around the terrain's middle, not a full ring.
+    // Measured lesson: a 10-stop ring puts 36 degrees between neighbouring
+    // views of the same spot, which defeats SIFT's rough 15-20 degree
+    // viewpoint tolerance on 3D relief -- appearance collection found 6
+    // appearances across 100 points and free flight matched only noise. An
+    // arc keeps neighbours a dozen degrees apart, the geometry every
+    // successful manual corridor had, at the cost of covering a sector
+    // instead of the circle -- the same density-versus-coverage trade the
+    // manual mode makes, decided the same way.
+    const float arcSpan  = glm::radians(120.0f);
     const float radius   = 0.30f * sim.terrainSize;
     const float altitude = 0.25f * sim.terrainSize;
 
     sim.waypoints.clear();
     sim.pathPoints.clear();
     for (size_t i = 0; i < views; i++) {
-        const float angle = tau * (float)i / (float)views;
+        const float t     = views > 1 ? (float)i / (float)(views - 1) : 0.5f;
+        const float angle = (t - 0.5f) * arcSpan;
         const glm::vec3 eye(radius * std::cos(angle), altitude, radius * std::sin(angle));
         sim.waypoints.push_back({ eye, glm::vec3(0.0f) });
         sim.pathPoints.push_back(eye);
     }
-    sim.pathPoints.push_back(sim.waypoints.front().position);   // close the ring on the map
 
-    // Same lifecycle as startBuild: fresh database, fresh capture resolution,
-    // and any manual build in progress is discarded exactly as G would.
+    // Same lifecycle as startBuild: fresh database, any manual build in
+    // progress discarded exactly as G would. The capture resolution does NOT
+    // follow the window here: an auto build has no on-screen markers to keep
+    // aligned with the pane, so it uses one canonical size -- every auto
+    // database is the same kind of database, and a small window cannot
+    // quietly halve SIFT's keypoint yield (measured at a ~400-pixel pane).
     m_db = std::make_unique<FeatureDb>();
     m_build.reset();
-    m_captureWidth  = sim.playerView.viewport.width;
-    m_captureHeight = sim.playerView.viewport.height;
+    m_captureWidth  = 1280;
+    m_captureHeight = 720;
 
     // A fixed seed, so two auto-builds with the same parameters are the same
     // database -- "change one thing and measure" stays possible.
@@ -463,7 +471,7 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     addOtherViewAppearances(sim, renderer);
     refreshPlaces();
     std::cout << "FEATURES: auto-built " << placed << " points from "
-              << sim.waypoints.size() << " views on an orbit (" << skipped
+              << sim.waypoints.size() << " views on an arc (" << skipped
               << " suggestions skipped; simulated aim error sigma "
               << kSimulatedDepthErrorUnits << " units along the sight line). "
               << kCaptureHelp << std::endl;

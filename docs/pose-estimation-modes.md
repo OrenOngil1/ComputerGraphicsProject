@@ -164,10 +164,15 @@ an older file holding only the hand-placed rows is topped up rather than
 re-placed, and a current file passes through unchanged.
 
 **Ctrl+G — the automated stand-in** (`autoBuild`). Prompts for a waypoint
-count and features per view, lays a ring of views around the terrain's middle
-(the shape successful manual sessions converge on: frames full of relief,
-adjacent cones overlapping), runs the whole build without the human, and
-saves. The "human" is *simulated*, not skipped: ray-snapping already reduces a
+count and features per view, lays an **arc** of views (120°) around the
+terrain's middle, runs the whole build without the human, and saves. An arc
+rather than a full ring, by measurement: a 10-stop ring puts 36° between
+neighbouring views of the same spot, past SIFT's ~15–20° viewpoint tolerance
+on relief — collection found 6 appearances across 100 points and free flight
+matched only noise — while the arc's ~13° steps reproduce the geometry of
+every manual corridor that worked. Auto builds also capture at a canonical
+1280×720 rather than adopting the window (there are no on-screen markers to
+stay aligned with), so a small pane cannot quietly starve SIFT of keypoints. The "human" is *simulated*, not skipped: ray-snapping already reduces a
 real click to one number — the depth along the suggestion's sight line — so
 the simulator reads the true ray–terrain intersection and disturbs that depth
 with Gaussian aim error (σ = 4 units, the accuracy measured from careful
@@ -416,7 +421,7 @@ worth knowing when reading the numbers.
 | U | FEATURE MATCH build | undo the last anchor placed in this view |
 | Ctrl+S | FEATURE MATCH run-phase | save the database (+ waypoints) to `captures/` |
 | Ctrl+O | FEATURE MATCH run-phase | load it back (with its recorded views; works on a fresh run) |
-| Ctrl+G | FEATURE MATCH | auto-build and save a database: orbit path, simulated aim error (a test-database generator; G remains the mode) |
+| Ctrl+G | FEATURE MATCH | auto-build and save a database: arc path, simulated aim error (a test-database generator; G remains the mode) |
 | click | PICK | pick a 2D–3D correspondence |
 | X | PICK | cancel the pending 2D pick |
 | U | PICK | undo the last completed correspondence |
