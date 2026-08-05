@@ -236,11 +236,16 @@ std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
     // that half of everything agree penalises a view for matches it was never
     // going to be able to use.
     //
-    // The floor keeps it clear of PnP's algebraic minimum (four points always
-    // agree with the pose fitted to them, so four inliers say nothing) and high
-    // enough that six spread points genuinely pin a pose; the ceiling stops a
-    // large database from demanding more agreement than a pose needs.
-    const int minInliers = std::clamp((int)correspondences.size() / 4, 6, 25);
+    // The floor sits one above PnP's algebraic minimum: RANSAC fits each
+    // candidate on a 4-point sample that always votes for itself, so 4
+    // inliers carry no evidence at all and 5 means one independent witness.
+    // Five rather than the safer six by measurement -- genuine poses at
+    // recorded views (7 matches, median descriptor distance 0) were refused
+    // "5 of 7 agree, need 6", one vote short. The risk a junk five-strong
+    // coalition slips through is carried by the tight reprojection gate and
+    // by the caller's plausibility checks on the estimate (position bound,
+    // and that the camera actually looks at terrain).
+    const int minInliers = std::clamp((int)correspondences.size() / 4, 5, 25);
     if ((int)correspondences.size() < minInliers) {
         std::cout << "FEATURES: not enough to solve -- " << minInliers
                   << " agreeing matches are needed; move toward the anchored views"

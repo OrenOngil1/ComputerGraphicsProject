@@ -749,6 +749,29 @@ std::optional<Waypoint> FeatureMatchState::computePose(Simulation &sim, Renderer
                       << (int)limit << ")" << std::endl;
             return std::nullopt;
         }
+
+        // And it must be LOOKING at terrain, not merely near it. The matcher
+        // recognised terrain features in the frame, and terrain lives in a
+        // frame's lower half; probe the ray through the lower-third centre so
+        // even a pitched-up-but-valid view passes. Still judged on the
+        // estimate alone -- the true pose is never consulted. This is the
+        // check that carries the consensus floor's drop to five: a junk
+        // five-strong coalition tends to fling the camera somewhere absurd,
+        // and "absurd" usually means staring at sky.
+        Camera estimated = sim.playerView.camera;
+        estimated.applyPose(*estimate);
+        const glm::vec3 probe = rayDirection(
+            estimated, fractionToRay(glm::vec2(0.5f, 0.75f), estimated.fov, vp.aspect()));
+        const bool seesTerrain =
+            raycastTerrain(sim.mesh, estimated.position, probe, 3.0f * sim.terrainSize,
+                           std::max(1.0f, sim.terrainSize / 200.0f))
+                .has_value();
+        if (!seesTerrain) {
+            std::cout << "FEATURES: pose rejected as implausible -- a camera there,"
+                         " aimed that way, would be looking at no terrain at all"
+                      << std::endl;
+            return std::nullopt;
+        }
     }
     return estimate;
 }

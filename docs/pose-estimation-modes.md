@@ -230,12 +230,18 @@ parallax of a misjudged depth along the sight line, and deliberately no wider,
 because on self-similar terrain the false matches are lookalike ridges that can
 assemble a rival consensus in any slack left past the true error (measured at a
 40 px gate: coalitions of 6–9 false pairs winning with poses hundreds of units
-off). The consensus floor is **a quarter of the matches** (clamped to 6–25)
+off). The consensus floor is **a quarter of the matches** (clamped to 5–25)
 instead of a fixed number that is a high bar at 20 anchors and trivial at
 9 000. Scaled to the *matches* rather than the database, deliberately: a frame
 only sees the anchors of the views near it, so any fraction of the database
 total becomes unmeetable once the database spans more views than one frame can
-contain.
+contain. The floor of five is one above RANSAC's self-certifying 4-point
+sample — one independent witness — chosen by measurement (genuine poses at
+recorded views were refused "5 of 7 agree" with exact-hit distances), and what
+it gives up in caution is carried by two plausibility checks on every
+estimate, judged without ever consulting the true pose: the camera must land
+within two terrain-widths, and it must actually be *looking at terrain*
+(the ray through the frame's lower-third centre must hit the surface).
 
 **Ctrl+B** runs a capture at *every* recorded waypoint and prints the errors as a
 table with the mean and the terrain's size — one keypress instead of flying the
