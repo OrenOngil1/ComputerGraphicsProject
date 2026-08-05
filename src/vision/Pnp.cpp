@@ -123,6 +123,12 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 
+    // The agreement gate scales with the frame unless the caller pinned it:
+    // pixels of tolerance only mean anything relative to how many pixels the
+    // frame has (see kHandPlacedReprojFraction).
+    if (reprojErrorPx <= 0.0f)
+        reprojErrorPx = kHandPlacedReprojFraction * (float)viewportHeight;
+
     // Iteration budget sized for hand-anchored correspondences: with a small
     // descriptor database a good share of the matches are false, so the count
     // must still find a clean minimal sample at true-match fractions down to

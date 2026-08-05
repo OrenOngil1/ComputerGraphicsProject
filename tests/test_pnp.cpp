@@ -66,7 +66,7 @@ std::vector<Correspondence> exactCorrespondences()
 }
 
 // The same set with 3 of 11 pairs corrupted far beyond the inlier band (which
-// is kHandPlacedReprojErrorPx wide, the tolerance a hand-placed anchor needs) --
+// defaults to kHandPlacedReprojFraction of the frame height, ~18 px here) --
 // a plain least-squares solve would be dragged off; consensus must not be.
 std::vector<Correspondence> correspondencesWithOutliers()
 {

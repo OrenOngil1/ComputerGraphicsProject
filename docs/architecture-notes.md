@@ -107,11 +107,11 @@ quit. All three unwind normally, so destructors run. No global state.
     matches). The pinhole intrinsics **K** is a file-local detail here — square
     pixels (`fx == fy`), aspect carried by width/height, matching what
     `glm::perspective` renders. The RANSAC flavor's inlier gate defaults to
-    `kHandPlacedReprojErrorPx` (16 px) — sized for ray-snapped human anchors
-    and kept tight so lookalike false matches cannot build a rival consensus —
-    and it refits on `SOLVEPNP_EPNP` rather than the default
-    `SOLVEPNP_ITERATIVE`, whose DLT seed is ill-conditioned on near-planar
-    terrain.
+    `kHandPlacedReprojFraction` (3% of the frame height) — resolution-relative,
+    sized for the residual a true-but-strained pair carries, and kept no wider
+    so lookalike false matches cannot build a rival consensus — and it refits
+    on `SOLVEPNP_EPNP` rather than the default `SOLVEPNP_ITERATIVE`, whose DLT
+    seed is ill-conditioned on near-planar terrain.
   - `TrackerDetection.{h,cpp}` — `findTrackerCentroids`: classify each
     read-back pixel against the tracker palette; each color's blob centroid is
     its 2D point.

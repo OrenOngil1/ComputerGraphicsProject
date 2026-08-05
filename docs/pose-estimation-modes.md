@@ -224,13 +224,19 @@ the information on this terrain. SIFT's gradient-orientation histograms do
 the accepted distances so the bar can be read against reality.
 
 The surviving pairs go to `computeCameraPoseRansac`. Two settings there are
-sized for ray-snapped human anchors: the inlier gate is **16 px**
-(`kHandPlacedReprojErrorPx`) — wide enough for keypoint jitter plus the
-parallax of a misjudged depth along the sight line, and deliberately no wider,
-because on self-similar terrain the false matches are lookalike ridges that can
-assemble a rival consensus in any slack left past the true error (measured at a
-40 px gate: coalitions of 6–9 false pairs winning with poses hundreds of units
-off). The consensus floor is **a quarter of the matches** (clamped to 5–25)
+sized for ray-snapped human anchors: the inlier gate is **3% of the frame
+height** (`kHandPlacedReprojFraction`, ≈22 px on a 720-tall capture) — a
+fraction rather than a pixel count because pixels of tolerance only mean
+anything relative to how many pixels the frame has. Its width is set by what a
+*true-but-strained* pair actually carries (keypoint drift under a 10–20°
+viewpoint change, the ≤6 px appearance-collection offset, the parallax of a
+misjudged depth along the sight line — stacked, 10–25 px at 720p): a fixed
+16 px gate was measured to pass only near-exact matches and guillotine that
+strained band, so poses came out either sub-3-unit or refused, nothing
+between. And deliberately no wider than the strained band needs, because on
+self-similar terrain the false matches are lookalike ridges that can assemble
+a rival consensus in any slack past the true error (measured at a 40 px gate:
+coalitions of 6–9 false pairs winning with poses hundreds of units off). The consensus floor is **a quarter of the matches** (clamped to 5–25)
 instead of a fixed number that is a high bar at 20 anchors and trivial at
 9 000. Scaled to the *matches* rather than the database, deliberately: a frame
 only sees the anchors of the views near it, so any fraction of the database
