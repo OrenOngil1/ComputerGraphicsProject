@@ -78,6 +78,13 @@ private:
     void saveDatabase(const Simulation &sim) const;
     void loadDatabase(Simulation &sim, Renderer &renderer);
 
+    // Ctrl+G: an automated stand-in for the whole G workflow -- lay an orbit
+    // of recorded views, anchor every suggestion with simulated human aim
+    // error (depth noise along the sight line), collect appearances, save.
+    // Exists to produce test databases in seconds for experiments; the manual
+    // build remains the mode. See the .cpp for why the simulation is honest.
+    void autoBuild(Simulation &sim, Renderer &renderer);
+
     // Build-phase map aids: the active suggestion's sight line, plus a dim one
     // per anchor already placed in this view. Drawn through the global view's
     // mvp; see the .cpp for why they stop short of the terrain.

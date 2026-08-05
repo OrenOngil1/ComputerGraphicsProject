@@ -1,7 +1,9 @@
 #include "FeatureMatchState.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
+#include <random>
 #include <vector>
 
 #include <GLFW/glfw3.h>
@@ -63,7 +65,9 @@ void FeatureMatchState::onEnter(Simulation &sim)
               << "               Global map: scroll = zoom, middle-drag = pan, "
               << "right-drag = rotate.\n"
               << "               Then " << kCaptureHelp
-              << ". Ctrl+S saves the database, Ctrl+O loads it back." << std::endl;
+              << ". Ctrl+S saves the database, Ctrl+O loads it back. Ctrl+G auto-builds"
+              << " and saves one (orbit path, simulated aim error) when you just need"
+              << " a database to test against." << std::endl;
 }
 
 // Pose the player camera at the current build waypoint (so the right pane
@@ -345,10 +349,136 @@ void FeatureMatchState::loadDatabase(Simulation &sim, Renderer &renderer)
     refreshPlaces();
 }
 
+// ── The automated stand-in for the manual build (Ctrl+G) ──────
+//
+// A hand-built database is minutes of clicking, which taxes exactly the thing
+// the mode needs most: experiments. This runs the whole G workflow without the
+// human and saves the result -- and it SIMULATES the human rather than
+// replacing the pipeline. The run phase still consumes nothing but
+// (descriptor, 3D) pairs and cannot tell the two builds apart; the manual
+// build remains the assignment's mode, this produces test databases for it.
+//
+// The simulation is honest because ray-snapping already reduces a real
+// person's click to a single number: the depth along the suggestion's sight
+// line. So the simulated "human" reads the true ray-terrain intersection and
+// disturbs that depth with Gaussian aim error. Reading the terrain here plays
+// the human's eyes, not the estimator's -- the estimator never sees it. A ray
+// that misses the terrain is skipped, as a person would press X.
+
+// Aim error, in units along the sight line -- the one dimension a human
+// actually supplies. Sized to what measured hand-built databases achieved
+// (poses 2-4 units off from carefully placed anchors).
+static constexpr float kSimulatedDepthErrorUnits = 4.0f;
+
+static constexpr size_t kDefaultAutoViews    = 8;    // ring stops
+static constexpr size_t kMaxAutoViews        = 20;
+static constexpr size_t kDefaultAutoFeatures = 10;   // denser than the manual default:
+                                                     // clicks are free here
+
+void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
+{
+    const size_t views    = ::promptCount("Auto-path waypoints", kMaxAutoViews,
+                                          kDefaultAutoViews);
+    const size_t features = ::promptCount("Features per view", kMaxFeatures,
+                                          kDefaultAutoFeatures);
+
+    // The path: eyes on a ring around the terrain's middle, all looking at it.
+    // This is the shape the successful manual sessions kept converging on --
+    // every frame filled with relief at a consistent scale, and adjacent view
+    // cones overlapping over the middle so appearance collection has overlap
+    // to work with.
+    const float tau      = 6.28318530718f;
+    const float radius   = 0.30f * sim.terrainSize;
+    const float altitude = 0.25f * sim.terrainSize;
+
+    sim.waypoints.clear();
+    sim.pathPoints.clear();
+    for (size_t i = 0; i < views; i++) {
+        const float angle = tau * (float)i / (float)views;
+        const glm::vec3 eye(radius * std::cos(angle), altitude, radius * std::sin(angle));
+        sim.waypoints.push_back({ eye, glm::vec3(0.0f) });
+        sim.pathPoints.push_back(eye);
+    }
+    sim.pathPoints.push_back(sim.waypoints.front().position);   // close the ring on the map
+
+    // Same lifecycle as startBuild: fresh database, fresh capture resolution,
+    // and any manual build in progress is discarded exactly as G would.
+    m_db = std::make_unique<FeatureDb>();
+    m_build.reset();
+    m_captureWidth  = sim.playerView.viewport.width;
+    m_captureHeight = sim.playerView.viewport.height;
+
+    // A fixed seed, so two auto-builds with the same parameters are the same
+    // database -- "change one thing and measure" stays possible.
+    std::mt19937 rng(20260805u);
+    std::normal_distribution<float> aim(0.0f, kSimulatedDepthErrorUnits);
+
+    const Viewport vp = captureViewport(sim);
+    const float step = std::max(0.25f, sim.terrainSize / 1200.0f);
+    size_t skipped = 0;
+
+    for (const Waypoint &waypoint : sim.waypoints) {
+        Camera camera = sim.playerView.camera;   // throwaway; the player stays put
+        camera.applyPose(waypoint);
+
+        FramePixels frame = renderer.captureSceneFrameAt(vp.width, vp.height,
+                                                         camera, sim.light());
+        if (frame.rgb.empty())
+            continue;
+        std::vector<cv::KeyPoint> kps;
+        cv::Mat desc;
+        detectSpreadFeatures(frame, (int)features, kps, desc);
+
+        for (size_t i = 0; i < kps.size(); i++) {
+            const glm::vec2 fraction(kps[i].pt.x / frame.width,
+                                     kps[i].pt.y / frame.height);
+            const glm::vec3 direction =
+                rayDirection(camera, fractionToRay(fraction, camera.fov, vp.aspect()));
+
+            const std::optional<float> depth =
+                raycastTerrain(sim.mesh, camera.position, direction,
+                               3.0f * sim.terrainSize, step);
+            if (!depth) {
+                skipped++;
+                continue;
+            }
+            const float judged = *depth + aim(rng);
+            if (judged <= 0.0f) {
+                skipped++;
+                continue;
+            }
+            m_db->descriptors.push_back(desc.row((int)i));
+            m_db->anchors.push_back(camera.position + direction * judged);
+        }
+    }
+
+    if (m_db->empty()) {
+        std::cout << "FEATURES: auto-build anchored nothing -- every suggestion missed"
+                     " the terrain" << std::endl;
+        refreshPlaces();
+        return;
+    }
+
+    const size_t placed = m_db->anchors.size();
+    addOtherViewAppearances(sim, renderer);
+    refreshPlaces();
+    std::cout << "FEATURES: auto-built " << placed << " points from "
+              << sim.waypoints.size() << " views on an orbit (" << skipped
+              << " suggestions skipped; simulated aim error sigma "
+              << kSimulatedDepthErrorUnits << " units along the sight line). "
+              << kCaptureHelp << std::endl;
+    saveDatabase(sim);
+}
+
 void FeatureMatchState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
 {
-    if (key == GLFW_KEY_G) {       // (re)start the manual build from scratch
-        startBuild(sim, renderer);
+    if (key == GLFW_KEY_G) {
+        // Plain G (re)starts the manual build; Ctrl+G runs the automated
+        // stand-in. Either discards whatever build was in progress.
+        if (mods & GLFW_MOD_CONTROL)
+            autoBuild(sim, renderer);
+        else
+            startBuild(sim, renderer);
         return;
     }
     if (building()) {

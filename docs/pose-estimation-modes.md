@@ -163,6 +163,22 @@ collection (recorded views only), which skips rows a place already owns — so
 an older file holding only the hand-placed rows is topped up rather than
 re-placed, and a current file passes through unchanged.
 
+**Ctrl+G — the automated stand-in** (`autoBuild`). Prompts for a waypoint
+count and features per view, lays a ring of views around the terrain's middle
+(the shape successful manual sessions converge on: frames full of relief,
+adjacent cones overlapping), runs the whole build without the human, and
+saves. The "human" is *simulated*, not skipped: ray-snapping already reduces a
+real click to one number — the depth along the suggestion's sight line — so
+the simulator reads the true ray–terrain intersection and disturbs that depth
+with Gaussian aim error (σ = 4 units, the accuracy measured from careful
+hand-builds; misses are skipped like a person pressing X). Reading the terrain
+here plays the human's eyes, never the estimator's — the run phase still
+consumes only `(descriptor, 3D)` pairs and cannot tell the two builds apart. A
+fixed random seed makes equal parameters produce equal databases, so
+change-one-thing experiments stay repeatable. It exists to generate test
+databases in seconds (e.g. for the lighting experiment); **the manual build
+remains the assignment's mode**.
+
 **Run-phase (B)** — fully automatic: capture the current view, detect SIFT
 features, and match **database → frame, cross-checked** (`matchFeaturesToDb`),
 asking "where is each of my anchors in this view, and does that keypoint agree?".
@@ -400,6 +416,7 @@ worth knowing when reading the numbers.
 | U | FEATURE MATCH build | undo the last anchor placed in this view |
 | Ctrl+S | FEATURE MATCH run-phase | save the database (+ waypoints) to `captures/` |
 | Ctrl+O | FEATURE MATCH run-phase | load it back (with its recorded views; works on a fresh run) |
+| Ctrl+G | FEATURE MATCH | auto-build and save a database: orbit path, simulated aim error (a test-database generator; G remains the mode) |
 | click | PICK | pick a 2D–3D correspondence |
 | X | PICK | cancel the pending 2D pick |
 | U | PICK | undo the last completed correspondence |

@@ -122,7 +122,10 @@ sources the MSVC environment, the debugger runs the binary from the project root
   each of its points is (cross-checked, distance-capped), and solves with
   **RANSAC PnP** for robustness to wrong matches. (SIFT rather than ORB by
   measurement: ORB's binary descriptor stops separating true matches from
-  lookalike ridges on texture-free shading, at any threshold.) `Ctrl+S`/`Ctrl+O` keep the hand-built
+  lookalike ridges on texture-free shading, at any threshold.) `Ctrl+G`
+  generates a test database automatically — orbit path, human aim error
+  simulated as depth noise along each sight line — for experiments; the hand
+  build remains the mode. `Ctrl+S`/`Ctrl+O` keep the hand-built
   database across runs; `Ctrl+B` measures it at every recorded waypoint at once.
 - **Lighting.** A directional light (Lambert + ambient) with per-vertex normals
   from the height map; `L` cycles presets. Required for the Mode D experiment.
