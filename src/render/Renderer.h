@@ -60,6 +60,35 @@ public:
                     const std::vector<glm::vec3> &colors,
                     float size, const glm::mat4 &mvp);
 
+    // Independent line segments: consecutive pairs (0-1, 2-3, ...), one color
+    // for the batch, depth test off like the markers. A trailing odd vertex is
+    // ignored. The shared primitive under the view aids below.
+    void drawLines(const std::vector<glm::vec3> &segments, const glm::vec3 &color,
+                   float width, const glm::mat4 &mvp);
+
+    // ── View aids: one view's geometry drawn into another ──────
+    // Both take the PLAYER camera and are drawn through the GLOBAL view's mvp,
+    // which is what makes them useful: they answer "where is the other pane
+    // looking" on the map.
+
+    // The player camera's view volume: apex at the eye, four edges out to
+    // `reach`, and the rectangle closing them. `aspect` is the player
+    // viewport's -- the cone must match the frame the user is matching against,
+    // not the viewport it is drawn into.
+    void drawViewCone(const Camera &camera, float aspect, float reach,
+                      const glm::vec3 &color, float width, const glm::mat4 &mvp);
+
+    // The lines from the eye along given camera-space viewing rays (x/z, y/z):
+    // the locus each observation's 3D point must lie on.
+    //
+    // Deliberately NOT intersected with the terrain. A pixel determines a
+    // direction, not a point; resolving the depth along it is the manual step
+    // PICK and FEATURE MATCH exist to have the user perform, so drawing the
+    // hit would hand over the correspondence itself.
+    void drawSightLines(const Camera &camera, const std::vector<glm::vec2> &imageRays,
+                        float reach, const glm::vec3 &color, float width,
+                        const glm::mat4 &mvp);
+
     // Draw the trackers as flat-colored spheres -- the exact palette colors the
     // blob detector classifies, in the visible frame and the detection capture
     // alike. Depth-tested, unlike the markers above: a tracker behind a hill is

@@ -23,6 +23,17 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &cor
 // raising the bar above the algebraic minimum of 4 lets a caller refuse a
 // poor-overlap frame outright instead of logging a confident-looking garbage
 // pose.
+//
+// reprojErrorPx is how far an observation may sit from where the candidate pose
+// would put it and still count as agreeing. It must cover the error in the
+// correspondences themselves, not just pixel noise: a 3D point placed by hand
+// on the map lands tens of world units from the feature it belongs to, which is
+// tens of pixels of reprojection error. Gate below that and the correct-but-
+// imprecise pairs are voted out as outliers, leaving the consensus to be built
+// from the wrong ones -- a confident pose hundreds of units off.
+constexpr float kHandPlacedReprojErrorPx = 40.0f;
+
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,
-                                                int minInliers = 4);
+                                                int minInliers = 4,
+                                                float reprojErrorPx = kHandPlacedReprojErrorPx);

@@ -33,8 +33,10 @@ recovers the camera's six degrees of freedom. The four modes are four ways of
 | **D - Feature Matching** | `F` | *ORB-assisted manual* - ORB suggests salient points one at a time; the user hand-places each on the map to build the database; the run-phase then matches against it | The markerless case, anchored by hand |
 
 Modes C and D share a base (`PoseComparisonState`) that records
-`(true pose, computed pose)` per timestep (`B` to capture, `N`/`M` to review)
-and draws the comparison identically.
+`(true pose, computed pose)` per capture (`B` to capture, `N`/`M` to review,
+`Ctrl+B` to capture at every recorded view at once) and draws the comparison
+identically. Every result is reported the same way — position error in units
+*and* as a percentage of the terrain, plus how far off the heading is.
 
 Full controls and a per-mode walkthrough: **[docs/pose-estimation-modes.md](docs/pose-estimation-modes.md)**.
 
@@ -108,13 +110,31 @@ sources the MSVC environment, the debugger runs the binary from the project root
   palette; each colour's mean pixel is its centroid (the 2D point), paired with
   the sphere's known 3D centre.
 - **Mode D (ORB + RANSAC), manual anchoring.** Pre-phase is by hand: for each
-  recorded view ORB suggests its strongest N points one at a time and the user
-  color-picks each one's 3D spot on the global map → a `FeatureDb` of
-  hand-placed `(descriptor, 3D)` pairs. Run-phase detects features in the live
-  view, matches them against that database (Hamming + Lowe's ratio test), and
-  solves with **RANSAC PnP** for robustness to wrong matches.
+  recorded view ORB suggests N strong points, spread across the frame, one at a
+  time, and the user color-picks each one's 3D spot on the global map → a
+  `FeatureDb` of hand-placed `(descriptor, 3D)` pairs. Each click is snapped onto
+  the suggestion's viewing ray first, since the pose and the pixel are both known
+  exactly and only the depth along that ray is the user's to give. Each placed
+  point then collects its appearance in the *other* recorded views by projecting
+  through their known poses — one descriptor per point is not enough for ORB,
+  which is not viewpoint-invariant, and the 3D still comes only from the click.
+  Run-phase detects features in the live view, asks the database where each of
+  its points is (cross-checked Hamming), and solves with **RANSAC PnP** for
+  robustness to wrong matches. `Ctrl+S`/`Ctrl+O` keep the hand-built
+  database across runs; `Ctrl+B` measures it at every recorded waypoint at once.
 - **Lighting.** A directional light (Lambert + ambient) with per-vertex normals
   from the height map; `L` cycles presets. Required for the Mode D experiment.
+- **View aids for the manual modes** (`V`). Matching a point seen in the camera
+  view against the whole-terrain map is the hard part of B and D, so the map
+  draws the camera's **view cone** (which wedge is in frame) and the **sight
+  line** of the observation being placed (the line its 3D point lies on).
+  The lines stop short of the terrain on purpose — a pixel fixes a direction,
+  and supplying the depth along it is exactly the manual step being taught.
+- **Seeing what a capture has to work with.** In Mode D's run phase the map also
+  shows the whole hand-built database as violet dots, with the anchors the
+  current view can actually use — inside the frustum *and* not behind a ridge —
+  lit up. Read with the cone, it says whether a spot is worth capturing from
+  before you capture from it.
 
 Architecture (composition root, State pattern, Renderer/vision separation):
 **[docs/architecture-notes.md](docs/architecture-notes.md)**.
