@@ -107,10 +107,20 @@ public:
                                      const DirectionalLight &light);
 
     // Feature-matching capture: the lit scene exactly as the player view draws
-    // it, minus overlays -- the pixels ORB runs on. Takes the light explicitly:
+    // it, minus overlays -- the pixels SIFT runs on. Takes the light explicitly:
     // the same view under a different preset must produce different pixels
     // (that is the Mode 4 lighting experiment). Back buffer only, never swapped.
     FramePixels captureSceneFrame(const View &view, const DirectionalLight &light);
+
+    // The same capture rendered offscreen at an explicit size, independent of
+    // the window. SIFT descriptors shift when the same scene is rasterised at
+    // a different resolution, so a database is only ever exact against frames
+    // of the size it was built at -- measured as a 0.7 -> 4.0 unit Ctrl+B
+    // regression on an identical database when the window differed between
+    // sessions. The feature-matching run phase captures at the database's
+    // recorded size through this, so the window may be anything.
+    FramePixels captureSceneFrameAt(int width, int height, const Camera &camera,
+                                    const DirectionalLight &light);
 
 private:
     // Bind the scene shader and raise u_Lit with this light's uniforms.

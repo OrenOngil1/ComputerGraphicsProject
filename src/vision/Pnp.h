@@ -25,15 +25,25 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &cor
 // pose.
 //
 // reprojErrorPx is how far an observation may sit from where the candidate pose
-// would put it and still count as agreeing. It must cover the error in the
-// correspondences themselves, not just pixel noise: a 3D point placed by hand
-// on the map lands tens of world units from the feature it belongs to, which is
-// tens of pixels of reprojection error. Gate below that and the correct-but-
-// imprecise pairs are voted out as outliers, leaving the consensus to be built
-// from the wrong ones -- a confident pose hundreds of units off.
-constexpr float kHandPlacedReprojErrorPx = 40.0f;
+// would put it and still count as agreeing. It must cover the real error of a
+// TRUE pair and little more: every pixel past that is room in which false
+// matches -- on self-similar terrain they are lookalike ridges, spatially
+// coherent, not random scatter -- can assemble a rival consensus.
+//
+// The default (reprojErrorPx <= 0) is this FRACTION of the frame height,
+// because a fixed pixel count means a different angular tolerance at every
+// capture resolution. Its value is sized for the residual a TRUE-but-strained
+// pair actually carries: SIFT keypoints drift several pixels under a 10-20
+// degree viewpoint change, collected appearances were accepted up to ~6 px
+// off, and a misjudged depth along the sight line reprojects a few more from
+// another angle -- stacked, 10-25 px at a 720-tall frame. A gate tighter than
+// that (a fixed 16 px was measured) passes only near-exact matches and
+// guillotines the strained-but-true band: poses come out either sub-3-unit or
+// refused, nothing between. Far looser (a fixed 40 px, ~4% of that era's
+// frames) let six-strong coalitions of lookalikes outvote the truth.
+constexpr float kHandPlacedReprojFraction = 0.03f;   // of the frame height
 
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,
                                                 int minInliers = 4,
-                                                float reprojErrorPx = kHandPlacedReprojErrorPx);
+                                                float reprojErrorPx = 0.0f);
