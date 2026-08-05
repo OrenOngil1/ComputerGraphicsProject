@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <numeric>
 #include <random>
 #include <vector>
 
@@ -423,8 +424,23 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
 
     const Viewport vp = captureViewport(sim);
     const float step = std::max(0.25f, sim.terrainSize / 1200.0f);
-    size_t skipped = 0;
 
+    // Selection is spaced on the MAP, not in the frame. Pixel spreading
+    // (what the manual build's suggestions use) oversamples the terrain near
+    // the camera -- perspective squeezes most of the map into the frame's
+    // upper half -- and ten views aimed at the same middle pile their "spread"
+    // picks onto one patch. The simulator knows each keypoint's 3D (the same
+    // ray hit that anchors it), so it can demand world spacing directly, and
+    // exclude the spots every EARLIER view already took: later views are
+    // pushed into unclaimed territory and the union covers the sector. The
+    // spacing starts at what would tile the whole terrain with this many
+    // points and halves when a view cannot fill its quota that sparsely.
+    const float idealSpacing =
+        0.8f * sim.terrainSize / std::sqrt((float)(views * features));
+    const float reachLimit = 1.25f * sim.terrainSize;   // grazing-angle mush past this
+    const float margin = 16.0f;                          // descriptor patch off the rim
+
+    std::vector<glm::vec3> taken;   // true positions of every anchor placed so far
     for (const Waypoint &waypoint : sim.waypoints) {
         Camera camera = sim.playerView.camera;   // throwaway; the player stays put
         camera.applyPose(waypoint);
@@ -435,28 +451,67 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
             continue;
         std::vector<cv::KeyPoint> kps;
         cv::Mat desc;
-        detectSpreadFeatures(frame, (int)features, kps, desc);
+        detectAllFeatures(frame, kps, desc);
+        if (kps.empty())
+            continue;
 
+        std::vector<size_t> order(kps.size());
+        std::iota(order.begin(), order.end(), size_t(0));
+        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+            return kps[a].response > kps[b].response;
+        });
+
+        // One raycast per keypoint, shared by selection and anchoring.
+        std::vector<glm::vec3>            directions(kps.size());
+        std::vector<std::optional<float>> depths(kps.size());
         for (size_t i = 0; i < kps.size(); i++) {
             const glm::vec2 fraction(kps[i].pt.x / frame.width,
                                      kps[i].pt.y / frame.height);
-            const glm::vec3 direction =
-                rayDirection(camera, fractionToRay(fraction, camera.fov, vp.aspect()));
+            directions[i] = rayDirection(camera, fractionToRay(fraction, camera.fov,
+                                                               vp.aspect()));
+            depths[i] = raycastTerrain(sim.mesh, camera.position, directions[i],
+                                       3.0f * sim.terrainSize, step);
+        }
+        const auto hitOf = [&](size_t i) {
+            return camera.position + directions[i] * *depths[i];
+        };
 
-            const std::optional<float> depth =
-                raycastTerrain(sim.mesh, camera.position, direction,
-                               3.0f * sim.terrainSize, step);
-            if (!depth) {
-                skipped++;
-                continue;
+        std::vector<size_t> picked;
+        float spacing = idealSpacing;
+        for (int attempt = 0; attempt < 3 && picked.size() < features;
+             attempt++, spacing *= 0.5f) {
+            picked.clear();
+            for (size_t i : order) {
+                const cv::Point2f &pt = kps[i].pt;
+                if (pt.x < margin || pt.y < margin ||
+                    pt.x > (float)frame.width - margin ||
+                    pt.y > (float)frame.height - margin)
+                    continue;
+                if (!depths[i] || *depths[i] > reachLimit)
+                    continue;
+
+                const glm::vec3 hit = hitOf(i);
+                bool clear = true;
+                for (const glm::vec3 &t : taken)
+                    clear = clear && glm::distance(hit, t) >= spacing;
+                for (size_t j : picked)
+                    clear = clear && glm::distance(hit, hitOf(j)) >= spacing;
+                if (!clear)
+                    continue;
+
+                picked.push_back(i);
+                if (picked.size() == features)
+                    break;
             }
-            const float judged = *depth + aim(rng);
-            if (judged <= 0.0f) {
-                skipped++;
+        }
+
+        for (size_t i : picked) {
+            const float judged = *depths[i] + aim(rng);
+            if (judged <= 0.0f)
                 continue;
-            }
             m_db->descriptors.push_back(desc.row((int)i));
-            m_db->anchors.push_back(camera.position + direction * judged);
+            m_db->anchors.push_back(camera.position + directions[i] * judged);
+            taken.push_back(hitOf(i));
         }
     }
 
@@ -471,8 +526,8 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     addOtherViewAppearances(sim, renderer);
     refreshPlaces();
     std::cout << "FEATURES: auto-built " << placed << " points from "
-              << sim.waypoints.size() << " views on an arc (" << skipped
-              << " suggestions skipped; simulated aim error sigma "
+              << sim.waypoints.size() << " views on an arc (map spacing ~"
+              << (int)idealSpacing << " units; simulated aim error sigma "
               << kSimulatedDepthErrorUnits << " units along the sight line). "
               << kCaptureHelp << std::endl;
     saveDatabase(sim);

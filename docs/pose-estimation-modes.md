@@ -172,7 +172,14 @@ on relief — collection found 6 appearances across 100 points and free flight
 matched only noise — while the arc's ~13° steps reproduce the geometry of
 every manual corridor that worked. Auto builds also capture at a canonical
 1280×720 rather than adopting the window (there are no on-screen markers to
-stay aligned with), so a small pane cannot quietly starve SIFT of keypoints. The "human" is *simulated*, not skipped: ray-snapping already reduces a
+stay aligned with), so a small pane cannot quietly starve SIFT of keypoints.
+And unlike the manual suggestions, which spread across the *frame*, the
+auto-builder spreads its picks across the *map*: perspective squeezes most of
+the terrain into a frame's upper half, so pixel-uniform picks pile up near
+the cameras — the simulator instead demands world spacing between anchors
+(and against every earlier view's picks, pushing later views into unclaimed
+territory), which also gives PnP the near/far depth mix it conditions best
+on. The "human" is *simulated*, not skipped: ray-snapping already reduces a
 real click to one number — the depth along the suggestion's sight line — so
 the simulator reads the true ray–terrain intersection and disturbs that depth
 with Gaussian aim error (σ = 4 units, the accuracy measured from careful
