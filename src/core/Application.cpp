@@ -99,6 +99,7 @@ bool Application::loadTerrain(const std::string &path)
 
     m_sim.mesh = std::move(*mesh);
     m_sim.terrainSize = static_cast<float>(std::max(m_sim.mesh.cols, m_sim.mesh.rows));
+    m_sim.terrainFile = path;
 
     m_renderer.loadTerrain(m_sim.mesh);
 

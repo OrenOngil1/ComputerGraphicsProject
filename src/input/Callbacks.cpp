@@ -164,6 +164,14 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         return;
     }
 
+    // V toggles the global map's view aids. Global like L rather than a mode
+    // key: the cone belongs to the map, and every mode draws the same one.
+    if (key == GLFW_KEY_V) {
+        sim->showViewAids = !sim->showViewAids;
+        std::cout << "View aids: " << (sim->showViewAids ? "on" : "off") << std::endl;
+        return;
+    }
+
     // Zero-sized framebuffer (minimized): the viewports are degenerate, and
     // transitions and in-mode keys both do viewport math -- drop the key until
     // the next resize. The global keys above stay usable.

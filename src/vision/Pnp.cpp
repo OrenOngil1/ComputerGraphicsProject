@@ -109,7 +109,7 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &pic
 
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,
-                                                int minInliers)
+                                                int minInliers, float reprojErrorPx)
 {
     if (points.size() < 4) {
         std::cerr << "PnP (RANSAC) needs at least 4 correspondences (have "
@@ -123,24 +123,28 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence
 
     cv::Mat_<double> K = getCameraIntrinsicMatrix(fov, viewportWidth, viewportHeight);
 
-    // Budget and gate sized for hand-anchored correspondences: with a small
-    // descriptor database most matches are false (the ratio test passes too
-    // easily), so the iteration count must cover true-inlier fractions down to
-    // ~15%, and the pixel gate must absorb the world-space error of a human
-    // map-pick on top of keypoint noise.
-    constexpr int    kIterations    = 2000;
-    constexpr float  kReprojErrorPx = 12.0f;
-    constexpr double kConfidence    = 0.99;
+    // Iteration budget sized for hand-anchored correspondences: with a small
+    // descriptor database a good share of the matches are false, so the count
+    // must still find a clean sample at true-inlier fractions down to ~15%.
+    constexpr int    kIterations = 2000;
+    constexpr double kConfidence = 0.99;
 
+    // SOLVEPNP_EPNP, explicitly. The flag picks the solver that refits the pose
+    // on the winning consensus set, and the default there is SOLVEPNP_ITERATIVE
+    // -- which, with no extrinsic guess, seeds itself from a DLT. DLT is
+    // ill-conditioned when the object points are close to coplanar, and a DEM
+    // with 10% relief is exactly that: the refit can wander off a consensus
+    // that was fine. EPnP has no such degeneracy on this geometry.
     cv::Mat rvec, tvec;
     std::vector<int> inliers;
     bool ok = cv::solvePnPRansac(objectPoints, imagePoints, K, cv::Mat(),
                                  rvec, tvec, false,
-                                 kIterations, kReprojErrorPx, kConfidence, inliers);
+                                 kIterations, reprojErrorPx, kConfidence, inliers,
+                                 cv::SOLVEPNP_EPNP);
     if (!ok || (int)inliers.size() < minInliers) {
-        std::cerr << "cv::solvePnPRansac found no trustworthy pose ("
-                  << inliers.size() << " inliers, need " << minInliers << ")"
-                  << std::endl;
+        std::cerr << "PnP (RANSAC): no trustworthy pose -- " << inliers.size()
+                  << " of " << points.size() << " correspondences agree, need "
+                  << minInliers << std::endl;
         return std::nullopt;
     }
 

@@ -47,10 +47,16 @@ private:
 // picked in the global view (the "map") -- and 'C' solves PnP. The global view
 // shows the picked points + estimated camera; the player view overlays the
 // estimate's translucent ghost terrain for comparison against the true view.
+//
+// Finding the 3D match by eye is the hard part, so the map carries aids (V
+// toggles them): the player camera's view cone narrows the search to the wedge
+// actually in frame, and each observation's sight line narrows it further to a
+// single line. 'X' cancels a half-finished pair, 'U' undoes the last one.
 class PickState : public State {
 public:
     void onEnter(Simulation &sim) override;                      // seed pose, reset picks
-    void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override; // 'C' -> solve
+    // 'C' -> solve, 'X' -> cancel the pending 2D pick, 'U' -> undo the last pair
+    void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override;
     void handleMouseButton(Simulation &sim, Renderer &renderer, GLFWwindow *window,
                            int button, int action) override;        // left-click -> pick
     void renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
@@ -75,6 +81,9 @@ private:
     // player view: the 2D ray reprojected into the CURRENT viewport -- the
     // marker tracks resizes yet never leaks worldPos's true projection.
     void drawImageMarkers(Renderer &renderer, float fov, const Viewport &viewport) const;
+    // global view: each observation's sight line, the locus its 3D point lies
+    // on. Direction only -- the depth along it is what the user supplies.
+    void drawSightAids(const Simulation &sim, Renderer &renderer, const glm::mat4 &mvp) const;
 
     std::vector<Observation> m_pickedPoints;
     std::optional<Waypoint>  m_computedCamera;   // PnP result; empty until 'C' succeeds

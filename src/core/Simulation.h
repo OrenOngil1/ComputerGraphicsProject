@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "Scene.h"
 #include "Camera.h"
@@ -16,6 +17,13 @@ struct Simulation {
     std::unique_ptr<State> currentState;   // the active mode
     float terrainSize = 0.0f;              // max(cols, rows) of the mesh; scales speeds/sizes
     Mesh mesh;                             // the loaded terrain (uncentered)
+
+    // The DEM this session was loaded from, as the menu gave it. Kept because
+    // anything written to disk is only meaningful for one terrain: a saved
+    // feature database names it so reloading under a different DEM is refused
+    // rather than silently anchoring to the wrong ground.
+    std::string terrainFile;
+
     View globalView;                       // left half:  overview camera + viewport
     View playerView;                       // right half: player camera + viewport
     std::vector<glm::vec3> pathPoints;     // the recorded flight path (RECORD)
@@ -35,6 +43,13 @@ struct Simulation {
         lightPreset = (lightPreset + 1) % kLightPresetCount;
         return kLightPresets[lightPreset].name;
     }
+
+    // The global map's view aids (the V key): the player camera's view cone,
+    // and the sight lines of observations awaiting a 3D match. Session-level
+    // like the light rather than per-mode -- "where is the player camera
+    // looking" is the same question in every mode, and the manual modes are
+    // unusable without it. On by default; off gives a clean demo view.
+    bool showViewAids = true;
 
     // Set by Escape: leave the current terrain, back to the menu. Quitting the
     // program is a separate signal (glfwWindowShouldClose, via Ctrl+Q or the
