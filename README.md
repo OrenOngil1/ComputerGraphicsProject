@@ -172,7 +172,7 @@ aspect mistakes in the intrinsics fail the suite.
 src/core/      composition root, scene state, camera, lighting
 src/state/     one State per mode (Navigation, Pick, Trackers, FeatureMatch)
 src/render/    Renderer; all GPU work and read-back captures
-src/vision/    OpenCV: PnP solvers, blob detection, ORB feature matching
+src/vision/    OpenCV: PnP solvers, blob detection, SIFT feature matching
 src/loader/    DEM image -> terrain mesh + normals
 external/      vendored code built from source: BasicOpenGL toolkit, glad (do not modify)
 include/       vendored header-only libraries: glm (do not modify)

@@ -66,8 +66,9 @@ void detectSpreadFeatures(const FramePixels &frame, int maxCount,
     if (allKps.empty() || maxCount <= 0)
         return;
 
-    // Rank by ORB response (corner strength): the strongest keypoints are the
-    // most repeatable, and the ones a user would naturally single out.
+    // Rank by SIFT response (contrast of the scale-space extremum): the
+    // strongest keypoints are the most repeatable, and the ones a user would
+    // naturally single out.
     std::vector<size_t> order(allKps.size());
     std::iota(order.begin(), order.end(), size_t(0));
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
