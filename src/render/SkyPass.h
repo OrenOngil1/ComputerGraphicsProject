@@ -9,9 +9,29 @@
 #include "../core/Camera.h"
 #include "../core/Lighting.h"
 
+// RAII owner of one GL texture name (the vendored toolkit has no texture
+// wrapper). Deletes the texture on destruction, which runs while the GL
+// context is live -- its only holders sit inside Renderer (see Renderer's
+// ownership note).
+class GlTexture {
+public:
+    GlTexture() = default;                              // empty: no texture
+    explicit GlTexture(unsigned int id) : m_id(id) {}   // adopts the name
+
+    // Owns a raw GL id -- copying would double-free it.
+    GlTexture(const GlTexture &) = delete;
+    GlTexture &operator=(const GlTexture &) = delete;
+    GlTexture(GlTexture &&other) noexcept;
+    GlTexture &operator=(GlTexture &&other) noexcept;
+    ~GlTexture();
+
+    unsigned int id() const { return m_id; }   // 0 = none
+
+private:
+    unsigned int m_id = 0;
+};
+
 // The sky pass: one cubemap skybox per light preset, drawn behind the terrain.
-// The one home of manually managed GL texture lifetime -- everything else in
-// src/ sits behind a vendored RAII wrapper.
 class SkyPass {
 public:
     // Compiles the skybox shader and builds the cube; needs a live GL context.
@@ -20,13 +40,9 @@ public:
     // asset paths.
     explicit SkyPass(std::string skyboxRoot);
 
-    // Non-copyable: owns raw GL texture ids.
+    // Non-copyable: owns GPU resources (shader, cube, cubemap cache).
     SkyPass(const SkyPass &) = delete;
     SkyPass &operator=(const SkyPass &) = delete;
-
-    // Deletes the cubemap textures. Runs while the GL context is live
-    // (SkyPass is a Renderer member; see Renderer's ownership note).
-    ~SkyPass();
 
     // Draw the preset's skybox over the clear-color background: lazily
     // loads/uploads the cubemap on first use (a failed load warns once and
@@ -35,10 +51,10 @@ public:
     void draw(size_t presetIdx, const Camera &camera, const Viewport &viewport);
 
 private:
-    // Lazy per-preset cubemap cache: GL texture names, filled on first draw.
-    // tried with id still 0 marks a failed load, so it isn't retried per frame.
+    // Lazy per-preset cubemap cache, filled on first draw. tried with an empty
+    // texture marks a failed load, so it isn't retried per frame.
     struct SkySlot {
-        unsigned int id = 0;    // GL cubemap texture name; 0 = none
+        GlTexture tex;          // the preset's cubemap; empty = none
         bool tried = false;
     };
 

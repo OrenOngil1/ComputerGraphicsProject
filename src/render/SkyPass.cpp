@@ -6,12 +6,35 @@
 
 #include "../loader/SkyboxLoader.h"
 
+GlTexture::GlTexture(GlTexture &&other) noexcept
+    : m_id(other.m_id)
+{
+    other.m_id = 0;
+}
+
+GlTexture &GlTexture::operator=(GlTexture &&other) noexcept
+{
+    if (this != &other) {
+        if (m_id != 0)
+            GLCall(glDeleteTextures(1, &m_id));
+        m_id = other.m_id;
+        other.m_id = 0;
+    }
+    return *this;
+}
+
+GlTexture::~GlTexture()
+{
+    if (m_id != 0)
+        GLCall(glDeleteTextures(1, &m_id));
+}
+
 // Create a GL cubemap from six decoded faces. GL_BGR consumes the loader's
 // OpenCV byte order directly -- no channel swap. Unpack alignment 1 matches
 // the loader's tightly packed rows (set-and-leave, like GL_PACK_ALIGNMENT in
 // Renderer's readViewportPixels). CLAMP_TO_EDGE on all three axes prevents
 // visible seams where two faces meet.
-static unsigned int uploadCubemap(const CubemapFaces &faces)
+static GlTexture uploadCubemap(const CubemapFaces &faces)
 {
     GLuint id = 0;
     GLCall(glGenTextures(1, &id));
@@ -30,7 +53,7 @@ static unsigned int uploadCubemap(const CubemapFaces &faces)
     GLCall(glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
     GLCall(glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE));
     GLCall(glBindTexture(GL_TEXTURE_CUBE_MAP, 0));
-    return id;
+    return GlTexture(id);
 }
 
 SkyPass::SkyPass(std::string skyboxRoot)
@@ -40,32 +63,31 @@ SkyPass::SkyPass(std::string skyboxRoot)
     m_cube = buildSkyboxCube();
 }
 
-SkyPass::~SkyPass()
-{
-    for (SkySlot &slot : m_slots) {
-        if (slot.id != 0)
-            GLCall(glDeleteTextures(1, &slot.id));
-    }
-}
-
 void SkyPass::draw(size_t presetIdx, const Camera &camera, const Viewport &viewport)
 {
     SkySlot &slot = m_slots[presetIdx];
     if (!slot.tried) {
         slot.tried = true;   // set first: a failed load must not retry per frame
         if (auto faces = loadSkybox(m_root + kLightPresets[presetIdx].name))
-            slot.id = uploadCubemap(*faces);
-        // On failure loadSkybox already warned; id stays 0 -> clear-color sky.
+            slot.tex = uploadCubemap(*faces);
+        // On failure loadSkybox already warned; tex stays empty -> clear-color sky.
     }
-    if (slot.id == 0)
+    if (slot.tex.id() == 0)
         return;
 
     m_shader.Bind();
     m_shader.SetUniformMat4f("u_ViewProj", skyViewProjection(camera, viewport));
     m_shader.SetUniform1i("u_Skybox", 0);
     GLCall(glActiveTexture(GL_TEXTURE0));
-    GLCall(glBindTexture(GL_TEXTURE_CUBE_MAP, slot.id));
+    GLCall(glBindTexture(GL_TEXTURE_CUBE_MAP, slot.tex.id()));
     m_cube.va->Bind();
     m_cube.ib->Bind();
     GLCall(glDrawElements(GL_TRIANGLES, m_cube.indexCount, GL_UNSIGNED_INT, nullptr));
+
+    // Leave nothing bound: the overlays drawn after the sky bind their own
+    // program and buffers, and must not inherit the cubemap or cube VAO.
+    m_cube.va->Unbind();
+    m_cube.ib->Unbind();
+    GLCall(glBindTexture(GL_TEXTURE_CUBE_MAP, 0));
+    m_shader.Unbind();
 }
