@@ -100,62 +100,69 @@ void PoseComparisonState::evaluateAllWaypoints(Simulation &sim, Renderer &render
     std::cout << summary.str() << std::endl;
 }
 
+// Capture a timestep: the camera's pose right now is the ground truth;
+// computePose estimates it from the rendered frame alone.
+void PoseComparisonState::captureTimestep(Simulation &sim, Renderer &renderer)
+{
+    m_log.add({ sim.playerView.camera.pose(), computePose(sim, renderer) });
+
+    const PoseEntry &entry = m_log.entries.back();
+    std::cout << "CAPTURE " << m_log.entries.size() << " of " << m_log.entries.size()
+              << ": " << describe(entry, sim.terrainSize);
+    if (!entry.computedPose)
+        std::cout << " -- see the reason above";
+    std::cout << std::endl;
+}
+
+void PoseComparisonState::reviewStep(Simulation &sim, int direction)
+{
+    if (m_log.entries.empty()) {
+        std::cout << "No captures yet -- press B to take one" << std::endl;
+        return;
+    }
+    m_log.step(direction);
+    snapToCurrent(sim);
+
+    const PoseEntry &entry = m_log.entries[m_log.current];
+    std::cout << "REVIEW " << (m_log.current + 1) << " of " << m_log.entries.size()
+              << ": ";
+    if (entry.computedPose)
+        std::cout << describe(entry, sim.terrainSize) << std::endl;
+    else
+        std::cout << "no pose was computed here -- nothing to compare against"
+                  << std::endl;
+
+    // Say what reviewing IS, once. Without it this is a number that changes
+    // and nothing else visibly happens -- the whole point is off to the side,
+    // in the player pane.
+    if (!m_reviewHintShown) {
+        m_reviewHintShown = true;
+        std::cout << "        (the player view is back on this capture's true pose; "
+                  << "the orange ghost is the pose PnP computed from it)" << std::endl;
+    }
+}
+
 void PoseComparisonState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
 {
     switch (key) {
-        case GLFW_KEY_B: {
+        case GLFW_KEY_B:
             if (mods & GLFW_MOD_CONTROL) {
                 const double now = glfwGetTime();
                 if (now - m_lastBulkRun >= 0.5) {   // drop autorepeat
                     m_lastBulkRun = now;
                     evaluateAllWaypoints(sim, renderer);
                 }
-                break;
+            } else {
+                captureTimestep(sim, renderer);
             }
-
-            // Capture a timestep: the camera's pose right now is the ground
-            // truth; computePose estimates it from the rendered frame alone.
-            m_log.add({ sim.playerView.camera.pose(), computePose(sim, renderer) });
-
-            const PoseEntry &entry = m_log.entries.back();
-            std::cout << "CAPTURE " << m_log.entries.size() << " of " << m_log.entries.size()
-                      << ": " << describe(entry, sim.terrainSize);
-            if (!entry.computedPose)
-                std::cout << " -- see the reason above";
-            std::cout << std::endl;
             break;
-        }
 
         // N = next capture, M = previous (mnemonic: minus). The camera snaps
         // back to that capture's true pose, so the ghost shows its diff.
         case GLFW_KEY_N:
-        case GLFW_KEY_M: {
-            if (m_log.entries.empty()) {
-                std::cout << "No captures yet -- press B to take one" << std::endl;
-                return;
-            }
-            m_log.step(key == GLFW_KEY_N ? +1 : -1);
-            snapToCurrent(sim);
-
-            const PoseEntry &entry = m_log.entries[m_log.current];
-            std::cout << "REVIEW " << (m_log.current + 1) << " of " << m_log.entries.size()
-                      << ": ";
-            if (entry.computedPose)
-                std::cout << describe(entry, sim.terrainSize) << std::endl;
-            else
-                std::cout << "no pose was computed here -- nothing to compare against"
-                          << std::endl;
-
-            // Say what reviewing IS, once. Without it this is a number that
-            // changes and nothing else visibly happens -- the whole point is
-            // off to the side, in the player pane.
-            if (!m_reviewHintShown) {
-                m_reviewHintShown = true;
-                std::cout << "        (the player view is back on this capture's true pose; "
-                          << "the orange ghost is the pose PnP computed from it)" << std::endl;
-            }
+        case GLFW_KEY_M:
+            reviewStep(sim, key == GLFW_KEY_N ? +1 : -1);
             break;
-        }
     }
 }
 

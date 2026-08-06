@@ -47,6 +47,13 @@ private:
     // Put the player camera on the reviewed timestep's true pose.
     void snapToCurrent(Simulation &sim) const;
 
+    // B: log (current pose, computed pose) as one timestep and report it.
+    void captureTimestep(Simulation &sim, Renderer &renderer);
+
+    // N/M: move the review cursor by `direction` and snap the camera to that
+    // capture's true pose.
+    void reviewStep(Simulation &sim, int direction);
+
     // Ctrl+B: what pressing B at each recorded waypoint would have done, in one
     // keypress, with the errors printed as a table.
     void evaluateAllWaypoints(Simulation &sim, Renderer &renderer);

@@ -75,6 +75,13 @@ private:
         glm::vec2 imageRay;   // (x/z, y/z), camera space, image convention (x right, y down)
     };
 
+    // The two halves of the two-click pick flow, and the solve behind 'C':
+    // phase A stores the player-view click as a pending camera-space ray,
+    // phase B color-picks its 3D match off the map and completes the pair.
+    void recordImagePick(Simulation &sim, Renderer &renderer, const glm::dvec2 &cursor);
+    void recordWorldPick(Simulation &sim, Renderer &renderer, const glm::dvec2 &cursor);
+    void solveFromPicks(const Simulation &sim);
+
     // The two views draw an observation's two different halves:
     // global view ("map"): the 3D worldPos through the scene mvp.
     void drawWorldMarkers(Renderer &renderer, const glm::mat4 &mvp) const;
