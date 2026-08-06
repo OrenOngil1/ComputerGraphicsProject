@@ -350,12 +350,10 @@ void FeatureMatchState::loadDatabase(Simulation &sim, Renderer &renderer)
 
 // ── The automated stand-in for the manual build (Ctrl+G) ──────
 //
-// The human is SIMULATED, not skipped. Ray-snapping already reduces a real
-// click to one number -- the depth along the suggestion's sight line -- so this
-// reads the true ray-terrain hit and disturbs that depth with Gaussian aim
-// error. Reading the terrain plays the user's EYES, never the estimator's: the
+// The human is SIMULATED, not skipped: the true ray-terrain depth, disturbed
+// by Gaussian aim error, plays the user's EYES, never the estimator's -- the
 // run phase still sees nothing but (descriptor, 3D) pairs and cannot tell the
-// two builds apart. A ray that misses is skipped, as a person would press X.
+// two builds apart. (Why this is honest: docs/pose-estimation-modes.md, "Ctrl+G".)
 
 // Aim error, in units along the sight line -- the one dimension a human
 // actually supplies. Sized to what hand-built databases achieve.
@@ -467,15 +465,11 @@ static KeypointGround raycastKeypointGround(const Simulation &sim, const Camera 
 }
 
 // The keypoints one view contributes, strongest first: taken only when its
-// terrain hit is at least `spacing` from every hit already taken -- this view's
-// and `taken`, every earlier view's -- so later views are pushed onto unclaimed
-// ground and the circle's union covers the map.
-//
-// Spacing is judged on the MAP, not in the frame: perspective squeezes most of
-// the terrain into a frame's upper half, so pixel-uniform picks pile onto the
-// ground nearest the camera.
-//
-// `hits[i]` is empty where keypoint i has no anchorable ground under it.
+// terrain hit clears `spacing` from every hit already taken -- this view's and
+// `taken`, every earlier view's -- pushing later views onto unclaimed ground.
+// Spacing is judged on the MAP, not in the frame: perspective piles
+// pixel-uniform picks onto the ground nearest the camera (docs, "Ctrl+G").
+// hits[i] is empty where keypoint i has no anchorable ground under it.
 // Returns at most `count` indices into `kps`.
 static std::vector<size_t> selectSpacedAnchors(
         const std::vector<cv::KeyPoint> &kps,
@@ -548,15 +542,12 @@ static void layOutArc(Simulation &sim, size_t views)
 }
 
 // A full circle flown HIGH, each stop aimed at a ground point PAST the centre.
-// Height is what makes a circle legal at all: a low ring's azimuth steps blow
-// SIFT's viewpoint budget (see layOutArc), but from high up a step is mostly
-// an IN-PLANE rotation of the same picture, which SIFT absorbs by design --
-// the harmful out-of-plane residue, 2*asin(sin(step/2)*sin(tilt)), is ~18
-// degrees at 12 stops and this tilt, shrinking with every extra stop (hence
-// the 12-view default and the warning below it). The past-centre aim stretches
-// each stop's footprint from its own nadir across the middle to the far edge,
-// so the strips fan around the compass and their union covers essentially the
-// whole map. (docs/pose-estimation-modes.md, "Ctrl+G")
+// Height is the legality condition: a low ring's azimuth steps blow SIFT's
+// viewpoint budget (see layOutArc), but from high up a step is mostly an
+// in-plane rotation, which SIFT absorbs -- the harmful residue shrinks with
+// every extra stop (hence the 12-view default and the warning below). The
+// past-centre aim fans each stop's footprint across the middle so the union
+// covers the map. (Full geometry: docs/pose-estimation-modes.md, "Ctrl+G".)
 static void layOutSurveyCircle(Simulation &sim, size_t views)
 {
     const float radius    = kCircleRadiusFraction       * sim.terrainSize;
@@ -915,15 +906,10 @@ void FeatureMatchState::handleMouseButton(Simulation &sim, Renderer &renderer,
     }
 
     // The manual anchor: the active suggestion's descriptor paired with the
-    // user's 3D pick -- the one step that would otherwise be automatic.
-    //
-    // The click is snapped onto the suggestion's viewing ray first. That ray is
-    // exact (a recorded pose, an exact keypoint pixel), so the true point lies
-    // along it and any sideways offset is pure aim error; what the user supplies
-    // is the DEPTH, the one thing a single image cannot. Dropping the sideways
-    // part matters: an error along the ray reprojects onto the same pixel, while
-    // a sideways slip of the same size lands tens of pixels off and gets a
-    // perfectly good correspondence voted out as an outlier.
+    // user's 3D pick -- the one step that would otherwise be automatic. The
+    // click snaps onto the suggestion's exact viewing ray first: the user
+    // supplies only the DEPTH, and the sideways part of a pick is aim error a
+    // solve would punish (see snapToViewRay in Camera.h).
     const Camera &camera = sim.playerView.camera;
     const glm::vec2 ray = fractionToRay(m_build->markers[m_build->active], camera.fov,
                                         captureViewport(sim).aspect());
@@ -1013,13 +999,12 @@ std::optional<Waypoint> FeatureMatchState::computePose(Simulation &sim, Renderer
     return estimate;
 }
 
-// The active suggestion's sight line is drawn in the same red as its marker in
-// the player view, so the dot to place and the line to place it on read as one
-// object; earlier anchors in this view get a dim line each, which doubles as a
-// check -- a green anchor off its own line was misplaced, and U takes it back.
-//
-// The lines stop at a fixed reach rather than at the terrain: intersecting one
-// with the surface would BE the correspondence the user is here to supply.
+// The active suggestion's sight line shares its player-view marker's red, so
+// the dot to place and the line to place it on read as one object; earlier
+// anchors get dim lines that double as a check (a green anchor off its own
+// line was misplaced -- U takes it back). Lines stop at a fixed reach, never
+// at the terrain: that intersection would BE the correspondence the user is
+// here to supply.
 void FeatureMatchState::drawSightAids(const Simulation &sim, Renderer &renderer,
                                       const glm::mat4 &mvp) const
 {

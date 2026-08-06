@@ -98,13 +98,10 @@ struct Mesh {
 
 // March a ray until it passes below the terrain surface; returns the distance
 // along it, or empty if it never does within maxDistance (aimed at the sky, or
-// off the edge of the grid). `dir` must be normalized.
-//
-// Fixed-step sampling then bisection, not an analytic intersection: a
-// heightfield has no closed form, and the callers here (the view cone's reach)
-// want a good indicator, not sub-texel precision. A ridge thinner than `step`
-// can be stepped over -- harmless at that use, but worth knowing before reusing
-// this for anything that must not miss.
+// off the grid). `dir` must be normalized. Fixed-step sampling then bisection
+// -- a heightfield has no closed form, and the callers want a good indicator,
+// not sub-texel precision. Trap: a ridge thinner than `step` is stepped over;
+// harmless here, not for anything that must not miss.
 inline std::optional<float> raycastTerrain(const Mesh &mesh, const glm::vec3 &origin,
                                            const glm::vec3 &dir, float maxDistance,
                                            float step)

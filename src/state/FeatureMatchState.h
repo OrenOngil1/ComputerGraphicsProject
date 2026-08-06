@@ -14,19 +14,14 @@
 struct FeatureDb;
 struct BuildScratch;
 
-// Mode D: pose estimation by 2D feature matching, with manual anchoring.
-// Two phases share this one State:
-//
-//   G (pre-phase) -- interactive build: step through each recorded view; SIFT
-//                    highlights its strongest N points one at a time in the
-//                    player view and the user color-picks each one's 3D spot
-//                    in the global map. The hand-placed (descriptor, 3D)
-//                    pairs are the database.
-//   B (run-phase) -- inherited capture flow: record the true pose, match the
-//                    live view's SIFT features against the database, RANSAC PnP.
-//
-// Lighting (L) feeds the experiment: a database anchored under one light
-// degrades under another. Requires recorded waypoints (the views to anchor).
+// Mode D: pose estimation by 2D feature matching, with manual anchoring
+// (docs/pose-estimation-modes.md, "Mode D"). G builds the database: SIFT
+// suggests each recorded view's strongest points and the user color-picks each
+// one's 3D spot on the global map -- the hand-placed (descriptor, 3D) pairs
+// ARE the database. B is the inherited capture flow: match the live view
+// against the database, RANSAC PnP. Lighting (L) feeds the experiment (a
+// database anchored under one light degrades under another); requires
+// recorded waypoints, the views to anchor.
 class FeatureMatchState : public PoseComparisonState {
 public:
     // What a pose needs from a hand-built database: fewer, and one misplaced

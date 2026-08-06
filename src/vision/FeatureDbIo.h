@@ -27,14 +27,12 @@ bool saveFeatureDb(const std::string &path, const FeatureDb &db,
                    int captureWidth, int captureHeight);
 
 // Read a database back, replacing `db`, `waypoints`, and the capture size only
-// on success. A file from before the size was recorded loads with 0x0 -- the
-// caller falls back to the live viewport and the next save records it.
-//
-// Refuses a file saved under a different terrain (world-space anchors on one DEM
-// mean nothing on another) or one whose descriptor and anchor counts disagree
-// (matching indexes the two arrays in lockstep). A malformed file is a refusal
-// too, not an exception: this is reached from a GLFW key callback, and
-// unwinding through C is undefined.
+// on success (a pre-size file loads as 0x0; the caller falls back to the live
+// viewport). Every failure is a refusal, not an exception -- this is reached
+// from a GLFW key callback, and unwinding through C is undefined: wrong
+// terrain (world-space anchors mean nothing on another DEM), descriptor and
+// anchor counts disagreeing (matching indexes them in lockstep), or a
+// malformed file.
 bool loadFeatureDb(const std::string &path, FeatureDb &db,
                    std::vector<Waypoint> &waypoints, const std::string &terrainFile,
                    int &captureWidth, int &captureHeight);

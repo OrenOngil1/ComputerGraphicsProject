@@ -23,14 +23,11 @@ static cv::Mat toGray(const FramePixels &frame)
     return gray;
 }
 
-// The one detection entry for every phase: matching compares pre-phase and
-// run-phase descriptors, so routing every detection through here makes their
-// being computed identically structural rather than a convention.
-//
-// SIFT, not ORB, by measurement. This terrain has no texture -- every feature
-// is a shading gradient -- and ORB's binary brightness comparisons stop
-// separating "the same place again" from "a lookalike ridge" on that imagery,
-// at any threshold. (Numbers: docs/pose-estimation-modes.md, "Run-phase (B)")
+// The one detection entry for every phase: routing all detection through here
+// makes pre- and run-phase descriptors comparable structurally, not by
+// convention. SIFT by measurement: this terrain is textureless shading, where
+// ORB's binary brightness tests stop separating "the same place again" from a
+// lookalike ridge at any threshold (docs/pose-estimation-modes.md, "Run-phase (B)").
 void detectAllFeatures(const FramePixels &frame,
                        std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
 {

@@ -276,6 +276,22 @@ estimate, judged without ever consulting the true pose: the camera must land
 within two terrain-widths, and it must actually be *looking at terrain*
 (the ray through the frame's lower-third centre must hit the surface).
 
+Underneath, `solvePnPRansac` runs with `SOLVEPNP_AP3P` explicitly, and the
+flag matters twice. It selects the solver RANSAC fits each minimal sample
+with: P3P-family solvers draw 4-point samples where the EPnP default draws 5,
+and at true-match fraction w the odds of a clean draw are w⁴ vs w⁵ — several
+times better at the fractions descriptor matching leaves. And a P3P fit is
+exact on its sample, where an EPnP fit of 5 nearly coplanar points — a DEM
+seen from altitude — wobbles enough that the true pairs miss the reprojection
+gate and no consensus ever forms. (OpenCV refits the winning consensus with
+EPnP afterwards, which is well-behaved once it has many inliers to average
+over — and unlike the ITERATIVE default it does not seed from a DLT, which is
+ill-conditioned on near-coplanar points.) The iteration budget — 5 000 draws
+at 0.99 confidence — is sized for hand-anchored databases where a good share
+of the matches are false: at true-match fractions down to ~15% a clean
+4-point draw has p ≈ 5·10⁻⁴, and 5 000 draws land one with >90% certainty.
+Milliseconds either way.
+
 **Ctrl+B** runs a capture at *every* recorded waypoint and prints the errors as a
 table with the mean and the terrain's size — one keypress instead of flying the
 path again, which is what makes "change one thing and measure" practical here.

@@ -21,15 +21,12 @@ static glm::vec3 cvToGlmVec3(const cv::Mat &p)
     return glm::vec3(p.at<double>(0), p.at<double>(1), p.at<double>(2));
 }
 
-// The 3x3 pinhole intrinsic matrix K for a VERTICAL fov (degrees) rendered
-// onto a width x height viewport, principal point at the center.
-//
-// Square pixels: fx == fy. The aspect is carried entirely by width/height (and
-// cx, cy) -- it must NOT also be folded into the focal length. glm::perspective
-// takes a vertical FOV and renders square pixels, deriving the horizontal FOV
-// from the aspect; the matching pinhole therefore shares one focal length.
-// (Folding width/height into fx makes solvePnP assume a wider horizontal FOV
-// than GL drew and pulls every estimated camera 20-30% too close.)
+// The 3x3 pinhole intrinsic matrix K for a VERTICAL fov (degrees) on a
+// width x height viewport, principal point centered. Square pixels: fx == fy,
+// the aspect carried entirely by width/height and cx/cy -- exactly as
+// glm::perspective renders. Folding width/height into fx as well makes
+// solvePnP assume a wider horizontal FOV than GL drew and pulls every
+// estimated camera 20-30% too close.
 static cv::Mat_<double> getCameraIntrinsicMatrix(double fov, double width, double height)
 {
     double fovyRadians = glm::radians(fov);
@@ -129,25 +126,17 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence
     if (reprojErrorPx <= 0.0f)
         reprojErrorPx = kHandPlacedReprojFraction * (float)viewportHeight;
 
-    // Iteration budget sized for hand-anchored correspondences: with a small
-    // descriptor database a good share of the matches are false, so the count
-    // must still find a clean minimal sample at true-match fractions down to
-    // ~15% (there, a 4-point draw is clean with p ~ 5e-4, so 5000 draws land
-    // one with >90% certainty). Milliseconds either way.
+    // Budget for hand-anchored databases, where a good share of the matches
+    // are false: 5000 draws still land a clean 4-point sample with >90%
+    // certainty at true-match fractions down to ~15%. Milliseconds either way.
     constexpr int    kIterations = 5000;
     constexpr double kConfidence = 0.99;
 
-    // SOLVEPNP_AP3P, explicitly, and it matters twice. The flag selects the
-    // solver RANSAC fits each minimal sample with. P3P-family solvers draw
-    // 4-point samples where the EPnP default draws 5 -- at true-match fraction
-    // w, the odds of a clean draw are w^4 vs w^5, several times better at the
-    // fractions descriptor matching leaves us. And a P3P fit is exact on its
-    // sample, where an EPnP fit of 5 nearly coplanar points -- a DEM seen from
-    // altitude -- wobbles enough that the true pairs miss the reprojection
-    // gate and no consensus ever forms. OpenCV refits the winning consensus
-    // with EPnP afterwards, which is well-behaved once it has many inliers to
-    // average over (and unlike the ITERATIVE default, does not seed from a
-    // DLT, which is ill-conditioned on near-coplanar points).
+    // AP3P, explicitly: P3P-family solvers draw 4-point minimal samples (not
+    // EPnP's 5 -- w^4 vs w^5 odds of a clean draw) and fit them exactly, where
+    // EPnP on 5 near-coplanar points (a DEM from altitude) wobbles enough that
+    // no consensus ever forms. Full rationale:
+    // docs/pose-estimation-modes.md, "Run-phase (B)".
     cv::Mat rvec, tvec;
     std::vector<int> inliers;
     bool ok = cv::solvePnPRansac(objectPoints, imagePoints, K, cv::Mat(),

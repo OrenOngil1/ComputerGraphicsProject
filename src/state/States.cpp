@@ -319,15 +319,12 @@ void PickState::drawImageMarkers(Renderer &renderer, float fov, const Viewport &
                             { overlay::pendingPickColor }, overlay::pickMarkerSize, screen);
 }
 
-// The map-side aids for the correspondences being built. The pending
-// observation's line is drawn in the same white as its marker in the player
-// view, so the two read as one object; the completed ones are dim, and double
-// as a self-check -- a 3D marker that does not sit on its own line was
-// mis-picked, and U removes it.
-//
-// A line gives the DIRECTION only. Where along it the point sits is precisely
-// the depth one image cannot determine, and supplying it is the whole manual
-// step, so the lines are never intersected with the terrain.
+// Map-side aids for the pairs being built: the pending observation's line is
+// the same white as its player-view marker so the two read as one object;
+// completed ones are dim and double as a self-check (a 3D marker off its own
+// line was mis-picked -- U removes it). Lines give DIRECTION only, never an
+// intersection with the terrain: where along one the point sits is exactly
+// the manual step.
 void PickState::drawSightAids(const Simulation &sim, Renderer &renderer,
                               const glm::mat4 &mvp) const
 {

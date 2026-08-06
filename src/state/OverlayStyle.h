@@ -35,16 +35,12 @@ inline const float pickMarkerSize = 10.0f;
 inline const glm::vec3 suggestionColor(1.0f, 0.0f, 0.0f);
 inline const float     suggestionMarkerSize = 22.0f;   // GL_POINTS px
 
-// FEATURE MATCH's hand-built database, drawn on the map as places. Violet is
-// the mode's own color for "the database knows this spot": unused by any
-// trajectory, and deliberately not green -- green already means "the camera is
-// standing on this waypoint" in drawWaypoints, and it disappears into a green
-// elevation ramp.
-//
-// Bright and large when the player's current view can actually use the anchor,
-// dim and small when it cannot (out of frame, or behind a ridge). Together with
-// the view cone that is the answer to "is this a good place to press B" --
-// which is otherwise only knowable by pressing B.
+// FEATURE MATCH's database anchors on the map. Violet: unused by any
+// trajectory, and deliberately not green -- green already means "camera on
+// this waypoint" in drawWaypoints, and it vanishes into a green elevation
+// ramp. Bright/large when the current view can actually use the anchor,
+// dim/small when it cannot (out of frame, or behind a ridge) -- with the view
+// cone, the visible answer to "is this a good place to press B".
 inline const glm::vec3 anchorColor(0.75f, 0.35f, 1.0f);
 inline const float     anchorMarkerSize = 12.0f;
 inline const glm::vec3 anchorDimColor(0.34f, 0.18f, 0.48f);
