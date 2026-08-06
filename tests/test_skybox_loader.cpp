@@ -26,7 +26,7 @@ void testSkyboxLoader()
 {
     std::cout << "loadSkybox:" << std::endl;
 
-    const fs::path dir = fs::temp_directory_path() / "drone_sim_skybox_test";
+    const fs::path dir = fs::temp_directory_path() / "visual_slammer_skybox_test";
     fs::create_directories(dir);
 
     // Happy path: solid blue (BGR 255,0,0) -- checks count, size, and that

@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
-  "name": "drone-sim",
+  "name": "visual-slammer",
   "version-string": "0.1.0",
   "description": "2D-3D pose estimation (PnP) over DEM terrain, OpenGL + OpenCV.",
   "dependencies": [
