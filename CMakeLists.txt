@@ -2,7 +2,7 @@
 # 3.16 is the floor that ships with Ubuntu 20.04; everything below
 # (imported targets, CONFIGURE_DEPENDS, cxx_std_17) is available there.
 cmake_minimum_required(VERSION 3.16)
-project(drone_sim LANGUAGES C CXX)
+project(visual_slammer LANGUAGES C CXX)
 
 # Default to a Release build if the user didn't pick one. CMake, not us,
 # then supplies the right optimization flag per compiler (-O2 / -O3 / /O2),
@@ -51,16 +51,16 @@ target_link_libraries(engine PUBLIC glad)
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/*.cpp)
 list(REMOVE_ITEM CORE_SOURCES ${CMAKE_SOURCE_DIR}/src/main.cpp)
 
-add_library(drone_core STATIC ${CORE_SOURCES})
+add_library(visual_slammer_core STATIC ${CORE_SOURCES})
 
-# PUBLIC = these propagate to anything that links drone_core (the app *and*
-# the tests).
-target_include_directories(drone_core PUBLIC
+# PUBLIC = these propagate to anything that links visual_slammer_core (the app
+# *and* the tests).
+target_include_directories(visual_slammer_core PUBLIC
   ${CMAKE_SOURCE_DIR}/include       # glm (header-only)
 )
-target_compile_definitions(drone_core PUBLIC GLFW_INCLUDE_NONE)
-target_compile_features(drone_core PUBLIC cxx_std_17)
-target_link_libraries(drone_core PUBLIC
+target_compile_definitions(visual_slammer_core PUBLIC GLFW_INCLUDE_NONE)
+target_compile_features(visual_slammer_core PUBLIC cxx_std_17)
+target_link_libraries(visual_slammer_core PUBLIC
   engine
   OpenGL::GL
   glfw
@@ -70,16 +70,16 @@ target_link_libraries(drone_core PUBLIC
 # ── Warnings (the one genuinely per-compiler knob) ────────────
 # Library/include flags above are OS-agnostic; only warning syntax differs
 # between MSVC and GCC/Clang, so this is the whole per-toolchain surface.
-# Scoped to drone_core: vendored targets keep default warnings.
+# Scoped to visual_slammer_core: vendored targets keep default warnings.
 if(MSVC)
-  target_compile_options(drone_core PRIVATE /W4)
+  target_compile_options(visual_slammer_core PRIVATE /W4)
 else()
-  target_compile_options(drone_core PRIVATE -Wall -Wextra)
+  target_compile_options(visual_slammer_core PRIVATE -Wall -Wextra)
 endif()
 
 # ── Executables ───────────────────────────────────────────────
-add_executable(drone_sim src/main.cpp)
-target_link_libraries(drone_sim PRIVATE drone_core)
+add_executable(visual_slammer src/main.cpp)
+target_link_libraries(visual_slammer PRIVATE visual_slammer_core)
 
 # Headless checks -- no window or GPU. One binary built from tests/*.cpp,
 # one file per topic; it links the whole core lib and the static linker keeps
@@ -87,7 +87,7 @@ target_link_libraries(drone_sim PRIVATE drone_core)
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/*.cpp)
 
 add_executable(headless_checks ${TEST_SOURCES})
-target_link_libraries(headless_checks PRIVATE drone_core)
+target_link_libraries(headless_checks PRIVATE visual_slammer_core)
 
 enable_testing()
 add_test(NAME headless_checks COMMAND headless_checks)

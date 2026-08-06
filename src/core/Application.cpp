@@ -72,7 +72,7 @@ void configureViews(Simulation &sim)
 } // namespace
 
 Application::Application()
-    : m_window(kWidth, kHeight, "OpenGL Window")
+    : m_window(kWidth, kHeight, "Visual SLAMMER")
 {
     GLFWwindow *window = m_window.handle();
 

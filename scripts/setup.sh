@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the build dependencies for drone_sim on Linux or macOS.
+# Install the build dependencies for Visual SLAMMER on Linux or macOS.
 #
 # This installs system packages ONLY. Configuring, building, and testing the
 # project (cmake --preset linux && cmake --build --preset linux && ctest

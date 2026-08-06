@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Install the build prerequisites for drone_sim on Windows.
+    Install the build prerequisites for Visual SLAMMER on Windows.
 
 .DESCRIPTION
     Unlike setup.sh (which installs the libraries themselves via apt/brew), this

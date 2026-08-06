@@ -1,6 +1,8 @@
-# 2D–3D Pose Estimation on DEM Terrain
+# Visual SLAMMER
 
-[![CI](https://github.com/OrenOngil1/ComputerGraphicsProject/actions/workflows/ci.yml/badge.svg)](https://github.com/OrenOngil1/ComputerGraphicsProject/actions/workflows/ci.yml)
+**2D–3D pose estimation on DEM terrain.**
+
+[![CI](https://github.com/OrenOngil1/VisualSLAMMER/actions/workflows/ci.yml/badge.svg)](https://github.com/OrenOngil1/VisualSLAMMER/actions/workflows/ci.yml)
 
 An interactive 3D graphics application in **C++ / OpenGL / OpenCV** that
 simulates and solves the **Perspective-n-Point (PnP)** problem: recovering a
@@ -71,7 +73,7 @@ Generator + toolchain choices live in `CMakePresets.json` (presets `linux` and
 cmake --preset linux
 cmake --build --preset linux
 ctest --preset linux              # headless math checks
-./build/linux/bin/drone_sim
+./build/linux/bin/visual_slammer
 ```
 
 ```powershell
@@ -80,7 +82,7 @@ ctest --preset linux              # headless math checks
 cmake --preset windows
 cmake --build --preset windows
 ctest --preset windows            # headless math checks
-./build/windows/bin/drone_sim.exe
+./build/windows/bin/visual_slammer.exe
 ```
 
 Each preset owns its own tree under `build/` (`build/linux/`, `build/windows/`),
