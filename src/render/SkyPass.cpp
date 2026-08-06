@@ -6,29 +6,6 @@
 
 #include "../loader/SkyboxLoader.h"
 
-GlTexture::GlTexture(GlTexture &&other) noexcept
-    : m_id(other.m_id)
-{
-    other.m_id = 0;
-}
-
-GlTexture &GlTexture::operator=(GlTexture &&other) noexcept
-{
-    if (this != &other) {
-        if (m_id != 0)
-            GLCall(glDeleteTextures(1, &m_id));
-        m_id = other.m_id;
-        other.m_id = 0;
-    }
-    return *this;
-}
-
-GlTexture::~GlTexture()
-{
-    if (m_id != 0)
-        GLCall(glDeleteTextures(1, &m_id));
-}
-
 // Create a GL cubemap from six decoded faces. GL_BGR consumes the loader's
 // OpenCV byte order directly -- no channel swap. Unpack alignment 1 matches
 // the loader's tightly packed rows (set-and-leave, like GL_PACK_ALIGNMENT in
@@ -85,9 +62,11 @@ void SkyPass::draw(size_t presetIdx, const Camera &camera, const Viewport &viewp
     GLCall(glDrawElements(GL_TRIANGLES, m_cube.indexCount, GL_UNSIGNED_INT, nullptr));
 
     // Leave nothing bound: the overlays drawn after the sky bind their own
-    // program and buffers, and must not inherit the cubemap or cube VAO.
+    // program and buffers, and must not inherit the cubemap or cube VAO. The
+    // VAO unbind covers the index buffer too -- its binding is VAO state, and
+    // touching GL_ELEMENT_ARRAY_BUFFER with no VAO bound is invalid in the
+    // core profile.
     m_cube.va->Unbind();
-    m_cube.ib->Unbind();
     GLCall(glBindTexture(GL_TEXTURE_CUBE_MAP, 0));
     m_shader.Unbind();
 }

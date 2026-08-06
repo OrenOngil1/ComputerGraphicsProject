@@ -46,15 +46,12 @@ void detectAllFeatures(const FramePixels &frame,
 // read them against this number before turning it.
 static constexpr float kMaxDescriptorDistance = 250.0f;
 
-// Rank by SIFT response (contrast of the scale-space extremum): the strongest
-// keypoints are the most repeatable, and the ones a user would naturally
-// single out.
-static std::vector<size_t> rankByResponse(const std::vector<cv::KeyPoint> &kps)
+std::vector<size_t> rankByResponse(const std::vector<cv::KeyPoint> &keypoints)
 {
-    std::vector<size_t> order(kps.size());
+    std::vector<size_t> order(keypoints.size());
     std::iota(order.begin(), order.end(), size_t(0));
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-        return kps[a].response > kps[b].response;
+        return keypoints[a].response > keypoints[b].response;
     });
     return order;
 }

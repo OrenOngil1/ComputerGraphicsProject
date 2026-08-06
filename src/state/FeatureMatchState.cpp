@@ -439,11 +439,7 @@ static std::vector<size_t> selectSpacedAnchors(
 {
     // Strongest first, so the spread is paid for with the weaker of any two
     // crowded keypoints.
-    std::vector<size_t> order(kps.size());
-    std::iota(order.begin(), order.end(), size_t(0));
-    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-        return kps[a].response > kps[b].response;
-    });
+    const std::vector<size_t> order = rankByResponse(kps);
 
     std::vector<size_t> picked;
     float spacing = startSpacing;
@@ -518,6 +514,68 @@ static void layOutSurveyCircle(Simulation &sim, size_t views)
     sim.pathPoints.push_back(sim.waypoints.front().position);   // close the ring on the map
 }
 
+// The knobs every simulated view consumes, derived once per build.
+struct AutoBuildPlan {
+    Viewport vp;             // the canonical capture frame
+    size_t   features;       // clicks per view
+    float    idealSpacing;   // target map distance between anchors
+    float    reachLimit;     // anchorable ground ends here
+    float    step;           // terrain ray-march step
+};
+
+static AutoBuildPlan makeAutoBuildPlan(const Simulation &sim, const Viewport &vp,
+                                       size_t views, size_t features)
+{
+    AutoBuildPlan plan;
+    plan.vp       = vp;
+    plan.features = features;
+    // The spacing selection starts from: what would tile the whole terrain with
+    // this many points. See selectSpacedAnchors for why it is a map distance.
+    plan.idealSpacing =
+        kMapSpacingFactor * sim.terrainSize / std::sqrt((float)(views * features));
+    plan.reachLimit = kReachLimitFraction * sim.terrainSize;
+    // Ray-march step: about a thousandth of the terrain -- fine enough to land
+    // on the right hillside, coarse enough to stay cheap over a few thousand rays.
+    plan.step = std::max(0.25f, sim.terrainSize / 1200.0f);
+    return plan;
+}
+
+// One stop of the simulated build: capture the view, detect, raycast every
+// keypoint, then "click" the spaced selection -- each chosen sight line's true
+// depth, disturbed by aim error. A "human" whose error aimed behind the camera
+// skips the suggestion, as pressing X would.
+static void simulateViewClicks(FeatureDb &db, std::vector<glm::vec3> &taken,
+                               const Simulation &sim, Renderer &renderer,
+                               const Waypoint &waypoint, const AutoBuildPlan &plan,
+                               std::mt19937 &rng, std::normal_distribution<float> &aim)
+{
+    Camera camera = sim.playerView.camera;   // throwaway; the player stays put
+    camera.applyPose(waypoint);
+
+    FramePixels frame = renderer.captureSceneFrameAt(plan.vp.width, plan.vp.height,
+                                                     camera, sim.light());
+    if (frame.rgb.empty())
+        return;
+    std::vector<cv::KeyPoint> kps;
+    cv::Mat desc;
+    detectAllFeatures(frame, kps, desc);
+    if (kps.empty())
+        return;
+
+    const KeypointGround ground = raycastKeypointGround(sim, camera, kps, frame,
+                                                        plan.vp.aspect(), plan.step,
+                                                        plan.reachLimit);
+    for (size_t i : selectSpacedAnchors(kps, ground.hits, taken, plan.features,
+                                        plan.idealSpacing, frame.width, frame.height)) {
+        const float judged = *ground.depths[i] + aim(rng);
+        if (judged <= 0.0f)
+            continue;
+        db.descriptors.push_back(desc.row((int)i));
+        db.anchors.push_back(camera.position + ground.directions[i] * judged);
+        taken.push_back(*ground.hits[i]);
+    }
+}
+
 void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
 {
     const size_t views    = ::promptCount("Auto-path waypoints", kMaxAutoViews,
@@ -541,50 +599,11 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     std::mt19937 rng(20260805u);
     std::normal_distribution<float> aim(0.0f, kSimulatedDepthErrorUnits);
 
-    const Viewport vp = captureViewport(sim);
-
-    // Ray-march step: about a thousandth of the terrain -- fine enough to land
-    // on the right hillside, coarse enough to stay cheap over a few thousand rays.
-    const float step = std::max(0.25f, sim.terrainSize / 1200.0f);
-
-    // The spacing selection starts from: what would tile the whole terrain with
-    // this many points. See selectSpacedAnchors for why it is a map distance.
-    const float idealSpacing =
-        kMapSpacingFactor * sim.terrainSize / std::sqrt((float)(views * features));
-    const float reachLimit = kReachLimitFraction * sim.terrainSize;
-
+    const AutoBuildPlan plan = makeAutoBuildPlan(sim, captureViewport(sim),
+                                                 views, features);
     std::vector<glm::vec3> taken;   // true positions of every anchor placed so far
-    for (const Waypoint &waypoint : sim.waypoints) {
-        Camera camera = sim.playerView.camera;   // throwaway; the player stays put
-        camera.applyPose(waypoint);
-
-        FramePixels frame = renderer.captureSceneFrameAt(vp.width, vp.height,
-                                                         camera, sim.light());
-        if (frame.rgb.empty())
-            continue;
-        std::vector<cv::KeyPoint> kps;
-        cv::Mat desc;
-        detectAllFeatures(frame, kps, desc);
-        if (kps.empty())
-            continue;
-
-        const KeypointGround ground = raycastKeypointGround(sim, camera, kps,
-                                                            frame, vp.aspect(),
-                                                            step, reachLimit);
-
-        // The simulated clicks: each chosen sight line's true depth, disturbed
-        // by aim error. A "human" whose error aimed behind the camera skips the
-        // suggestion, as pressing X would.
-        for (size_t i : selectSpacedAnchors(kps, ground.hits, taken, features,
-                                            idealSpacing, frame.width, frame.height)) {
-            const float judged = *ground.depths[i] + aim(rng);
-            if (judged <= 0.0f)
-                continue;
-            m_db->descriptors.push_back(desc.row((int)i));
-            m_db->anchors.push_back(camera.position + ground.directions[i] * judged);
-            taken.push_back(*ground.hits[i]);
-        }
-    }
+    for (const Waypoint &waypoint : sim.waypoints)
+        simulateViewClicks(*m_db, taken, sim, renderer, waypoint, plan, rng, aim);
 
     if (m_db->empty()) {
         std::cout << "FEATURES: auto-build anchored nothing -- every suggestion missed"
@@ -598,7 +617,7 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     refreshPlaces();
     std::cout << "FEATURES: auto-built " << placed << " points from "
               << sim.waypoints.size() << " views on a high survey circle (map spacing ~"
-              << (int)idealSpacing << " units; simulated aim error sigma "
+              << (int)plan.idealSpacing << " units; simulated aim error sigma "
               << kSimulatedDepthErrorUnits << " units along the sight line). "
               << kCaptureHelp << std::endl;
     std::cout << "FEATURES: recognition is strongest from viewpoints like the"

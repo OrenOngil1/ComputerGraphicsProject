@@ -87,8 +87,11 @@ quit. All three unwind normally, so destructors run. No global state.
   `buildSkyboxCube`). Construction only; drawing stays in `Renderer`.
 - `src/render/OverlayBatch.{h,cpp}` — one persistent dynamic VAO/VBO shared by
   all overlay geometry: the contents change every frame, the GPU storage does
-  not (it grows amortized, updates via `glBufferSubData`), so steady-state
-  frames allocate nothing on the GPU.
+  not (it grows amortized, updates via orphan + `glBufferSubData`), so
+  steady-state frames allocate nothing on the GPU.
+- `src/render/GlTexture.{h,cpp}` — RAII owner of one GL texture name (the
+  vendored toolkit has no texture wrapper); currently holds the sky pass's
+  cubemaps.
 - `src/render/PickEncoding.h` — both directions of the pick pass's id↔color
   packing, side by side in one header; the pick shader just passes the baked
   per-vertex attribute through, so the packing rule has a single home.

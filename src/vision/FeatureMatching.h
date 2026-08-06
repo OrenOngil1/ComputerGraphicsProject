@@ -58,6 +58,12 @@ void detectSpreadFeatures(const FramePixels &frame, int maxCount,
 void detectAllFeatures(const FramePixels &frame,
                        std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors);
 
+// Keypoint indices ranked by SIFT response (contrast of the scale-space
+// extremum), strongest first: the most repeatable, and the ones a user would
+// naturally single out. Shared so the suggestion spread (frame space) and the
+// auto-build's anchor selection (map space) walk the same ranking.
+std::vector<size_t> rankByResponse(const std::vector<cv::KeyPoint> &keypoints);
+
 // Does `place` already own a stored appearance within `maxDistance` (L2) of
 // `descriptor`? The single scan behind both of the build's descriptor
 // questions, which differ only in where they set the bar: close enough to join

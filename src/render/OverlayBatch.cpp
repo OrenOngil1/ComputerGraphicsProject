@@ -37,8 +37,9 @@ OverlayBatch::OverlayBatch(OverlayBatch &&other) noexcept
 OverlayBatch &OverlayBatch::operator=(OverlayBatch &&other) noexcept
 {
     if (this != &other) {
-        if (m_vbo) GLCall(glDeleteBuffers(1, &m_vbo));
-        if (m_vao) GLCall(glDeleteVertexArrays(1, &m_vao));
+        // Braced: GLCall is a multi-statement macro, unsafe in a bare if.
+        if (m_vbo) { GLCall(glDeleteBuffers(1, &m_vbo)); }
+        if (m_vao) { GLCall(glDeleteVertexArrays(1, &m_vao)); }
         m_vao = std::exchange(other.m_vao, 0u);
         m_vbo = std::exchange(other.m_vbo, 0u);
         m_capacityBytes = std::exchange(other.m_capacityBytes, size_t(0));
@@ -48,8 +49,9 @@ OverlayBatch &OverlayBatch::operator=(OverlayBatch &&other) noexcept
 
 OverlayBatch::~OverlayBatch()
 {
-    if (m_vbo) GLCall(glDeleteBuffers(1, &m_vbo));
-    if (m_vao) GLCall(glDeleteVertexArrays(1, &m_vao));
+    // Braced: GLCall is a multi-statement macro, unsafe in a bare if.
+    if (m_vbo) { GLCall(glDeleteBuffers(1, &m_vbo)); }
+    if (m_vao) { GLCall(glDeleteVertexArrays(1, &m_vao)); }
 }
 
 void OverlayBatch::draw(const std::vector<float> &verts, unsigned int primitive,
@@ -66,10 +68,15 @@ void OverlayBatch::draw(const std::vector<float> &verts, unsigned int primitive,
     GLCall(glBindBuffer(GL_ARRAY_BUFFER, m_vbo));
     if ((size_t)bytes > m_capacityBytes) {
         // First batch of this size: (re)allocate the store. Later frames of
-        // equal or smaller batches take the glBufferSubData path below.
+        // equal or smaller batches take the orphan + glBufferSubData path.
         GLCall(glBufferData(GL_ARRAY_BUFFER, bytes, verts.data(), GL_DYNAMIC_DRAW));
         m_capacityBytes = (size_t)bytes;
     } else {
+        // Orphan before writing: earlier draws this frame may still be
+        // sourcing the old store, and re-specifying at the same capacity gives
+        // the driver a fresh one instead of a sync point.
+        GLCall(glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)m_capacityBytes, nullptr,
+                            GL_DYNAMIC_DRAW));
         GLCall(glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, verts.data()));
     }
     GLCall(glDrawArrays(primitive, 0, (GLsizei)(verts.size() / kFloatsPerVertex)));

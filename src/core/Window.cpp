@@ -45,9 +45,12 @@ static void installGlDebugCallback()
         return;
 
     glEnable(kDebugOutput);
+#ifndef NDEBUG
     // Synchronous: the callback fires inside the offending call, so a
-    // breakpoint in glDebugLogger lands on the culprit's stack.
+    // breakpoint in glDebugLogger lands on the culprit's stack. Debug builds
+    // only -- it serializes the driver on every call.
     glEnable(kDebugOutputSynchronous);
+#endif
     setCallback(glDebugLogger, nullptr);
 }
 

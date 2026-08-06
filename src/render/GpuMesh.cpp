@@ -33,10 +33,13 @@ static GpuMesh uploadBuffers(const std::vector<float> &verts,
         layout.Push<float>(size);
     gpu.va->AddBuffer(*gpu.vb, layout);
 
-    // Unbind so later binds can't accidentally modify these objects.
+    // Unbind so later binds can't accidentally modify these objects. No index
+    // buffer unbind: its binding is VAO state (the VAO unbind covers it, and
+    // must keep it -- the draw depends on the VAO remembering its EBO), and
+    // touching GL_ELEMENT_ARRAY_BUFFER with no VAO bound is invalid in the
+    // core profile.
     gpu.va->Unbind();
     gpu.vb->Unbind();
-    gpu.ib->Unbind();
     return gpu;
 }
 

@@ -48,8 +48,10 @@ static void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
     gpu.va->Bind();
     gpu.ib->Bind();
     GLCall(glDrawElements(GL_TRIANGLES, gpu.indexCount, GL_UNSIGNED_INT, nullptr));
+    // The VAO unbind is the whole cleanup: the element-array binding is VAO
+    // state, and touching GL_ELEMENT_ARRAY_BUFFER with no VAO bound is invalid
+    // in the core profile.
     gpu.va->Unbind();
-    gpu.ib->Unbind();
 }
 
 // ── Renderer ──────────────────────────────────────────────────
@@ -137,6 +139,18 @@ void Renderer::renderPlayerView(const View &view, const Simulation &sim)
 
 // ── Overlay drawing ───────────────────────────────────────────
 
+// Set a line width / point size for one draw, back to the GL default (1.0) on
+// scope exit -- like ScopedClearColor below, the guard makes the restore
+// structural so no call site can forget it.
+struct ScopedLineWidth {
+    explicit ScopedLineWidth(float width) { GLCall(glLineWidth(width)); }
+    ~ScopedLineWidth() { GLCall(glLineWidth(1.0f)); }
+};
+struct ScopedPointSize {
+    explicit ScopedPointSize(float size) { GLCall(glPointSize(size)); }
+    ~ScopedPointSize() { GLCall(glPointSize(1.0f)); }
+};
+
 void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec3 &color,
                         const glm::mat4 &mvp)
 {
@@ -148,11 +162,10 @@ void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec
         m_overlayVerts.push_back(color.r); m_overlayVerts.push_back(color.g); m_overlayVerts.push_back(color.b);
     }
 
-    GLCall(glLineWidth(overlay::pathWidth));
+    const ScopedLineWidth width(overlay::pathWidth);
     GLCall(glDisable(GL_DEPTH_TEST));
     m_overlayBatch.draw(m_overlayVerts, GL_LINE_STRIP, m_sceneShader, mvp);
     GLCall(glEnable(GL_DEPTH_TEST));
-    GLCall(glLineWidth(1.0f));   // back to the GL default
 }
 
 void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
@@ -173,9 +186,8 @@ void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
         }
     }
 
-    GLCall(glPointSize(overlay::waypointMarkerSize));
+    const ScopedPointSize size(overlay::waypointMarkerSize);
     m_overlayBatch.draw(m_overlayVerts, GL_POINTS, m_pointShader, mvp);
-    GLCall(glPointSize(1.0f));   // back to the GL default
 }
 
 // ── Color picking ─────────────────────────────────────────────
@@ -398,11 +410,10 @@ void Renderer::drawPoints(const std::vector<glm::vec3> &positions,
         m_overlayVerts.push_back(c.r); m_overlayVerts.push_back(c.g); m_overlayVerts.push_back(c.b);
     }
 
+    const ScopedPointSize pointSize(size);
     GLCall(glDisable(GL_DEPTH_TEST));
-    GLCall(glPointSize(size));
     m_overlayBatch.draw(m_overlayVerts, GL_POINTS, m_pointShader, mvp);
     GLCall(glEnable(GL_DEPTH_TEST));
-    GLCall(glPointSize(1.0f));   // back to the GL default
 }
 
 // ── View aids ─────────────────────────────────────────────────
@@ -418,11 +429,10 @@ void Renderer::drawLines(const std::vector<glm::vec3> &segments, const glm::vec3
         m_overlayVerts.push_back(color.r); m_overlayVerts.push_back(color.g); m_overlayVerts.push_back(color.b);
     }
 
-    GLCall(glLineWidth(width));
+    const ScopedLineWidth lineWidth(width);
     GLCall(glDisable(GL_DEPTH_TEST));
     m_overlayBatch.draw(m_overlayVerts, GL_LINES, m_sceneShader, mvp);
     GLCall(glEnable(GL_DEPTH_TEST));
-    GLCall(glLineWidth(1.0f));   // back to the GL default
 }
 
 void Renderer::drawViewCone(const Camera &camera, float aspect, float reach,
