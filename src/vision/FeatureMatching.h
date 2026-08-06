@@ -10,14 +10,12 @@
 #include "../core/Scene.h"    // FramePixels
 #include "../core/Camera.h"   // Waypoint
 
-// The feature-matching mode's pre-phase product: SIFT descriptors, each anchored
-// to a 3D terrain point the user hand-placed on the map. anchors[i] is the
-// world-space point behind descriptor row i.
-//
-// A row is one APPEARANCE, not one place: the same point is stored once per
-// recorded view it can be seen in, because on shading-driven terrain a feature's
-// appearance moves with the viewpoint. So `anchors` repeats positions, and its
-// size is the appearance count, not the number of points the user placed.
+// The pre-phase product: SIFT descriptors, each anchored to a 3D terrain point
+// the user hand-placed on the map; anchors[i] is the world point behind
+// descriptor row i. A row is one APPEARANCE, not one place: a point is stored
+// once per recorded view that sees it (its appearance moves with viewpoint on
+// shading-driven terrain), so `anchors` repeats positions and its size is the
+// appearance count, not the number of points placed.
 struct FeatureDb {
     cv::Mat descriptors;              // CV_32F, one 128-float SIFT descriptor per row
     std::vector<glm::vec3> anchors;   // centered world space, like Correspondence::worldPos
@@ -40,14 +38,11 @@ struct FeatureDb {
     }
 };
 
-// Pre-phase suggestion step: detect SIFT on the frame and return up to maxCount
-// strong keypoints, SPREAD ACROSS THE FRAME, with their aligned descriptor rows.
-// keypoints/descriptors are cleared first; descriptors has one row per keypoint.
-//
-// Strength alone is not enough, because a human anchors these by hand. The
-// strongest responses cluster -- several fire on one corner, a few pixels apart
-// -- and that is bad twice over: the user cannot tell the dots apart on the map,
-// and crowded points barely constrain a pose however accurately they are placed.
+// Pre-phase suggestion step: up to maxCount strong SIFT keypoints SPREAD
+// ACROSS THE FRAME, with aligned descriptor rows (both outputs cleared first).
+// Spread, not merely strong: top responses cluster a few pixels apart, where
+// the user cannot tell the dots apart on the map and crowded points barely
+// constrain a pose however accurately they are placed.
 void detectSpreadFeatures(const FramePixels &frame, int maxCount,
                           std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors);
 
@@ -57,6 +52,12 @@ void detectSpreadFeatures(const FramePixels &frame, int maxCount,
 // collects an anchored point's other appearances from these keypoints.
 void detectAllFeatures(const FramePixels &frame,
                        std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors);
+
+// Keypoint indices ranked by SIFT response (contrast of the scale-space
+// extremum), strongest first: the most repeatable, and the ones a user would
+// naturally single out. Shared so the suggestion spread (frame space) and the
+// auto-build's anchor selection (map space) walk the same ranking.
+std::vector<size_t> rankByResponse(const std::vector<cv::KeyPoint> &keypoints);
 
 // Does `place` already own a stored appearance within `maxDistance` (L2) of
 // `descriptor`? The single scan behind both of the build's descriptor
@@ -74,14 +75,11 @@ bool resemblesAnchoredPoint(const FeatureDb &db, const glm::vec3 &place,
                             const cv::Mat &descriptor);
 
 // The run-phase match step alone: each database anchor this frame appears to
-// contain, paired with the pixel it was found at (as a [0,1] fraction).
-//
-// Separate from the solve because this is where the mode's least visible
-// failure lives. The match runs database -> frame, which makes two things true
-// by construction: there is at most one correspondence per anchor, and no
-// anchor is claimed to be in two places at once. Asked the other way round --
-// once per keypoint -- a 20-anchor database can answer "yes" 140 times, and
-// PnP then builds its consensus out of contradictions. See the .cpp.
+// contain, paired with the pixel it was found at (a [0,1] fraction). Matched
+// database -> frame, which guarantees at most one correspondence per anchor
+// and no anchor claimed at two places; asked the other way round -- once per
+// keypoint -- a 20-anchor database can answer "yes" 140 times, and PnP builds
+// its consensus out of contradictions. See the .cpp.
 std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePixels &frame);
 
 // The consensus floor's legal range. Below five a pose has no independent

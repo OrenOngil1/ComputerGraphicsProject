@@ -8,6 +8,7 @@
 #include <Shader.h>
 
 #include "GpuMesh.h"
+#include "OverlayBatch.h"
 #include "SkyPass.h"
 #include "../core/Simulation.h"
 
@@ -20,7 +21,7 @@ public:
     // loadTerrain has been called first, which the session loop guarantees.
     Renderer();
 
-    // Non-copyable: owns raw GL object ids.
+    // Non-copyable: sole owner of the GPU resources.
     Renderer(const Renderer &) = delete;
     Renderer &operator=(const Renderer &) = delete;
 
@@ -34,8 +35,9 @@ public:
     void renderGlobalView(const View &view, const Simulation &sim);
     void renderPlayerView(const View &view, const Simulation &sim);
 
-    // Overlay primitives, called by the modes' render*Overlay methods.
-    // Throwaway GPU buffers each call -- overlay geometry changes every frame.
+    // Overlay primitives, called by the modes' render*Overlay methods. All
+    // draw through one persistent dynamic buffer (m_overlayBatch) -- the
+    // geometry changes every frame, the GPU storage does not.
     void drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec3 &color,
                   const glm::mat4 &mvp);
     // Waypoint dots: green where cameraPos sits (exact position match), red otherwise.
@@ -132,8 +134,8 @@ private:
 
     // Shared per-view pass: set the viewport, draw the lit terrain, then the
     // sky when a preset index is given -- the visible views pass the active
-    // preset, the feature-matching capture passes nullopt to keep its
-    // background the flat clear color. Returns the MVP for the overlays.
+    // preset; the captures leave it defaulted so their background stays the
+    // flat clear color. Returns the MVP for the overlays.
     glm::mat4 renderScene(const Camera &camera, const Viewport &viewport,
                           const DirectionalLight &light,
                           std::optional<size_t> skyPreset = std::nullopt);
@@ -160,4 +162,12 @@ private:
     GpuMesh    m_terrain;       // rebuilt per loadTerrain
     GpuMesh    m_sphere;        // unit sphere shared by all tracker draws, built once
     SkyPass    m_sky;           // per-preset skybox: own shader, cube, cubemap cache
+
+    OverlayBatch m_overlayBatch;   // persistent GPU buffer behind every overlay draw
+
+    // Frame-to-frame staging scratch for the overlay draws, so filling a batch
+    // allocates nothing once the capacity has warmed up. Each drawing method
+    // clears and refills; none of them nest.
+    std::vector<float>     m_overlayVerts;
+    std::vector<glm::vec3> m_overlaySegments;
 };

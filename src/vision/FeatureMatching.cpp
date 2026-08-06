@@ -23,14 +23,11 @@ static cv::Mat toGray(const FramePixels &frame)
     return gray;
 }
 
-// The one detection entry for every phase: matching compares pre-phase and
-// run-phase descriptors, so routing every detection through here makes their
-// being computed identically structural rather than a convention.
-//
-// SIFT, not ORB, by measurement. This terrain has no texture -- every feature
-// is a shading gradient -- and ORB's binary brightness comparisons stop
-// separating "the same place again" from "a lookalike ridge" on that imagery,
-// at any threshold. (Numbers: docs/pose-estimation-modes.md, "Run-phase (B)")
+// The one detection entry for every phase: routing all detection through here
+// makes pre- and run-phase descriptors comparable structurally, not by
+// convention. SIFT by measurement: this terrain is textureless shading, where
+// ORB's binary brightness tests stop separating "the same place again" from a
+// lookalike ridge at any threshold (docs/pose-estimation-modes.md, "Run-phase (B)").
 void detectAllFeatures(const FramePixels &frame,
                        std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
 {
@@ -46,6 +43,56 @@ void detectAllFeatures(const FramePixels &frame,
 // read them against this number before turning it.
 static constexpr float kMaxDescriptorDistance = 250.0f;
 
+std::vector<size_t> rankByResponse(const std::vector<cv::KeyPoint> &keypoints)
+{
+    std::vector<size_t> order(keypoints.size());
+    std::iota(order.begin(), order.end(), size_t(0));
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        return keypoints[a].response > keypoints[b].response;
+    });
+    return order;
+}
+
+// Walk the response ranking and take a keypoint only when it clears `radius`
+// from everything already taken -- strongest first, so the spread is paid for
+// with the weaker of any two crowded keypoints. A cramped or feature-poor
+// frame may not have maxCount points that far apart: relax and retry rather
+// than return a short set -- a tighter spread still beats the cluster the
+// ranking alone would give.
+static std::vector<size_t> pickSpreadKeypoints(const std::vector<cv::KeyPoint> &kps,
+                                               int maxCount, float radius,
+                                               int width, int height)
+{
+    // A rim keypoint is a poor anchor: half its surroundings are off-screen, so
+    // its 3D spot is hard to recognise on the map, and it drops out of view
+    // under the smallest camera move.
+    const float margin = 16.0f;
+    const std::vector<size_t> order = rankByResponse(kps);
+
+    std::vector<size_t> chosen;
+    for (int attempt = 0; attempt < 3 && (int)chosen.size() < maxCount; attempt++, radius *= 0.5f) {
+        chosen.clear();
+        for (size_t i : order) {
+            const cv::Point2f &pt = kps[i].pt;
+            if (pt.x < margin || pt.y < margin ||
+                pt.x > (float)width - margin || pt.y > (float)height - margin)
+                continue;
+
+            const bool crowded = std::any_of(chosen.begin(), chosen.end(),
+                                             [&](size_t j) {
+                                                 return cv::norm(kps[j].pt - pt) < radius;
+                                             });
+            if (crowded)
+                continue;
+
+            chosen.push_back(i);
+            if ((int)chosen.size() == maxCount)
+                break;
+        }
+    }
+    return chosen;
+}
+
 void detectSpreadFeatures(const FramePixels &frame, int maxCount,
                           std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
 {
@@ -58,53 +105,13 @@ void detectSpreadFeatures(const FramePixels &frame, int maxCount,
     if (allKps.empty() || maxCount <= 0)
         return;
 
-    // Rank keypoint INDICES by SIFT response (contrast of the scale-space
-    // extremum) -- iota fills 0..N-1, the sort puts the strongest first. Those
-    // are the most repeatable, and the ones a user would single out anyway.
-    std::vector<size_t> order(allKps.size());
-    std::iota(order.begin(), order.end(), size_t(0));
-    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-        return allKps[a].response > allKps[b].response;
-    });
-
-    // A rim keypoint is a poor anchor: half its surroundings are off-screen, so
-    // its 3D spot is hard to recognise on the map, and it drops out of view
-    // under the smallest camera move.
-    const float margin = 16.0f;
-
     // What maxCount points would have if they tiled the frame evenly, pulled in
-    // a little so a merely well-spread set still fills the quota. A keypoint is
-    // then taken only when it is that far from everything already taken.
-    float radius = 0.8f * std::sqrt((float)frame.width * (float)frame.height /
-                                    (float)maxCount);
-
-    // A cramped or feature-poor frame may not have maxCount points that far
-    // apart. Relax and retry rather than return a short set: a tighter spread
-    // still beats the cluster the ranking alone would give.
-    std::vector<size_t> chosen;
-    for (int attempt = 0; attempt < 3 && (int)chosen.size() < maxCount; attempt++, radius *= 0.5f) {
-        chosen.clear();
-        for (size_t i : order) {
-            const cv::Point2f &pt = allKps[i].pt;
-            if (pt.x < margin || pt.y < margin ||
-                pt.x > (float)frame.width - margin || pt.y > (float)frame.height - margin)
-                continue;
-
-            const bool crowded = std::any_of(chosen.begin(), chosen.end(),
-                                             [&](size_t j) {
-                                                 return cv::norm(allKps[j].pt - pt) < radius;
-                                             });
-            if (crowded)
-                continue;
-
-            chosen.push_back(i);
-            if ((int)chosen.size() == maxCount)
-                break;
-        }
-    }
-
-    keypoints.reserve(chosen.size());
-    for (size_t i : chosen) {
+    // a little so a merely well-spread set still fills the quota.
+    const float radius = 0.8f * std::sqrt((float)frame.width * (float)frame.height /
+                                          (float)maxCount);
+    keypoints.reserve((size_t)maxCount);
+    for (size_t i : pickSpreadKeypoints(allKps, maxCount, radius,
+                                        frame.width, frame.height)) {
         keypoints.push_back(allKps[i]);
         descriptors.push_back(allDesc.row((int)i));   // copies the row
     }
@@ -126,6 +133,65 @@ bool resemblesAnchoredPoint(const FeatureDb &db, const glm::vec3 &place,
                             const cv::Mat &descriptor)
 {
     return hasAppearanceWithin(db, place, descriptor, kMaxDescriptorDistance);
+}
+
+// One correspondence per PLACE -- the closest match wins. `anchors` repeats a
+// point once per appearance, so several rows can answer for the same place,
+// and keeping two would put one place at two pixels -- a contradiction PnP
+// would quietly average. bestDistance stays parallel to correspondences; both
+// are appended to in place.
+static void keepBestMatchPerPlace(const std::vector<cv::DMatch> &matches,
+                                  const FeatureDb &db,
+                                  const std::vector<cv::KeyPoint> &keypoints,
+                                  const FramePixels &frame,
+                                  std::vector<Correspondence> &correspondences,
+                                  std::vector<float> &bestDistance)
+{
+    for (const cv::DMatch &match : matches) {
+        // A cross-checked match is still only a nearest neighbour.
+        if (match.distance > kMaxDescriptorDistance)
+            continue;
+
+        const glm::vec3 &place = db.anchors[match.queryIdx];
+        const cv::Point2f &pt = keypoints[match.trainIdx].pt;
+        const Correspondence pair{ place,   // keypoint pixel -> the [0,1] fraction
+                                   glm::vec2(pt.x / frame.width, pt.y / frame.height) };
+
+        // This place's slot, if it has one.
+        size_t existing = correspondences.size();   // one past the end = no slot yet
+        for (size_t i = 0; i < correspondences.size(); i++)
+            if (correspondences[i].worldPos == place) {
+                existing = i;
+                break;
+            }
+
+        if (existing == correspondences.size()) {
+            correspondences.push_back(pair);
+            bestDistance.push_back(match.distance);
+        } else if (match.distance < bestDistance[existing]) {
+            correspondences[existing] = pair;
+            bestDistance[existing]    = match.distance;
+        }
+    }
+}
+
+// The calibration readout for the cap above: a healthy capture reads tight, a
+// median hugging the cap means the list is best-of-noise. `distances` arrives
+// by value -- the report sorts its own copy.
+static void reportAcceptedMatches(size_t keypointCount,
+                                  const std::vector<Correspondence> &correspondences,
+                                  std::vector<float> distances)
+{
+    if (correspondences.empty()) {
+        std::cout << "FEATURES: 0 anchors matched (from " << keypointCount
+                  << " keypoints in the frame)" << std::endl;
+        return;
+    }
+    std::sort(distances.begin(), distances.end());
+    std::cout << "FEATURES: " << correspondences.size() << " anchors matched (from "
+              << keypointCount << " keypoints; accepted distances "
+              << (int)distances.front() << "-" << (int)distances.back()
+              << ", median " << (int)distances[distances.size() / 2] << ")" << std::endl;
 }
 
 std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePixels &frame)
@@ -152,52 +218,9 @@ std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePi
     std::vector<cv::DMatch> matches;
     matcher.match(db.descriptors, descriptors, matches);
 
-    // One correspondence per PLACE -- the closest match wins.
     std::vector<float> bestDistance;   // parallel to correspondences
-    for (const cv::DMatch &match : matches) {
-        // A cross-checked match is still only a nearest neighbour.
-        if (match.distance > kMaxDescriptorDistance)
-            continue;
-
-        const glm::vec3 &place = db.anchors[match.queryIdx];
-        const cv::Point2f &pt = keypoints[match.trainIdx].pt;
-        const Correspondence pair{ place,   // keypoint pixel -> the [0,1] fraction
-                                   glm::vec2(pt.x / frame.width, pt.y / frame.height) };
-
-        // This place's slot, if it has one: `anchors` repeats a point once per
-        // appearance, so several rows can answer for the same place.
-        size_t existing = correspondences.size();   // one past the end = no slot yet
-        for (size_t i = 0; i < correspondences.size(); i++) {
-            if (correspondences[i].worldPos == place) {
-                existing = i;
-                break;
-            }
-        }
-
-        // Keeping both would put one place at two pixels -- a contradiction
-        // PnP would quietly average.
-        if (existing == correspondences.size()) {
-            correspondences.push_back(pair);
-            bestDistance.push_back(match.distance);
-        } else if (match.distance < bestDistance[existing]) {
-            correspondences[existing] = pair;
-            bestDistance[existing]    = match.distance;
-        }
-    }
-
-    // The calibration readout for the cap above: a healthy capture reads tight,
-    // a median hugging the cap means the list is best-of-noise.
-    if (correspondences.empty()) {
-        std::cout << "FEATURES: 0 anchors matched (from " << keypoints.size()
-                  << " keypoints in the frame)" << std::endl;
-    } else {
-        std::vector<float> sorted = bestDistance;
-        std::sort(sorted.begin(), sorted.end());
-        std::cout << "FEATURES: " << correspondences.size() << " anchors matched (from "
-                  << keypoints.size() << " keypoints; accepted distances "
-                  << (int)sorted.front() << "-" << (int)sorted.back()
-                  << ", median " << (int)sorted[sorted.size() / 2] << ")" << std::endl;
-    }
+    keepBestMatchPerPlace(matches, db, keypoints, frame, correspondences, bestDistance);
+    reportAcceptedMatches(keypoints.size(), correspondences, bestDistance);
     return correspondences;
 }
 

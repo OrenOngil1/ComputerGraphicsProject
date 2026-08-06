@@ -117,14 +117,11 @@ inline CameraBasis cameraBasis(const Camera &camera)
 }
 
 // The world-space direction of a camera-space viewing ray (x/z, y/z) -- the
-// inverse of projecting a world point onto a pixel, and the one thing an image
-// observation actually determines. The 3D point behind a pixel lies somewhere
-// along position + t * rayDirection(...); WHERE along it is the depth this
-// camera model cannot recover from one view, which is exactly what PnP solves
-// for and what the manual modes ask the user to supply.
-//
-// The `- up * ray.y` is the image convention (y grows downward, see
-// fractionToRay): the top of the frame is +up in the world.
+// inverse of projecting a world point onto a pixel. The 3D point behind a
+// pixel lies somewhere along position + t * rayDirection(...); WHERE is the
+// depth one view cannot recover, which is what PnP solves for and the manual
+// modes ask the user to supply. The `- up * ray.y` is the image convention
+// (y grows downward, see fractionToRay).
 inline glm::vec3 rayDirection(const Camera &camera, glm::vec2 ray)
 {
     const CameraBasis basis = cameraBasis(camera);
@@ -164,21 +161,13 @@ inline glm::vec2 rasterize(const Camera &camera, const Viewport &viewport,
 }
 
 // Move a guessed 3D point onto the viewing ray it was guessed for -- the point
-// of that ray closest to it.
-//
-// The use is manual anchoring. When both the camera pose and the observed pixel
-// are known exactly, the observed point is on that ray; the only thing a person
-// is really being asked for is how FAR along it. So the sideways part of their
-// pick is error, not information, and dropping it moves the guess strictly
-// closer to the truth -- what remains is one leg of the right triangle their
-// error was the hypotenuse of.
-//
-// It is also the half that matters. Error along the ray reprojects onto the
-// same pixel and barely disturbs a pose solve; error across it reprojects
-// proportionally to the focal length, which is what turns a correct
-// correspondence into a rejected outlier.
-//
-// nullopt if the point resolves behind the camera, where nothing it saw can be.
+// of that ray closest to it. Used by manual anchoring: with the pose and pixel
+// known exactly, the true point IS on that ray, so the sideways part of a pick
+// is error, not information -- dropping it moves the guess strictly closer to
+// the truth, and it is the half a solve punishes (error along the ray
+// reprojects onto the same pixel; across it, proportionally to focal length).
+// nullopt if the point resolves behind the camera, where nothing it saw can
+// be. (Rationale in full: docs/pose-estimation-modes.md, "Mode D".)
 inline std::optional<glm::vec3> snapToViewRay(const Camera &camera, glm::vec2 ray,
                                               const glm::vec3 &point)
 {

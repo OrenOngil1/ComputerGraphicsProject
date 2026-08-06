@@ -48,6 +48,70 @@ bool hasShape(const cv::Mat &m, int cols, int type)
     return !m.empty() && m.cols == cols && m.type() == type;
 }
 
+// A database file exactly as stored, before any validation: raw Mats plus the
+// header fields.
+struct RawDbFile {
+    std::string terrain;
+    cv::Mat descriptors, anchors, waypoints;
+    int captureWidth = 0, captureHeight = 0;
+};
+
+bool readDbFile(const std::string &path, RawDbFile &raw)
+{
+    try {
+        cv::FileStorage fs(path, cv::FileStorage::READ);
+        if (!fs.isOpened()) {
+            std::cout << "FEATURES: no saved database at " << path << std::endl;
+            return false;
+        }
+
+        fs["terrain"]     >> raw.terrain;
+        fs["descriptors"] >> raw.descriptors;
+        fs["anchors"]     >> raw.anchors;
+        fs["waypoints"]   >> raw.waypoints;
+        // Absent in files from before the size was recorded: load as 0x0 and
+        // let the caller fall back to the live viewport.
+        if (!fs["captureWidth"].empty())
+            fs["captureWidth"] >> raw.captureWidth;
+        if (!fs["captureHeight"].empty())
+            fs["captureHeight"] >> raw.captureHeight;
+    } catch (const cv::Exception &e) {
+        std::cerr << "FEATURES: " << path << " is not readable (" << e.what() << ")"
+                  << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// Refuse anything this build did not write: another terrain's anchors, an
+// ORB-era descriptor width, mismatched row counts, malformed waypoints.
+bool validateDbFile(const RawDbFile &raw, const std::string &path,
+                    const std::string &terrainFile)
+{
+    if (raw.terrain != terrainFile) {
+        std::cerr << "FEATURES: " << path << " was built on " << raw.terrain
+                  << ", not " << terrainFile << " -- its anchors are points on that"
+                  << " terrain and would be meaningless here" << std::endl;
+        return false;
+    }
+
+    if (!hasShape(raw.anchors, kAnchorCols, CV_32F) ||
+        !hasShape(raw.descriptors, kDescriptorCols, CV_32F) ||
+        raw.descriptors.rows != raw.anchors.rows) {
+        std::cerr << "FEATURES: " << path << " is not usable -- descriptors must be "
+                  << kDescriptorCols << "-float SIFT rows pairing one to one with"
+                  << " anchors (a database saved by the earlier ORB build must be"
+                  << " rebuilt with G and saved again)" << std::endl;
+        return false;
+    }
+
+    if (!raw.waypoints.empty() && !hasShape(raw.waypoints, kWaypointCols, CV_32F)) {
+        std::cerr << "FEATURES: " << path << " has malformed waypoints" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 std::string featureDbPath(const std::string &terrainFile)
@@ -100,76 +164,29 @@ bool loadFeatureDb(const std::string &path, FeatureDb &db,
                    std::vector<Waypoint> &waypoints, const std::string &terrainFile,
                    int &captureWidth, int &captureHeight)
 {
-    // Read into locals; the outputs are only touched once everything checks
+    // Read into a local; the outputs are only touched once everything checks
     // out, so a bad file leaves a good in-memory database alone.
-    std::string savedTerrain;
-    cv::Mat descriptors, anchorMat, waypointMat;
-    int savedWidth = 0, savedHeight = 0;
-
-    try {
-        cv::FileStorage fs(path, cv::FileStorage::READ);
-        if (!fs.isOpened()) {
-            std::cout << "FEATURES: no saved database at " << path << std::endl;
-            return false;
-        }
-
-        fs["terrain"]     >> savedTerrain;
-        fs["descriptors"] >> descriptors;
-        fs["anchors"]     >> anchorMat;
-        fs["waypoints"]   >> waypointMat;
-        // Absent in files from before the size was recorded: load as 0x0 and
-        // let the caller fall back to the live viewport.
-        if (!fs["captureWidth"].empty())
-            fs["captureWidth"] >> savedWidth;
-        if (!fs["captureHeight"].empty())
-            fs["captureHeight"] >> savedHeight;
-    } catch (const cv::Exception &e) {
-        std::cerr << "FEATURES: " << path << " is not readable (" << e.what() << ")"
-                  << std::endl;
+    RawDbFile raw;
+    if (!readDbFile(path, raw) || !validateDbFile(raw, path, terrainFile))
         return false;
-    }
 
-    if (savedTerrain != terrainFile) {
-        std::cerr << "FEATURES: " << path << " was built on " << savedTerrain
-                  << ", not " << terrainFile << " -- its anchors are points on that"
-                  << " terrain and would be meaningless here" << std::endl;
-        return false;
-    }
-
-    if (!hasShape(anchorMat, kAnchorCols, CV_32F) ||
-        !hasShape(descriptors, kDescriptorCols, CV_32F) ||
-        descriptors.rows != anchorMat.rows) {
-        std::cerr << "FEATURES: " << path << " is not usable -- descriptors must be "
-                  << kDescriptorCols << "-float SIFT rows pairing one to one with"
-                  << " anchors (a database saved by the earlier ORB build must be"
-                  << " rebuilt with G and saved again)" << std::endl;
-        return false;
-    }
-
-    std::vector<Waypoint> loadedWaypoints;
-    if (!waypointMat.empty()) {
-        if (!hasShape(waypointMat, kWaypointCols, CV_32F)) {
-            std::cerr << "FEATURES: " << path << " has malformed waypoints" << std::endl;
-            return false;
-        }
-        loadedWaypoints.reserve(waypointMat.rows);
-        for (int i = 0; i < waypointMat.rows; i++) {
-            const float *row = waypointMat.ptr<float>(i);
-            loadedWaypoints.push_back({ glm::vec3(row[0], row[1], row[2]),
-                                        glm::vec3(row[3], row[4], row[5]) });
-        }
-    }
-
-    db.descriptors = descriptors;
+    db.descriptors = raw.descriptors;
     db.anchors.clear();
-    db.anchors.reserve(anchorMat.rows);
-    for (int i = 0; i < anchorMat.rows; i++) {
-        const float *row = anchorMat.ptr<float>(i);
+    db.anchors.reserve(raw.anchors.rows);
+    for (int i = 0; i < raw.anchors.rows; i++) {
+        const float *row = raw.anchors.ptr<float>(i);
         db.anchors.push_back(glm::vec3(row[0], row[1], row[2]));
     }
-    waypoints     = std::move(loadedWaypoints);
-    captureWidth  = savedWidth;
-    captureHeight = savedHeight;
+
+    waypoints.clear();
+    waypoints.reserve(raw.waypoints.rows);
+    for (int i = 0; i < raw.waypoints.rows; i++) {
+        const float *row = raw.waypoints.ptr<float>(i);
+        waypoints.push_back({ glm::vec3(row[0], row[1], row[2]),
+                              glm::vec3(row[3], row[4], row[5]) });
+    }
+    captureWidth  = raw.captureWidth;
+    captureHeight = raw.captureHeight;
 
     std::cout << "FEATURES: loaded " << db.anchors.size() << " anchors and "
               << waypoints.size() << " waypoints from " << path << std::endl;

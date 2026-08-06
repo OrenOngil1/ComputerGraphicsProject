@@ -41,17 +41,14 @@ private:
     size_t m_index = 0;   // the selected waypoint
 };
 
-// Mode B, pose estimation by color picking. The player camera is seeded at a
-// random recorded waypoint (the "unknown" pose). Each correspondence is built
-// in two clicks -- a 2D point in the player view, then its 3D match color-
-// picked in the global view (the "map") -- and 'C' solves PnP. The global view
-// shows the picked points + estimated camera; the player view overlays the
-// estimate's translucent ghost terrain for comparison against the true view.
-//
-// Finding the 3D match by eye is the hard part, so the map carries aids (V
-// toggles them): the player camera's view cone narrows the search to the wedge
-// actually in frame, and each observation's sight line narrows it further to a
-// single line. 'X' cancels a half-finished pair, 'U' undoes the last one.
+// Mode B, pose estimation by color picking (docs/pose-estimation-modes.md,
+// "Mode B"). The player camera is seeded at a random recorded waypoint; each
+// correspondence is two clicks -- a 2D point in the player view, then its 3D
+// match color-picked on the global map -- and 'C' solves PnP. Both views then
+// compare estimate against truth (picked points + estimated camera on the
+// map, ghost terrain in the player view). Finding the 3D match by eye is the
+// hard part, so the map carries aids: V toggles them, X cancels a
+// half-finished pair, U undoes the last one.
 class PickState : public State {
 public:
     void onEnter(Simulation &sim) override;                      // seed pose, reset picks
@@ -74,6 +71,13 @@ private:
         glm::vec3 worldPos;   // centered world space, like Correspondence::worldPos
         glm::vec2 imageRay;   // (x/z, y/z), camera space, image convention (x right, y down)
     };
+
+    // The two halves of the two-click pick flow, and the solve behind 'C':
+    // phase A stores the player-view click as a pending camera-space ray,
+    // phase B color-picks its 3D match off the map and completes the pair.
+    void recordImagePick(Simulation &sim, Renderer &renderer, const glm::dvec2 &cursor);
+    void recordWorldPick(Simulation &sim, Renderer &renderer, const glm::dvec2 &cursor);
+    void solveFromPicks(const Simulation &sim);
 
     // The two views draw an observation's two different halves:
     // global view ("map"): the 3D worldPos through the scene mvp.

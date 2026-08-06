@@ -78,10 +78,11 @@ colors, not from deleting the terrain before looking at it.
 ## Mode D — Feature Matching (`F`, requires recorded waypoints)
 
 No markers; the salient points come from SIFT features
-(`src/vision/FeatureMatching.cpp`; SIFT rather than ORB, and the switch was
-forced by measurement — see the run-phase section). Like Mode B, the 2D→3D
+(`src/vision/FeatureMatching.cpp`; SIFT rather than ORB, a choice forced by
+measurement — see the run-phase section). Like Mode B, the 2D→3D
 correspondence is **manual** — SIFT only *suggests* where to look; the user
-supplies the 3D. `F` prompts for the number of features per view (default 8).
+supplies the 3D. `F` prompts for the number of features per view (default 8)
+and for a fixed consensus floor (plain Enter keeps the automatic rule).
 Two phases:
 
 **Pre-phase (G) — interactive, by hand.** The build steps through each recorded
@@ -163,16 +164,40 @@ collection (recorded views only), which skips rows a place already owns — so
 an older file holding only the hand-placed rows is topped up rather than
 re-placed, and a current file passes through unchanged.
 
-**Ctrl+G — the automated stand-in** (`autoBuild`). Prompts for a waypoint
-count and features per view, lays an **arc** of views (120°) around the
-terrain's middle, runs the whole build without the human, and saves. An arc
-rather than a full ring, by measurement: a 10-stop ring puts 36° between
-neighbouring views of the same spot, past SIFT's ~15–20° viewpoint tolerance
-on relief — collection found 6 appearances across 100 points and free flight
-matched only noise — while the arc's ~13° steps reproduce the geometry of
-every manual corridor that worked. Auto builds also capture at a canonical
-1280×720 rather than adopting the window (there are no on-screen markers to
-stay aligned with), so a small pane cannot quietly starve SIFT of keypoints.
+**Ctrl+G — the automated stand-in** (`autoBuild`). Prompts for a path mode, a
+waypoint count, and features per view, lays the chosen path, runs the whole
+build without the human, and saves. Three path modes:
+
+- **Arc** (default 8 views): a 120° sweep around the terrain's middle, low,
+  every stop aimed at the centre — the geometry of the manual corridors that
+  work. Neighbouring views of one spot may differ by at most SIFT's ~15–20°
+  viewpoint tolerance on 3D relief, and the arc's ~13° steps stay inside it.
+- **High survey circle** (the prompt's default; 12 views): stops on a full
+  ring at half a terrain-size of altitude, each aimed at a ground point *past*
+  the centre. Height is what makes a circle legal at all: a low ring blows
+  the viewpoint budget on the azimuth step alone (36° at 10 stops — measured:
+  6 collected appearances across 100 points, free flight matched only noise),
+  but from high up an azimuth step is mostly an **in-plane rotation** of the
+  same picture, which SIFT absorbs by design; the harmful out-of-plane
+  residue is `2·asin(sin(step/2)·sin(tilt))` ≈ 18° at 12 stops and ~38° of
+  tilt — inside the budget, shrinking with every extra stop (hence the
+  12-view default). Aiming past the centre stretches each footprint from the
+  stop's own nadir across the middle to the far edge, so the strips fan
+  around the compass and their union reaches essentially the whole map.
+- **Scattered stations** (default 10 views): well-spaced random positions
+  over the map (each station takes the best of 16 random candidates — the one
+  farthest from every station already placed), each at its own altitude in a
+  0.30–0.50 terrain-size band, looking along its own compass heading — an
+  evenly divided compass, jittered and shuffled, re-aimed across the centre
+  where a station would stare off the map. No geometry ties neighbouring
+  views together, so cross-view collection is weak by design; the mode trades
+  per-spot depth for coverage of positions and angles.
+
+Recognition is strongest from viewpoints like the path's own: the arc's
+corridor, the circle's ring (high, looking across the middle), the scattered
+build's stations. Auto builds also capture at a canonical 1280×720
+rather than adopting the window (there are no on-screen markers to stay
+aligned with), so a small pane cannot quietly starve SIFT of keypoints.
 And unlike the manual suggestions, which spread across the *frame*, the
 auto-builder spreads its picks across the *map*: perspective squeezes most of
 the terrain into a frame's upper half, so pixel-uniform picks pile up near
@@ -250,6 +275,22 @@ it gives up in caution is carried by two plausibility checks on every
 estimate, judged without ever consulting the true pose: the camera must land
 within two terrain-widths, and it must actually be *looking at terrain*
 (the ray through the frame's lower-third centre must hit the surface).
+
+Underneath, `solvePnPRansac` runs with `SOLVEPNP_AP3P` explicitly, and the
+flag matters twice. It selects the solver RANSAC fits each minimal sample
+with: P3P-family solvers draw 4-point samples where the EPnP default draws 5,
+and at true-match fraction w the odds of a clean draw are w⁴ vs w⁵ — several
+times better at the fractions descriptor matching leaves. And a P3P fit is
+exact on its sample, where an EPnP fit of 5 nearly coplanar points — a DEM
+seen from altitude — wobbles enough that the true pairs miss the reprojection
+gate and no consensus ever forms. (OpenCV refits the winning consensus with
+EPnP afterwards, which is well-behaved once it has many inliers to average
+over — and unlike the ITERATIVE default it does not seed from a DLT, which is
+ill-conditioned on near-coplanar points.) The iteration budget — 5 000 draws
+at 0.99 confidence — is sized for hand-anchored databases where a good share
+of the matches are false: at true-match fractions down to ~15% a clean
+4-point draw has p ≈ 5·10⁻⁴, and 5 000 draws land one with >90% certainty.
+Milliseconds either way.
 
 **Ctrl+B** runs a capture at *every* recorded waypoint and prints the errors as a
 table with the mean and the terrain's size — one keypress instead of flying the
@@ -442,7 +483,7 @@ worth knowing when reading the numbers.
 | U | FEATURE MATCH build | undo the last anchor placed in this view |
 | Ctrl+S | FEATURE MATCH run-phase | save the database (+ waypoints) to `captures/` |
 | Ctrl+O | FEATURE MATCH run-phase | load it back (with its recorded views; works on a fresh run) |
-| Ctrl+G | FEATURE MATCH | auto-build and save a database: arc path, simulated aim error (a test-database generator; G remains the mode) |
+| Ctrl+G | FEATURE MATCH | auto-build and save a database: arc, high survey circle, or scattered stations, with simulated aim error (a test-database generator; G remains the mode) |
 | click | PICK | pick a 2D–3D correspondence |
 | X | PICK | cancel the pending 2D pick |
 | U | PICK | undo the last completed correspondence |

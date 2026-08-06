@@ -7,20 +7,12 @@
 #include "../core/PoseLog.h"
 
 // Shared backbone of the automatic pose-estimation modes (TRACKERS, FEATURE
-// MATCH). Both fly the player camera freely, capture (true pose, computed
-// pose) pairs per timestep, and display the comparison identically; only HOW a
-// pose is computed from the rendered frame differs -- the one pure virtual.
-//
-// Keys: 'B' captures a timestep (the camera's current pose is the ground
-// truth; computePose estimates it from the frame alone). Ctrl+B does that at
-// every recorded waypoint in one go and prints the errors as a table. 'N'/'M'
-// step the review cursor through the captured timesteps, snapping the camera to
-// each one's true pose.
-//
-// Display: the global view draws both fly-through paths (true in RECORD's
-// visual language, computed in the estimate color); the player view, while the
-// camera sits on the reviewed true pose, overlays the computed pose as a
-// translucent ghost.
+// MATCH): free flight; 'B' captures a (true pose, computed pose) timestep;
+// Ctrl+B captures at every recorded waypoint and prints the errors as a table;
+// 'N'/'M' review the timesteps with the camera snapped to each true pose. The
+// global view draws both fly-through paths, the player view ghosts the
+// computed pose over the true one. Only HOW a pose is computed from the
+// rendered frame differs between the modes -- the one pure virtual.
 class PoseComparisonState : public State {
 public:
     void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override;
@@ -46,6 +38,13 @@ protected:
 private:
     // Put the player camera on the reviewed timestep's true pose.
     void snapToCurrent(Simulation &sim) const;
+
+    // B: log (current pose, computed pose) as one timestep and report it.
+    void captureTimestep(Simulation &sim, Renderer &renderer);
+
+    // N/M: move the review cursor by `direction` and snap the camera to that
+    // capture's true pose.
+    void reviewStep(Simulation &sim, int direction);
 
     // Ctrl+B: what pressing B at each recorded waypoint would have done, in one
     // keypress, with the errors printed as a table.

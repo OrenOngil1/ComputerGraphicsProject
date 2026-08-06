@@ -144,45 +144,37 @@ void PickState::onEnter(Simulation &sim)
                  "correspondence, V hides the aids." << std::endl;
 }
 
-void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
-                                  GLFWwindow *window, int button, int action)
+// Phase A, the 2D half: must land in the player view AND on terrain. Stored as
+// a ray (resize-proof); the color-pick is a validity gate only -- its id is
+// discarded, so the 3D point still can't be read off the player view.
+void PickState::recordImagePick(Simulation &sim, Renderer &renderer, const glm::dvec2 &cursor)
 {
-    if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+    // Starting a new pair drops any previous solve, so the overlays go back to
+    // showing the correspondences being built rather than a ghost computed
+    // from a set the user is still editing.
+    m_computedCamera.reset();
+
+    const Viewport &viewport = sim.playerView.viewport;
+    if (!viewport.contains(cursor.x, cursor.y)) {
+        std::cout << "PICK: click a 2D point in the player (right) view first." << std::endl;
         return;
-
-    const glm::dvec2 cursor = cursorPosPixels(window);
-
-    if (!m_pendingImageRay) {
-        // Phase A, the 2D half: must land in the player view AND on terrain.
-        // Stored as a ray (resize-proof); the color-pick is a validity gate
-        // only -- its id is discarded, so the 3D point still can't be read
-        // off the player view.
-        //
-        // Starting a new pair drops any previous solve, so the overlays go
-        // back to showing the correspondences being built rather than a ghost
-        // computed from a set the user is still editing.
-        m_computedCamera.reset();
-
-        const Viewport &viewport = sim.playerView.viewport;
-        if (!viewport.contains(cursor.x, cursor.y)) {
-            std::cout << "PICK: click a 2D point in the player (right) view first." << std::endl;
-            return;
-        }
-        if (renderer.pickVertex((int)cursor.x, (int)cursor.y, sim.playerView) < 0) {
-            std::cout << "PICK: no terrain under the cursor -- click a 2D point on the terrain." << std::endl;
-            return;
-        }
-
-        glm::vec2 uv(((float)cursor.x - viewport.x) / (float)viewport.width,
-                     ((float)cursor.y - viewport.y) / (float)viewport.height);
-        m_pendingImageRay = fractionToRay(uv, sim.playerView.camera.fov, viewport.aspect());
-        std::cout << "PICK: 2D recorded at ray(" << m_pendingImageRay->x << ", " << m_pendingImageRay->y
-                  << ") -- now color-pick its 3D point in the global (left) view." << std::endl;
+    }
+    if (renderer.pickVertex((int)cursor.x, (int)cursor.y, sim.playerView) < 0) {
+        std::cout << "PICK: no terrain under the cursor -- click a 2D point on the terrain." << std::endl;
         return;
     }
 
-    // Phase B, the 3D half: color-pick the vertex under the cursor in the
-    // global view (reading the map).
+    glm::vec2 uv(((float)cursor.x - viewport.x) / (float)viewport.width,
+                 ((float)cursor.y - viewport.y) / (float)viewport.height);
+    m_pendingImageRay = fractionToRay(uv, sim.playerView.camera.fov, viewport.aspect());
+    std::cout << "PICK: 2D recorded at ray(" << m_pendingImageRay->x << ", " << m_pendingImageRay->y
+              << ") -- now color-pick its 3D point in the global (left) view." << std::endl;
+}
+
+// Phase B, the 3D half: color-pick the vertex under the cursor in the global
+// view (reading the map), completing the pending pair.
+void PickState::recordWorldPick(Simulation &sim, Renderer &renderer, const glm::dvec2 &cursor)
+{
     const Viewport &viewport = sim.globalView.viewport;
     if (!viewport.contains(cursor.x, cursor.y)) {
         std::cout << "PICK: color-pick the matching 3D point in the global (left) view." << std::endl;
@@ -204,6 +196,19 @@ void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
               << " ray(" << m_pendingImageRay->x << ", " << m_pendingImageRay->y << ")"
               << std::endl;
     m_pendingImageRay.reset();
+}
+
+void PickState::handleMouseButton(Simulation &sim, Renderer &renderer,
+                                  GLFWwindow *window, int button, int action)
+{
+    if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+        return;
+
+    const glm::dvec2 cursor = cursorPosPixels(window);
+    if (!m_pendingImageRay)
+        recordImagePick(sim, renderer, cursor);
+    else
+        recordWorldPick(sim, renderer, cursor);
 }
 
 void PickState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
@@ -236,12 +241,16 @@ void PickState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods
             return;
 
         case GLFW_KEY_C:
-            break;      // the solve, below
+            solveFromPicks(sim);
+            return;
 
         default:
             return;
     }
+}
 
+void PickState::solveFromPicks(const Simulation &sim)
+{
     // Project each stored ray into the CURRENT player viewport: ray -> fraction
     // -> pixels + intrinsics (all at this aspect, inside computeCameraPose).
     // Consistent even if the window was resized between picking and solving.
@@ -310,15 +319,12 @@ void PickState::drawImageMarkers(Renderer &renderer, float fov, const Viewport &
                             { overlay::pendingPickColor }, overlay::pickMarkerSize, screen);
 }
 
-// The map-side aids for the correspondences being built. The pending
-// observation's line is drawn in the same white as its marker in the player
-// view, so the two read as one object; the completed ones are dim, and double
-// as a self-check -- a 3D marker that does not sit on its own line was
-// mis-picked, and U removes it.
-//
-// A line gives the DIRECTION only. Where along it the point sits is precisely
-// the depth one image cannot determine, and supplying it is the whole manual
-// step, so the lines are never intersected with the terrain.
+// Map-side aids for the pairs being built: the pending observation's line is
+// the same white as its player-view marker so the two read as one object;
+// completed ones are dim and double as a self-check (a 3D marker off its own
+// line was mis-picked -- U removes it). Lines give DIRECTION only, never an
+// intersection with the terrain: where along one the point sits is exactly
+// the manual step.
 void PickState::drawSightAids(const Simulation &sim, Renderer &renderer,
                               const glm::mat4 &mvp) const
 {
