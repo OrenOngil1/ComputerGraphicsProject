@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 
 #include "../core/Simulation.h"
 #include "../state/States.h"
@@ -109,20 +110,25 @@ static bool tryTransition(Simulation &sim, int key, int mods)
         // Ctrl+O, so demanding a throwaway recording first would only replace
         // the views the database was actually built from. Without this
         // exception, a fresh run could never reach Ctrl+O at all.
-        case GLFW_KEY_F:
+        case GLFW_KEY_F: {
             if (sim.waypoints.empty() &&
                 !std::filesystem::exists(featureDbPath(sim.terrainFile))) {
                 std::cout << "Record camera waypoints in RECORD mode first"
                           << std::endl;
                 return true;
             }
-            setState(sim, std::make_unique<FeatureMatchState>(FeatureMatchState::promptCount()));
+            // Sequenced rather than nested in the make_unique call: as two
+            // arguments, the order they PRINT in would be unspecified.
+            const size_t features = FeatureMatchState::promptCount();
+            const std::optional<size_t> inliers = FeatureMatchState::promptMinInliers();
+            setState(sim, std::make_unique<FeatureMatchState>(features, inliers));
             std::cout << "Switched to FEATURE MATCH mode" << std::endl;
             if (sim.waypoints.empty())
                 std::cout << "FEATURES: no recorded views -- Ctrl+O loads the saved"
                              " database, and the views it was built from come back"
                              " with it" << std::endl;
             return true;
+        }
     }
 
     return false;

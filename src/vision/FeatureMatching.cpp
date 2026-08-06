@@ -10,10 +10,10 @@
 
 #include "Pnp.h"   // computeCameraPoseRansac
 
-// The detector works on intensity; collapse the captured RGB to grayscale. The wrap
-// constructor shares frame's bytes (no copy); cvtColor writes a fresh gray
-// Mat, so the frame is never modified (the const_cast is only because cv::Mat's
-// wrap constructor has no const overload).
+// The detector works on intensity; collapse the captured RGB to grayscale. The
+// wrap constructor shares frame's bytes and cvtColor writes a fresh Mat, so the
+// frame is never modified -- the const_cast is only because cv::Mat's wrap
+// constructor has no const overload.
 static cv::Mat toGray(const FramePixels &frame)
 {
     cv::Mat rgb(frame.height, frame.width, CV_8UC3,
@@ -24,19 +24,13 @@ static cv::Mat toGray(const FramePixels &frame)
 }
 
 // The one detection entry for every phase: matching compares pre-phase and
-// run-phase descriptors, so they must be computed identically -- routing every
-// detection through here makes that structural, not a convention.
+// run-phase descriptors, so routing every detection through here makes their
+// being computed identically structural rather than a convention.
 //
-// SIFT, not ORB, and the choice is measured, not taste. This terrain has no
-// texture -- every feature is a shading gradient -- and ORB's descriptor, 256
-// binary brightness comparisons, collapses on exactly that imagery: the
-// distance between "the same place seen again" and "a different ridge that
-// looks alike" stops separating. Two hand-built databases measured it. With
-// the acceptance cap at 96 bits the matcher claimed 22-28 of 30 places in
-// every frame; tightened to 64 it still claimed 25-34 of 48 with as few as
-// ONE place actually on screen. No threshold works when the bands overlap.
-// SIFT's 128 gradient-orientation histograms are the standard remedy for
-// smooth gradient imagery, and it is on the course brief's tool list.
+// SIFT, not ORB, by measurement. This terrain has no texture -- every feature
+// is a shading gradient -- and ORB's binary brightness comparisons stop
+// separating "the same place again" from "a lookalike ridge" on that imagery,
+// at any threshold. (Numbers: docs/pose-estimation-modes.md, "Run-phase (B)")
 void detectAllFeatures(const FramePixels &frame,
                        std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
 {
@@ -44,14 +38,12 @@ void detectAllFeatures(const FramePixels &frame,
     sift->detectAndCompute(toGray(frame), cv::noArray(), keypoints, descriptors);
 }
 
-// SIFT descriptors are 128 floats, normalised by OpenCV so unrelated pairs sit
-// around 400-500 apart (L2) and genuine re-sightings under a moderate
-// viewpoint change land well under 300. The cap is the pipeline's only
-// absolute quality bar (the cross-check is relative), and it also gates which
-// detections may join a place as a new appearance (resemblesAnchoredPoint),
-// so what the database stores and what it accepts at match time are one
-// standard. Every capture prints the accepted distances -- read them against
-// this number before turning it.
+// Unrelated SIFT pairs sit around 400-500 apart (L2); genuine re-sightings
+// under a moderate viewpoint change land well under 300. The pipeline's only
+// absolute quality bar -- the cross-check is relative -- and the same bar
+// resemblesAnchoredPoint uses, so what the database stores and what it accepts
+// at match time are one standard. Every capture prints the accepted distances;
+// read them against this number before turning it.
 static constexpr float kMaxDescriptorDistance = 250.0f;
 
 void detectSpreadFeatures(const FramePixels &frame, int maxCount,
@@ -66,31 +58,29 @@ void detectSpreadFeatures(const FramePixels &frame, int maxCount,
     if (allKps.empty() || maxCount <= 0)
         return;
 
-    // Rank by SIFT response (contrast of the scale-space extremum): the
-    // strongest keypoints are the most repeatable, and the ones a user would
-    // naturally single out.
+    // Rank keypoint INDICES by SIFT response (contrast of the scale-space
+    // extremum) -- iota fills 0..N-1, the sort puts the strongest first. Those
+    // are the most repeatable, and the ones a user would single out anyway.
     std::vector<size_t> order(allKps.size());
     std::iota(order.begin(), order.end(), size_t(0));
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
         return allKps[a].response > allKps[b].response;
     });
 
-    // A keypoint on the frame's rim is a poor anchor: half its surroundings are
-    // off-screen, so its 3D spot is hard to recognise on the map, and it drops
-    // out of view under the smallest camera move.
+    // A rim keypoint is a poor anchor: half its surroundings are off-screen, so
+    // its 3D spot is hard to recognise on the map, and it drops out of view
+    // under the smallest camera move.
     const float margin = 16.0f;
 
-    // The spacing maxCount points would have if they tiled the frame evenly,
-    // pulled in a little so a set that is merely well-spread still fills the
-    // quota. Then walk the ranking and take a keypoint only when it is that far
-    // from everything already taken -- strongest first, so the spread is paid
-    // for with the weaker of any two crowded keypoints.
+    // What maxCount points would have if they tiled the frame evenly, pulled in
+    // a little so a merely well-spread set still fills the quota. A keypoint is
+    // then taken only when it is that far from everything already taken.
     float radius = 0.8f * std::sqrt((float)frame.width * (float)frame.height /
                                     (float)maxCount);
 
     // A cramped or feature-poor frame may not have maxCount points that far
-    // apart. Rather than return a short set, relax and retry: a smaller spread
-    // is still better than the cluster the ranking alone would give.
+    // apart. Relax and retry rather than return a short set: a tighter spread
+    // still beats the cluster the ranking alone would give.
     std::vector<size_t> chosen;
     for (int attempt = 0; attempt < 3 && (int)chosen.size() < maxCount; attempt++, radius *= 0.5f) {
         chosen.clear();
@@ -100,10 +90,11 @@ void detectSpreadFeatures(const FramePixels &frame, int maxCount,
                 pt.x > (float)frame.width - margin || pt.y > (float)frame.height - margin)
                 continue;
 
-            bool clear = true;
-            for (size_t j : chosen)
-                clear = clear && cv::norm(allKps[j].pt - pt) >= radius;
-            if (!clear)
+            const bool crowded = std::any_of(chosen.begin(), chosen.end(),
+                                             [&](size_t j) {
+                                                 return cv::norm(allKps[j].pt - pt) < radius;
+                                             });
+            if (crowded)
                 continue;
 
             chosen.push_back(i);
@@ -119,17 +110,22 @@ void detectSpreadFeatures(const FramePixels &frame, int maxCount,
     }
 }
 
-bool resemblesAnchoredPoint(const FeatureDb &db, const glm::vec3 &place,
-                            const cv::Mat &descriptor)
+bool hasAppearanceWithin(const FeatureDb &db, const glm::vec3 &place,
+                         const cv::Mat &descriptor, double maxDistance)
 {
     for (size_t i = 0; i < db.anchors.size(); i++) {
         if (db.anchors[i] != place)
             continue;
-        if (cv::norm(db.descriptors.row((int)i), descriptor, cv::NORM_L2)
-                <= kMaxDescriptorDistance)
+        if (cv::norm(db.descriptors.row((int)i), descriptor, cv::NORM_L2) <= maxDistance)
             return true;
     }
     return false;
+}
+
+bool resemblesAnchoredPoint(const FeatureDb &db, const glm::vec3 &place,
+                            const cv::Mat &descriptor)
+{
+    return hasAppearanceWithin(db, place, descriptor, kMaxDescriptorDistance);
 }
 
 std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePixels &frame)
@@ -146,35 +142,20 @@ std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePi
         return correspondences;
     }
 
-    // DATABASE -> FRAME, cross-checked. For each stored appearance: where is it
-    // in this view, and does that keypoint agree that this is its best match?
+    // DATABASE -> FRAME, cross-checked; the header explains why that direction.
     //
-    // The direction matters. Asked the other way round -- once per keypoint --
-    // a 20-row database can answer "yes" 140 times, claiming one anchor is in
-    // dozens of places at once and handing PnP a set of contradictions to build
-    // a consensus from.
-    //
-    // Cross-checking replaces Lowe's ratio test, which is the wrong tool for
-    // this scene. The ratio test asks whether the best match beats the SECOND
-    // best in the same image, so it only passes where a feature is locally
-    // unique. This terrain's appearance is shading, not texture: every ridge
-    // shoulder looks like every other ridge shoulder, second-best is nearly as
-    // good almost everywhere, and the test throws out true matches wholesale --
-    // measured on a hand-built database it kept 1 to 4 of the 10 to 15 anchors
-    // that were genuinely in frame. Mutual agreement asks something the scene
-    // can actually answer, keeps the one-correspondence-per-anchor property the
-    // ratio test was brought in for (and adds one-per-keypoint), and leaves the
-    // outlier rejection to RANSAC, where it belongs.
+    // Cross-checking rather than Lowe's ratio test: the ratio test only passes
+    // where a feature is locally unique, and on shading-driven terrain every
+    // ridge shoulder resembles every other, so it discarded most of the anchors
+    // genuinely in frame. Mutual agreement leaves outlier rejection to RANSAC.
     cv::BFMatcher matcher(cv::NORM_L2, /*crossCheck=*/true);
     std::vector<cv::DMatch> matches;
     matcher.match(db.descriptors, descriptors, matches);
 
-    // One correspondence per PLACE. `anchors` repeats a 3D point once per
-    // appearance stored for it, so two rows of the same place can win two
-    // different keypoints -- a contradiction PnP would quietly average. Keep
-    // whichever appearance matched more closely.
+    // One correspondence per PLACE -- the closest match wins.
     std::vector<float> bestDistance;   // parallel to correspondences
     for (const cv::DMatch &match : matches) {
+        // A cross-checked match is still only a nearest neighbour.
         if (match.distance > kMaxDescriptorDistance)
             continue;
 
@@ -183,13 +164,18 @@ std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePi
         const Correspondence pair{ place,   // keypoint pixel -> the [0,1] fraction
                                    glm::vec2(pt.x / frame.width, pt.y / frame.height) };
 
-        size_t existing = correspondences.size();
-        for (size_t i = 0; i < correspondences.size(); i++)
+        // This place's slot, if it has one: `anchors` repeats a point once per
+        // appearance, so several rows can answer for the same place.
+        size_t existing = correspondences.size();   // one past the end = no slot yet
+        for (size_t i = 0; i < correspondences.size(); i++) {
             if (correspondences[i].worldPos == place) {
                 existing = i;
                 break;
             }
+        }
 
+        // Keeping both would put one place at two pixels -- a contradiction
+        // PnP would quietly average.
         if (existing == correspondences.size()) {
             correspondences.push_back(pair);
             bestDistance.push_back(match.distance);
@@ -199,9 +185,8 @@ std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePi
         }
     }
 
-    // The accepted distances are the calibration readout for the cap above: a
-    // healthy capture reads tight (well under the cap); a median hugging the
-    // cap means the list is best-of-noise again.
+    // The calibration readout for the cap above: a healthy capture reads tight,
+    // a median hugging the cap means the list is best-of-noise.
     if (correspondences.empty()) {
         std::cout << "FEATURES: 0 anchors matched (from " << keypoints.size()
                   << " keypoints in the frame)" << std::endl;
@@ -219,41 +204,25 @@ std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePi
 std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
                                                  const FramePixels &frame,
                                                  float fov, int viewportWidth,
-                                                 int viewportHeight)
+                                                 int viewportHeight,
+                                                 std::optional<size_t> minInliers)
 {
     const std::vector<Correspondence> correspondences = matchFeaturesToDb(db, frame);
 
-    // Consensus floor: a quarter of what this frame claims to see must agree on
-    // one pose. A fixed number cannot fit both ends -- 6 is a high bar for a
-    // 20-anchor hand-build and a trivial one for a machine-built database of
-    // thousands -- but scaling it to the DATABASE would be worse: a frame only
-    // ever sees the anchors of the views near it, so any fraction of the total
-    // becomes unmeetable as soon as the database covers more views than one
-    // frame can contain. A fraction of the matches is the same demand at every
-    // size and is never impossible by construction.
-    //
-    // A quarter rather than a half because cross-checked matches include the
-    // out-of-frame anchors that found a plausible-looking home anyway; demanding
-    // that half of everything agree penalises a view for matches it was never
-    // going to be able to use.
-    //
-    // The floor sits one above PnP's algebraic minimum: RANSAC fits each
-    // candidate on a 4-point sample that always votes for itself, so 4
-    // inliers carry no evidence at all and 5 means one independent witness.
-    // Five rather than the safer six by measurement -- genuine poses at
-    // recorded views (7 matches, median descriptor distance 0) were refused
-    // "5 of 7 agree, need 6", one vote short. The risk a junk five-strong
-    // coalition slips through is carried by the tight reprojection gate and
-    // by the caller's plausibility checks on the estimate (position bound,
-    // and that the camera actually looks at terrain).
-    const int minInliers = std::clamp((int)correspondences.size() / 4, 5, 25);
-    if ((int)correspondences.size() < minInliers) {
-        std::cout << "FEATURES: not enough to solve -- " << minInliers
+    // The default is a quarter of what this frame MATCHED, not of the database
+    // -- a frame only sees the anchors of the views near it, so any fraction of
+    // the total becomes unmeetable once the database outgrows one frame. What
+    // the floor gives up in caution is carried by the reprojection gate and by
+    // the caller's plausibility check on the estimate.
+    const size_t consensus = std::clamp(minInliers.value_or(correspondences.size() / 4),
+                                        kMinConsensus, kMaxConsensus);
+    if (correspondences.size() < consensus) {
+        std::cout << "FEATURES: not enough to solve -- " << consensus
                   << " agreeing matches are needed; move toward the anchored views"
                   << std::endl;
         return std::nullopt;
     }
 
     return computeCameraPoseRansac(correspondences, fov,
-                                   viewportWidth, viewportHeight, minInliers);
+                                   viewportWidth, viewportHeight, (int)consensus);
 }

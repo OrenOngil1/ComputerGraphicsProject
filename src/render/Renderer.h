@@ -113,12 +113,10 @@ public:
     FramePixels captureSceneFrame(const View &view, const DirectionalLight &light);
 
     // The same capture rendered offscreen at an explicit size, independent of
-    // the window. SIFT descriptors shift when the same scene is rasterised at
-    // a different resolution, so a database is only ever exact against frames
-    // of the size it was built at -- measured as a 0.7 -> 4.0 unit Ctrl+B
-    // regression on an identical database when the window differed between
-    // sessions. The feature-matching run phase captures at the database's
-    // recorded size through this, so the window may be anything.
+    // the window. SIFT descriptors shift when the same scene is rasterised at a
+    // different resolution, so a database is only ever exact against frames of
+    // the size it was built at. The feature-matching run phase captures at the
+    // database's recorded size through this, so the window may be anything.
     FramePixels captureSceneFrameAt(int width, int height, const Camera &camera,
                                     const DirectionalLight &light);
 
@@ -138,7 +136,7 @@ private:
     // background the flat clear color. Returns the MVP for the overlays.
     glm::mat4 renderScene(const Camera &camera, const Viewport &viewport,
                           const DirectionalLight &light,
-                          std::optional<size_t> skyPreset);
+                          std::optional<size_t> skyPreset = std::nullopt);
 
     // Read the viewport's back-buffer pixels into image-convention RGB (rows
     // flipped top-down, packing forced tight). Shared tail of every capture.

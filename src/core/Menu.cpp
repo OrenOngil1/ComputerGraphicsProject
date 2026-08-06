@@ -46,12 +46,13 @@ static void discardPendingInput()
 }
 #endif
 
-// One line -> number in [1, max]; nullopt on anything else.
-static std::optional<size_t> parseCount(const std::string &line, size_t max)
+// One line -> number in [min, max]; nullopt on anything else. The sign test
+// comes before the cast: a negative would wrap to a huge size_t and pass.
+static std::optional<size_t> parseCount(const std::string &line, size_t min, size_t max)
 {
     try {
         const int n = std::stoi(line);
-        if (n >= 1 && (size_t)n <= max)
+        if (n >= 0 && (size_t)n >= min && (size_t)n <= max)
             return (size_t)n;
     } catch (...) {}   // stoi: not a number at all
     return std::nullopt;
@@ -104,7 +105,7 @@ std::optional<std::string> selectTerrain(const std::string &dir)
             std::cout << "Exiting..." << std::endl;
             return std::nullopt;
         }
-        if (const std::optional<size_t> n = parseCount(line, files.size())) {
+        if (const std::optional<size_t> n = parseCount(line, 1, files.size())) {
             choice = *n;
             break;
         }
@@ -129,9 +130,24 @@ size_t promptCount(const std::string &label, size_t max, size_t fallback)
     std::string line;
     if (!std::getline(std::cin, line) || line.empty())
         return fallback;
-    if (const std::optional<size_t> n = parseCount(line, max))
+    if (const std::optional<size_t> n = parseCount(line, 1, max))
         return *n;
 
     std::cout << "Invalid count -- using " << fallback << std::endl;
     return fallback;
+}
+
+std::optional<size_t> promptOptionalCount(const std::string &label, size_t min, size_t max)
+{
+    discardPendingInput();
+    std::cout << label << " (" << min << "-" << max << ", Enter = auto): ";
+
+    std::string line;
+    if (!std::getline(std::cin, line) || line.empty())
+        return std::nullopt;
+    if (const std::optional<size_t> n = parseCount(line, min, max))
+        return n;
+
+    std::cout << "Invalid count -- using auto" << std::endl;
+    return std::nullopt;
 }
