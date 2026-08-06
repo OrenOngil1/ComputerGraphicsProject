@@ -73,8 +73,8 @@ void FeatureMatchState::onEnter(Simulation &sim)
               << "right-drag = rotate.\n"
               << "               Then " << kCaptureHelp
               << ". Ctrl+S saves the database, Ctrl+O loads it back. Ctrl+G auto-builds"
-              << " and saves one (arc path, simulated aim error) when you just need"
-              << " a database to test against." << std::endl;
+              << " and saves one (high survey circle, simulated aim error) when you"
+              << " just need a database to test against." << std::endl;
 }
 
 // Pose the player camera at the current build waypoint (so the right pane
@@ -152,12 +152,62 @@ void FeatureMatchState::refreshPlaces()
 // float noise.
 static constexpr double kIdenticalRowDistance = 1.0;
 
+// The keypoint closest to `pixel` within `radius`, or -1 when none reaches.
+static int nearestKeypointTo(const glm::vec2 &pixel,
+                             const std::vector<cv::KeyPoint> &keypoints, float radius)
+{
+    int nearest = -1;
+    float nearestDistance = radius;
+    for (size_t i = 0; i < keypoints.size(); i++) {
+        const float d = glm::length(glm::vec2(keypoints[i].pt.x, keypoints[i].pt.y) - pixel);
+        if (d < nearestDistance) {
+            nearestDistance = d;
+            nearest = (int)i;
+        }
+    }
+    return nearest;
+}
+
+// One view's contribution: project each place through the known pose, and store
+// the descriptor of the keypoint found there -- if one is close enough AND still
+// resembles the anchored point (otherwise this view is seeing something else
+// there, a ridge in front of it most often). `radius` is how far the projection
+// may miss its keypoint: big enough for SIFT's localisation slop and a
+// slightly-off anchor, small enough that it cannot reach a different feature.
+static void collectAppearancesInView(FeatureDb &db, const std::vector<glm::vec3> &places,
+                                     const Camera &camera, const Viewport &vp,
+                                     const std::vector<cv::KeyPoint> &keypoints,
+                                     const cv::Mat &descriptors, float radius)
+{
+    for (const glm::vec3 &place : places) {
+        if (!isInFrame(camera, vp, place))
+            continue;
+
+        const int nearest = nearestKeypointTo(rasterize(camera, vp, place),
+                                              keypoints, radius);
+        if (nearest < 0)
+            continue;
+        if (!resemblesAnchoredPoint(db, place, descriptors.row(nearest)))
+            continue;
+
+        // Idempotence: a load re-runs this pass, and the same view of the same
+        // place recomputes the same descriptor. Skipping rows the place already
+        // owns tops a database up instead of duplicating it.
+        if (hasAppearanceWithin(db, place, descriptors.row(nearest),
+                                kIdenticalRowDistance))
+            continue;
+
+        db.descriptors.push_back(descriptors.row(nearest));
+        db.anchors.push_back(place);
+    }
+}
+
 // Nothing is invented here: the recorded poses are exact and the anchor is the
 // user's own 3D point, so where it falls in another view is plain projection --
 // no mesh is read, no 3D is chosen by machine. The pass is self-limiting, which
-// is what keeps it that way: an appearance counts only if a keypoint sits within
-// `radius` of the projection AND still resembles the anchored descriptor, so a
-// misjudged depth gains nothing instead of poisoning the database.
+// is what keeps it that way: an appearance counts only if a keypoint sits near
+// the projection AND still resembles the anchored descriptor, so a misjudged
+// depth gains nothing instead of poisoning the database.
 // (docs/pose-estimation-modes.md, "Mode D")
 void FeatureMatchState::addOtherViewAppearances(Simulation &sim, Renderer &renderer)
 {
@@ -185,44 +235,8 @@ void FeatureMatchState::addOtherViewAppearances(Simulation &sim, Renderer &rende
         if (keypoints.empty())
             continue;
 
-        // How far the projection may miss its keypoint. Big enough for SIFT's
-        // own localisation slop and a slightly-off anchor, small enough that it
-        // cannot reach a different feature.
-        const float radius = std::max(6.0f, 0.01f * (float)frame.height);
-
-        for (const glm::vec3 &place : places) {
-            if (!isInFrame(camera, vp, place))
-                continue;
-
-            const glm::vec2 pixel = rasterize(camera, vp, place);
-
-            int nearest = -1;
-            float nearestDistance = radius;
-            for (size_t i = 0; i < keypoints.size(); i++) {
-                const float d = glm::length(glm::vec2(keypoints[i].pt.x, keypoints[i].pt.y) - pixel);
-                if (d < nearestDistance) {
-                    nearestDistance = d;
-                    nearest = (int)i;
-                }
-            }
-            if (nearest < 0)
-                continue;
-
-            // Must still look like the point the user anchored, or this view is
-            // seeing something else there -- a ridge in front of it, most often.
-            if (!resemblesAnchoredPoint(*m_db, place, descriptors.row(nearest)))
-                continue;
-
-            // Idempotence: a load re-runs this pass, and the same view of the
-            // same place recomputes the same descriptor. Skipping rows the
-            // place already owns tops a database up instead of duplicating it.
-            if (hasAppearanceWithin(*m_db, place, descriptors.row(nearest),
-                                    kIdenticalRowDistance))
-                continue;
-
-            m_db->descriptors.push_back(descriptors.row(nearest));
-            m_db->anchors.push_back(place);
-        }
+        collectAppearancesInView(*m_db, places, camera, vp, keypoints, descriptors,
+                                 std::max(6.0f, 0.01f * (float)frame.height));
     }
 
     std::cout << "FEATURES: " << places.size() << " placed points seen "
@@ -347,16 +361,18 @@ void FeatureMatchState::loadDatabase(Simulation &sim, Renderer &renderer)
 // actually supplies. Sized to what hand-built databases achieve.
 static constexpr float kSimulatedDepthErrorUnits = 4.0f;
 
-static constexpr size_t kDefaultAutoViews    = 8;    // arc stops
+static constexpr size_t kDefaultAutoViews    = 12;   // circle stops: below ~12 the
+                                                     // azimuth step outgrows SIFT's
+                                                     // viewpoint tolerance
 static constexpr size_t kMaxAutoViews        = 20;
 static constexpr size_t kDefaultAutoFeatures = 10;   // denser than the manual default:
                                                      // clicks are free here
 
-// The auto path: arc span, and the orbit radius / flight altitude as fractions
-// of the terrain's width.
-static constexpr float kAutoArcSpanDegrees       = 120.0f;
-static constexpr float kAutoPathRadiusFraction   = 0.30f;
-static constexpr float kAutoPathAltitudeFraction = 0.25f;
+// The auto path: a survey circle's orbit radius, flight altitude, and how far
+// past the centre each stop aims, as fractions of the terrain's width.
+static constexpr float kAutoPathRadiusFraction   = 0.22f;
+static constexpr float kAutoPathAltitudeFraction = 0.50f;
+static constexpr float kAutoAimOvershootFraction = 0.17f;
 
 // The canonical frame size an auto build pins its database to.
 static constexpr int kAutoCaptureWidth  = 1280;
@@ -371,10 +387,43 @@ static constexpr float kReachLimitFraction = 1.25f;
 static constexpr float kRimMarginPx        = 16.0f;
 static constexpr int   kSpacingRetries     = 3;
 
+// One raycast per keypoint: its sight ray, how far along that ray the terrain
+// is, and the world hit where that ground is anchorable. Selection reads the
+// hits; anchoring reads the ray and the depth. hits[i] is empty where keypoint
+// i has no anchorable ground under it (the ray missed, or the surface is past
+// the reach limit -- grazing-angle mush whose keypoints are not repeatable).
+struct KeypointGround {
+    std::vector<glm::vec3>                directions;
+    std::vector<std::optional<float>>     depths;
+    std::vector<std::optional<glm::vec3>> hits;
+};
+
+static KeypointGround raycastKeypointGround(const Simulation &sim, const Camera &camera,
+                                            const std::vector<cv::KeyPoint> &kps,
+                                            const FramePixels &frame, float aspect,
+                                            float step, float reachLimit)
+{
+    KeypointGround ground;
+    ground.directions.resize(kps.size());
+    ground.depths.resize(kps.size());
+    ground.hits.resize(kps.size());
+    for (size_t i = 0; i < kps.size(); i++) {
+        const glm::vec2 fraction(kps[i].pt.x / frame.width,
+                                 kps[i].pt.y / frame.height);
+        ground.directions[i] = rayDirection(camera, fractionToRay(fraction, camera.fov,
+                                                                  aspect));
+        ground.depths[i] = raycastTerrain(sim.mesh, camera.position, ground.directions[i],
+                                          3.0f * sim.terrainSize, step);
+        if (ground.depths[i] && *ground.depths[i] <= reachLimit)
+            ground.hits[i] = camera.position + ground.directions[i] * *ground.depths[i];
+    }
+    return ground;
+}
+
 // The keypoints one view contributes, strongest first: taken only when its
 // terrain hit is at least `spacing` from every hit already taken -- this view's
 // and `taken`, every earlier view's -- so later views are pushed onto unclaimed
-// ground and the arc's union covers the sector.
+// ground and the circle's union covers the map.
 //
 // Spacing is judged on the MAP, not in the frame: perspective squeezes most of
 // the terrain into a frame's upper half, so pixel-uniform picks pile onto the
@@ -434,6 +483,41 @@ static std::vector<size_t> selectSpacedAnchors(
     return picked;
 }
 
+// The path: a full circle flown HIGH, each stop aimed at a ground point PAST
+// the centre. Height is what makes a circle legal at all: a low ring's azimuth
+// steps (36 degrees at 10 stops) blow SIFT's ~15-20 degree viewpoint budget
+// and nothing matches across them, but from high up a step is mostly an
+// IN-PLANE rotation of the same picture, which SIFT absorbs by design -- the
+// harmful out-of-plane residue, 2*asin(sin(step/2)*sin(tilt)), is ~18 degrees
+// at 12 stops and this tilt, shrinking with every extra stop (hence the
+// 12-view default and the warning below it). The past-centre aim stretches
+// each stop's footprint from its own nadir across the middle to the far edge,
+// so the strips fan around the compass and their union covers essentially the
+// whole map. (docs/pose-estimation-modes.md, "Ctrl+G")
+static void layOutSurveyCircle(Simulation &sim, size_t views)
+{
+    const float tau       = 6.28318530718f;
+    const float radius    = kAutoPathRadiusFraction    * sim.terrainSize;
+    const float altitude  = kAutoPathAltitudeFraction  * sim.terrainSize;
+    const float overshoot = kAutoAimOvershootFraction  * sim.terrainSize;
+
+    if (views < kDefaultAutoViews)
+        std::cout << "FEATURES: note -- with fewer than ~" << kDefaultAutoViews
+                  << " stops a circle's azimuth steps outgrow SIFT's viewpoint"
+                     " tolerance; expect weaker cross-view collection" << std::endl;
+
+    sim.waypoints.clear();
+    sim.pathPoints.clear();
+    for (size_t i = 0; i < views; i++) {
+        const float angle = tau * (float)i / (float)views;
+        const glm::vec3 out(std::cos(angle), 0.0f, std::sin(angle));
+        sim.waypoints.push_back({ out * radius + glm::vec3(0.0f, altitude, 0.0f),
+                                  -out * overshoot });
+        sim.pathPoints.push_back(sim.waypoints.back().position);
+    }
+    sim.pathPoints.push_back(sim.waypoints.front().position);   // close the ring on the map
+}
+
 void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
 {
     const size_t views    = ::promptCount("Auto-path waypoints", kMaxAutoViews,
@@ -441,23 +525,7 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     const size_t features = ::promptCount("Features per view", kMaxFeatures,
                                           kDefaultAutoFeatures);
 
-    // An ARC around the terrain's middle, not a full ring: on a ring,
-    // neighbouring views of the same spot sit ~36 degrees apart, past SIFT's
-    // ~15-20 degree tolerance on 3D relief, and nothing matches across them.
-    // (docs/pose-estimation-modes.md, "Ctrl+G")
-    const float arcSpan  = glm::radians(kAutoArcSpanDegrees);
-    const float radius   = kAutoPathRadiusFraction * sim.terrainSize;
-    const float altitude = kAutoPathAltitudeFraction * sim.terrainSize;
-
-    sim.waypoints.clear();
-    sim.pathPoints.clear();
-    for (size_t i = 0; i < views; i++) {
-        const float t     = views > 1 ? (float)i / (float)(views - 1) : 0.5f;
-        const float angle = (t - 0.5f) * arcSpan;
-        const glm::vec3 eye(radius * std::cos(angle), altitude, radius * std::sin(angle));
-        sim.waypoints.push_back({ eye, glm::vec3(0.0f) });
-        sim.pathPoints.push_back(eye);
-    }
+    layOutSurveyCircle(sim, views);
 
     // Same lifecycle as startBuild: fresh database, any build in progress
     // discarded. The capture resolution does NOT follow the window here -- with
@@ -500,36 +568,21 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
         if (kps.empty())
             continue;
 
-        // One raycast per keypoint: its sight ray, and how far along that ray
-        // the terrain is. Selection reads the world hits, anchoring reads the
-        // ray and the depth.
-        std::vector<glm::vec3>                directions(kps.size());
-        std::vector<std::optional<float>>     depths(kps.size());
-        std::vector<std::optional<glm::vec3>> hits(kps.size());
-        for (size_t i = 0; i < kps.size(); i++) {
-            const glm::vec2 fraction(kps[i].pt.x / frame.width,
-                                     kps[i].pt.y / frame.height);
-            directions[i] = rayDirection(camera, fractionToRay(fraction, camera.fov,
-                                                               vp.aspect()));
-            depths[i] = raycastTerrain(sim.mesh, camera.position, directions[i],
-                                       3.0f * sim.terrainSize, step);
-            // Anchorable ground only: past the reach limit the surface is
-            // grazing-angle mush and its keypoints are not repeatable.
-            if (depths[i] && *depths[i] <= reachLimit)
-                hits[i] = camera.position + directions[i] * *depths[i];
-        }
+        const KeypointGround ground = raycastKeypointGround(sim, camera, kps,
+                                                            frame, vp.aspect(),
+                                                            step, reachLimit);
 
         // The simulated clicks: each chosen sight line's true depth, disturbed
         // by aim error. A "human" whose error aimed behind the camera skips the
         // suggestion, as pressing X would.
-        for (size_t i : selectSpacedAnchors(kps, hits, taken, features, idealSpacing,
-                                            frame.width, frame.height)) {
-            const float judged = *depths[i] + aim(rng);
+        for (size_t i : selectSpacedAnchors(kps, ground.hits, taken, features,
+                                            idealSpacing, frame.width, frame.height)) {
+            const float judged = *ground.depths[i] + aim(rng);
             if (judged <= 0.0f)
                 continue;
             m_db->descriptors.push_back(desc.row((int)i));
-            m_db->anchors.push_back(camera.position + directions[i] * judged);
-            taken.push_back(*hits[i]);
+            m_db->anchors.push_back(camera.position + ground.directions[i] * judged);
+            taken.push_back(*ground.hits[i]);
         }
     }
 
@@ -544,10 +597,13 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     addOtherViewAppearances(sim, renderer);
     refreshPlaces();
     std::cout << "FEATURES: auto-built " << placed << " points from "
-              << sim.waypoints.size() << " views on an arc (map spacing ~"
+              << sim.waypoints.size() << " views on a high survey circle (map spacing ~"
               << (int)idealSpacing << " units; simulated aim error sigma "
               << kSimulatedDepthErrorUnits << " units along the sight line). "
               << kCaptureHelp << std::endl;
+    std::cout << "FEATURES: recognition is strongest from viewpoints like the"
+                 " orbit's own -- fly near the grey ring, high, looking across"
+                 " the middle" << std::endl;
     saveDatabase(sim);
 }
 

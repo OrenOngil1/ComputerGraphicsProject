@@ -165,15 +165,24 @@ an older file holding only the hand-placed rows is topped up rather than
 re-placed, and a current file passes through unchanged.
 
 **Ctrl+G — the automated stand-in** (`autoBuild`). Prompts for a waypoint
-count and features per view, lays an **arc** of views (120°) around the
-terrain's middle, runs the whole build without the human, and saves. An arc
-rather than a full ring, by measurement: a 10-stop ring puts 36° between
-neighbouring views of the same spot, past SIFT's ~15–20° viewpoint tolerance
-on relief — collection found 6 appearances across 100 points and free flight
-matched only noise — while the arc's ~13° steps reproduce the geometry of
-every manual corridor that worked. Auto builds also capture at a canonical
-1280×720 rather than adopting the window (there are no on-screen markers to
-stay aligned with), so a small pane cannot quietly starve SIFT of keypoints.
+count and features per view, lays a **high survey circle** — stops on a full
+ring at half a terrain-size of altitude, each aimed at a ground point *past*
+the centre — runs the whole build without the human, and saves. The geometry
+is what makes a circle legal: neighbouring views of one spot may differ by at
+most SIFT's ~15–20° viewpoint tolerance, and a low 10-stop ring blows that
+budget on the azimuth step alone (36° — measured: 6 collected appearances
+across 100 points, free flight matched only noise). From high up, though, an
+azimuth step is mostly an **in-plane rotation** of the same picture, which
+SIFT absorbs by design; the harmful out-of-plane residue is
+`2·asin(sin(step/2)·sin(tilt))` ≈ 18° at 12 stops and ~38° of tilt — inside
+the budget, shrinking with every extra stop (hence the 12-view default).
+Aiming past the centre stretches each footprint from the stop's own nadir
+across the middle to the far edge, so the strips fan around the compass and
+their union reaches essentially the whole map. Recognition is therefore
+strongest from viewpoints like the orbit's own: fly near the ring, high,
+looking across the middle. Auto builds also capture at a canonical 1280×720
+rather than adopting the window (there are no on-screen markers to stay
+aligned with), so a small pane cannot quietly starve SIFT of keypoints.
 And unlike the manual suggestions, which spread across the *frame*, the
 auto-builder spreads its picks across the *map*: perspective squeezes most of
 the terrain into a frame's upper half, so pixel-uniform picks pile up near
@@ -443,7 +452,7 @@ worth knowing when reading the numbers.
 | U | FEATURE MATCH build | undo the last anchor placed in this view |
 | Ctrl+S | FEATURE MATCH run-phase | save the database (+ waypoints) to `captures/` |
 | Ctrl+O | FEATURE MATCH run-phase | load it back (with its recorded views; works on a fresh run) |
-| Ctrl+G | FEATURE MATCH | auto-build and save a database: arc path, simulated aim error (a test-database generator; G remains the mode) |
+| Ctrl+G | FEATURE MATCH | auto-build and save a database: high survey circle, simulated aim error (a test-database generator; G remains the mode) |
 | click | PICK | pick a 2D–3D correspondence |
 | X | PICK | cancel the pending 2D pick |
 | U | PICK | undo the last completed correspondence |
