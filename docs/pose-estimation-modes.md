@@ -78,10 +78,11 @@ colors, not from deleting the terrain before looking at it.
 ## Mode D — Feature Matching (`F`, requires recorded waypoints)
 
 No markers; the salient points come from SIFT features
-(`src/vision/FeatureMatching.cpp`; SIFT rather than ORB, and the switch was
-forced by measurement — see the run-phase section). Like Mode B, the 2D→3D
+(`src/vision/FeatureMatching.cpp`; SIFT rather than ORB, a choice forced by
+measurement — see the run-phase section). Like Mode B, the 2D→3D
 correspondence is **manual** — SIFT only *suggests* where to look; the user
-supplies the 3D. `F` prompts for the number of features per view (default 8).
+supplies the 3D. `F` prompts for the number of features per view (default 8)
+and for a fixed consensus floor (plain Enter keeps the automatic rule).
 Two phases:
 
 **Pre-phase (G) — interactive, by hand.** The build steps through each recorded

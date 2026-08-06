@@ -21,7 +21,7 @@ public:
     // loadTerrain has been called first, which the session loop guarantees.
     Renderer();
 
-    // Non-copyable: owns raw GL object ids.
+    // Non-copyable: sole owner of the GPU resources.
     Renderer(const Renderer &) = delete;
     Renderer &operator=(const Renderer &) = delete;
 
@@ -134,8 +134,8 @@ private:
 
     // Shared per-view pass: set the viewport, draw the lit terrain, then the
     // sky when a preset index is given -- the visible views pass the active
-    // preset, the feature-matching capture passes nullopt to keep its
-    // background the flat clear color. Returns the MVP for the overlays.
+    // preset; the captures leave it defaulted so their background stays the
+    // flat clear color. Returns the MVP for the overlays.
     glm::mat4 renderScene(const Camera &camera, const Viewport &viewport,
                           const DirectionalLight &light,
                           std::optional<size_t> skyPreset = std::nullopt);

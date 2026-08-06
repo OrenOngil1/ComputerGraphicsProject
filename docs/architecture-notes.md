@@ -65,16 +65,19 @@ quit. All three unwind normally, so destructors run. No global state.
   - `Random.h` — `randomIndex(n)`.
 - `src/render/Renderer.{h,cpp}` — **sole owner of GPU resources**: three
   `Shader`s (scene, pick, point), two `GpuMesh`es (`m_terrain`, swapped per
-  DEM; `m_sphere`, the unit sphere every tracker draw reuses), and the
-  `SkyPass`. The sky draws after the terrain but before the overlays, and only
-  in the visible views — the vision captures and the pick pass never see it.
+  DEM; `m_sphere`, the unit sphere every tracker draw reuses), the `SkyPass`,
+  and the `OverlayBatch` every overlay draws through. The sky draws after the
+  terrain but before the overlays, and only in the visible views — the vision
+  captures and the pick pass never see it.
   Public surface:
   the two per-view draws, the overlay primitives (`drawPath`, `drawWaypoints`,
   `drawPoints`, `drawLines`, `drawTrackers`, `drawGhost`), the view aids
   (`drawViewCone`, `drawSightLines`), the color-pick pass
   (`pickVertex`), and the vision read-backs (`captureSceneFrame`,
-  `captureTrackersFrame`) — all capture passes render to the back buffer and
-  never swap, so they are invisible.
+  `captureTrackersFrame`, `captureSceneFrameAt`) — the first two render to the
+  back buffer and never swap, so they are invisible; the last renders to a
+  throwaway offscreen framebuffer at the feature database's own resolution,
+  independent of the window.
   The view cone is the one overlay drawn by `renderGlobalView` itself rather
   than by a `State`: "where is the player camera looking" is the same question
   in every mode, so hanging it off the global view keeps five states from
@@ -82,14 +85,18 @@ quit. All three unwind normally, so destructors run. No global state.
 - `src/render/GpuMesh.{h,cpp}` — the GPU-resident mesh bundle (VAO + VBO +
   IBO) and its builders (`uploadTerrain`, `buildSphereMesh`,
   `buildSkyboxCube`). Construction only; drawing stays in `Renderer`.
+- `src/render/OverlayBatch.{h,cpp}` — one persistent dynamic VAO/VBO shared by
+  all overlay geometry: the contents change every frame, the GPU storage does
+  not (it grows amortized, updates via `glBufferSubData`), so steady-state
+  frames allocate nothing on the GPU.
 - `src/render/PickEncoding.h` — both directions of the pick pass's id↔color
   packing, side by side in one header; the pick shader just passes the baked
   per-vertex attribute through, so the packing rule has a single home.
 - `src/render/SkyPass.{h,cpp}` — the per-preset skybox: its own shader, the
-  unit cube, and a lazy cache of GL cubemap textures (a preset whose skybox
-  fails to load warns once and keeps the clear-color sky). The one home of
-  manually managed GL texture lifetime; the asset root is injected at
-  construction, so no draw code composes paths.
+  unit cube, and a lazy cache of cubemap textures held by the RAII `GlTexture`
+  (a preset whose skybox fails to load warns once and keeps the clear-color
+  sky). The asset root is injected at construction, so no draw code composes
+  paths.
 - `src/state/` — one `State` subclass per mode (see below).
 - `src/input/`
   - `Callbacks.{h,cpp}` — GLFW glue: the callbacks, the transition machinery
