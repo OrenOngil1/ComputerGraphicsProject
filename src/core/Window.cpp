@@ -16,6 +16,41 @@ static void glfwErrorCallback(int code, const char *description)
     std::cerr << "GLFW error " << code << ": " << description << std::endl;
 }
 
+// ── Driver-side GL error reporting (KHR_debug) ────────────────
+// The extension is optional on a 3.3 context and the project's glad loader
+// does not cover it, so both the enums and the entry point are resolved here
+// at runtime; drivers without it are simply left with GLCall's polling.
+
+static const GLenum kDebugOutput               = 0x92E0;   // GL_DEBUG_OUTPUT
+static const GLenum kDebugOutputSynchronous    = 0x8242;   // GL_DEBUG_OUTPUT_SYNCHRONOUS
+static const GLenum kDebugSeverityNotification = 0x826B;   // GL_DEBUG_SEVERITY_NOTIFICATION
+
+static void APIENTRY glDebugLogger(GLenum /*source*/, GLenum type, GLuint id,
+                                   GLenum severity, GLsizei /*length*/,
+                                   const GLchar *message, const void * /*userParam*/)
+{
+    if (severity == kDebugSeverityNotification)
+        return;   // routine buffer-usage chatter
+    std::cerr << "GL debug (type 0x" << std::hex << type << ", id " << std::dec
+              << id << "): " << message << std::endl;
+}
+
+static void installGlDebugCallback()
+{
+    if (!glfwExtensionSupported("GL_KHR_debug"))
+        return;
+    using SetCallbackFn = void (APIENTRY *)(GLDEBUGPROC, const void *);
+    const auto setCallback = (SetCallbackFn)glfwGetProcAddress("glDebugMessageCallback");
+    if (!setCallback)
+        return;
+
+    glEnable(kDebugOutput);
+    // Synchronous: the callback fires inside the offending call, so a
+    // breakpoint in glDebugLogger lands on the culprit's stack.
+    glEnable(kDebugOutputSynchronous);
+    setCallback(glDebugLogger, nullptr);
+}
+
 // Init order is load-bearing:
 //   1. glfwInit                -- start the window system
 //   2. glfwWindowHint          -- request a 3.3 core context BEFORE create
@@ -56,6 +91,7 @@ Window::Window(int width, int height, const char *title)
     }
 
     glfwSetErrorCallback(glfwErrorCallback);
+    installGlDebugCallback();
 
     // Renderer/vendor tell a GPU-backed context from a software fallback
     // (e.g. "llvmpipe" under WSLg).

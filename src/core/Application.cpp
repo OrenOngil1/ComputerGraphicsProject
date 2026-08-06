@@ -9,6 +9,8 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
+#include <Debugger.h>   // GLCall
+
 #include "Menu.h"
 #include "../loader/TerrainLoader.h"
 #include "../input/Callbacks.h"
@@ -35,12 +37,12 @@ constexpr float kPlayerEyeSetback = 0.5f;    // ... at the near edge, looking in
 // Persistent GL state -- set once, applies to every draw call afterward.
 void configureGLState()
 {
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClearDepth(1.0f);
-    glDepthFunc(GL_LEQUAL);
-    glEnable(GL_DEPTH_TEST);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_BLEND);
+    GLCall(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
+    GLCall(glClearDepth(1.0f));
+    GLCall(glDepthFunc(GL_LEQUAL));
+    GLCall(glEnable(GL_DEPTH_TEST));
+    GLCall(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+    GLCall(glEnable(GL_BLEND));
 }
 
 // Place the two cameras relative to the terrain: the global camera looks down
