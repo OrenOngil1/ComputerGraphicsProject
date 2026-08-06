@@ -236,7 +236,9 @@ strained band, so poses came out either sub-3-unit or refused, nothing
 between. And deliberately no wider than the strained band needs, because on
 self-similar terrain the false matches are lookalike ridges that can assemble
 a rival consensus in any slack past the true error (measured at a 40 px gate:
-coalitions of 6–9 false pairs winning with poses hundreds of units off). The consensus floor is **a quarter of the matches** (clamped to 5–25)
+coalitions of 6–9 false pairs winning with poses hundreds of units off). The
+consensus floor defaults to **a quarter of the matches** (clamped to 5–25; the
+F-key prompt can pin it to a fixed value in that range)
 instead of a fixed number that is a high bar at 20 anchors and trivial at
 9 000. Scaled to the *matches* rather than the database, deliberately: a frame
 only sees the anchors of the views near it, so any fraction of the database

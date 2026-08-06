@@ -13,3 +13,7 @@ std::optional<std::string> selectTerrain(const std::string &dir);
 // anything that isn't a number in [1, max] falls back (plain Enter silently,
 // bad input with a message). Shared by the tracker- and feature-count prompts.
 size_t promptCount(const std::string &label, size_t max, size_t fallback);
+
+// Same prompt for a setting whose default is a RULE rather than a number:
+// "<label> (min-max, Enter = auto): ". nullopt means the caller's rule stands.
+std::optional<size_t> promptOptionalCount(const std::string &label, size_t min, size_t max);
