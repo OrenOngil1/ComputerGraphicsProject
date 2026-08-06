@@ -9,6 +9,10 @@ namespace overlay {
 
 // The true (recorded / captured) trajectory.
 inline const glm::vec3 truePathColor(0.0f, 0.0f, 1.0f);   // blue
+inline const float     pathWidth = 3.0f;                  // every drawn path (GL line px)
+
+// Waypoint dots on the recorded path (drawWaypoints). GL_POINTS px.
+inline const float waypointMarkerSize = 5.0f;
 
 // Everything that visualizes a PnP estimate: ghost terrain, estimated-pose
 // markers, computed fly-through path.

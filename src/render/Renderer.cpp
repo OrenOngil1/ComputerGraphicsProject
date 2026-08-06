@@ -10,17 +10,13 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#include <VertexArray.h>
-#include <VertexBuffer.h>
-#include <VertexBufferLayout.h>
-
 #include "PickEncoding.h"
 #include "../state/State.h"
 #include "../state/OverlayStyle.h"
 
 static void setupViewport(const Viewport &viewport)
 {
-    glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
+    GLCall(glViewport(viewport.x, viewport.y, viewport.width, viewport.height));
 }
 
 // How far to draw the player camera's view cone: out to where its center ray
@@ -43,6 +39,8 @@ static float viewConeReach(const Simulation &sim)
     return sim.terrainSize * 0.75f;
 }
 
+// Leaves the shader bound on return: callers reset their uniform state (u_Lit,
+// u_UseOverride) through it first, then unbind it themselves.
 static void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
 {
     shader.Bind();
@@ -50,6 +48,8 @@ static void drawMesh(const GpuMesh &gpu, Shader &shader, const glm::mat4 &mvp)
     gpu.va->Bind();
     gpu.ib->Bind();
     GLCall(glDrawElements(GL_TRIANGLES, gpu.indexCount, GL_UNSIGNED_INT, nullptr));
+    gpu.va->Unbind();
+    gpu.ib->Unbind();
 }
 
 // ── Renderer ──────────────────────────────────────────────────
@@ -92,7 +92,8 @@ void Renderer::drawMeshLit(const GpuMesh &gpu, const DirectionalLight &light,
 {
     applyLighting(light);
     drawMesh(gpu, m_sceneShader, mvp);
-    m_sceneShader.SetUniform1i("u_Lit", 0);
+    m_sceneShader.SetUniform1i("u_Lit", 0);   // unlit is the program's resting state
+    m_sceneShader.Unbind();
 }
 
 glm::mat4 Renderer::renderScene(const Camera &camera, const Viewport &viewport,
@@ -136,41 +137,22 @@ void Renderer::renderPlayerView(const View &view, const Simulation &sim)
 
 // ── Overlay drawing ───────────────────────────────────────────
 
-// Upload-and-draw a throwaway vertex batch (xyz + rgb interleaved). Overlay
-// contents change every frame, so no long-lived buffers: the destructors free
-// the GPU objects on return. Cheap for hundreds of points.
-static void drawVertexBatch(const std::vector<float> &verts, GLenum primitive, Shader &shader, const glm::mat4 &mvp)
-{
-    VertexArray va;
-    VertexBuffer vb(verts.data(), verts.size() * sizeof(float));
-
-    VertexBufferLayout layout;
-    layout.Push<float>(3);  // position
-    layout.Push<float>(3);  // color
-    va.AddBuffer(vb, layout);
-
-    shader.Bind();
-    shader.SetUniformMat4f("u_MVP", mvp);
-    va.Bind();
-    GLCall(glDrawArrays(primitive, 0, (GLsizei)(verts.size() / 6)));   // 6 floats per vertex
-}
-
 void Renderer::drawPath(const std::vector<glm::vec3> &pathPoints, const glm::vec3 &color,
                         const glm::mat4 &mvp)
 {
     if (pathPoints.empty()) return;
 
-    std::vector<float> verts;
-    verts.reserve(pathPoints.size() * 6);
+    m_overlayVerts.clear();
     for (const glm::vec3 &p : pathPoints) {
-        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
-        verts.push_back(color.r); verts.push_back(color.g); verts.push_back(color.b);
+        m_overlayVerts.push_back(p.x); m_overlayVerts.push_back(p.y); m_overlayVerts.push_back(p.z);
+        m_overlayVerts.push_back(color.r); m_overlayVerts.push_back(color.g); m_overlayVerts.push_back(color.b);
     }
 
-    GLCall(glLineWidth(3.0f));
+    GLCall(glLineWidth(overlay::pathWidth));
     GLCall(glDisable(GL_DEPTH_TEST));
-    drawVertexBatch(verts, GL_LINE_STRIP, m_sceneShader, mvp);
+    m_overlayBatch.draw(m_overlayVerts, GL_LINE_STRIP, m_sceneShader, mvp);
     GLCall(glEnable(GL_DEPTH_TEST));
+    GLCall(glLineWidth(1.0f));   // back to the GL default
 }
 
 void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
@@ -178,22 +160,22 @@ void Renderer::drawWaypoints(const std::vector<Waypoint> &waypoints,
 {
     if (waypoints.empty()) return;
 
-    std::vector<float> verts;
-    verts.reserve(waypoints.size() * 6);
+    m_overlayVerts.clear();
     for (const Waypoint &waypoint : waypoints) {
         const glm::vec3 &p = waypoint.position;
-        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
+        m_overlayVerts.push_back(p.x); m_overlayVerts.push_back(p.y); m_overlayVerts.push_back(p.z);
         // Exact float equality is safe: cameraPos was set by copying a
         // waypoint's position (Camera::applyPose), never recomputed.
         if (p == cameraPos) {
-            verts.push_back(0.0f); verts.push_back(1.0f); verts.push_back(0.0f); // green
+            m_overlayVerts.push_back(0.0f); m_overlayVerts.push_back(1.0f); m_overlayVerts.push_back(0.0f); // green
         } else {
-            verts.push_back(1.0f); verts.push_back(0.0f); verts.push_back(0.0f); // red
+            m_overlayVerts.push_back(1.0f); m_overlayVerts.push_back(0.0f); m_overlayVerts.push_back(0.0f); // red
         }
     }
 
-    GLCall(glPointSize(5.0f));
-    drawVertexBatch(verts, GL_POINTS, m_pointShader, mvp);
+    GLCall(glPointSize(overlay::waypointMarkerSize));
+    m_overlayBatch.draw(m_overlayVerts, GL_POINTS, m_pointShader, mvp);
+    GLCall(glPointSize(1.0f));   // back to the GL default
 }
 
 // ── Color picking ─────────────────────────────────────────────
@@ -220,6 +202,7 @@ void Renderer::renderPickPass(const Camera &camera, const Viewport &viewport)
 
     setupViewport(viewport);
     drawMesh(m_terrain, m_pickShader, viewProjection(camera, viewport));
+    m_pickShader.Unbind();
 }
 
 int Renderer::pickVertex(int mouseX, int mouseY, const View &view)
@@ -250,6 +233,7 @@ void Renderer::drawMeshFlat(const GpuMesh &gpu, const glm::vec4 &fill, float tin
     drawMesh(gpu, m_sceneShader, mvp);
 
     m_sceneShader.SetUniform1i("u_UseOverride", 0);
+    m_sceneShader.Unbind();
 }
 
 void Renderer::drawGhost(const Camera &estimatedCamera, const Viewport &viewport,
@@ -337,46 +321,67 @@ FramePixels Renderer::captureSceneFrame(const View &view, const DirectionalLight
     return readViewportPixels(view.viewport);
 }
 
+// RAII home of the capture framebuffer: an FBO with color + depth
+// renderbuffers, bound on construction. The destructor rebinds the default
+// framebuffer and deletes all three GL objects, so no exit path from a capture
+// can leak them. Throwaway per capture by design: captures are
+// keypress-triggered or a build pass of a few dozen, never per-frame, so
+// creation cost is irrelevant.
+struct OffscreenTarget {
+    GLuint fbo = 0, colorRb = 0, depthRb = 0;
+
+    OffscreenTarget(int width, int height)
+    {
+        GLCall(glGenFramebuffers(1, &fbo));
+        GLCall(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+
+        GLCall(glGenRenderbuffers(1, &colorRb));
+        GLCall(glBindRenderbuffer(GL_RENDERBUFFER, colorRb));
+        GLCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB8, width, height));
+        GLCall(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                         GL_RENDERBUFFER, colorRb));
+
+        // Depth too: occlusion must hide back terrain in the capture exactly
+        // as it does on screen.
+        GLCall(glGenRenderbuffers(1, &depthRb));
+        GLCall(glBindRenderbuffer(GL_RENDERBUFFER, depthRb));
+        GLCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height));
+        GLCall(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                                         GL_RENDERBUFFER, depthRb));
+        GLCall(glBindRenderbuffer(GL_RENDERBUFFER, 0));
+    }
+
+    OffscreenTarget(const OffscreenTarget &) = delete;
+    OffscreenTarget &operator=(const OffscreenTarget &) = delete;
+
+    ~OffscreenTarget()
+    {
+        GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+        GLCall(glDeleteRenderbuffers(1, &depthRb));
+        GLCall(glDeleteRenderbuffers(1, &colorRb));
+        GLCall(glDeleteFramebuffers(1, &fbo));
+    }
+
+    bool complete() const
+    {
+        return glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    }
+};
+
 FramePixels Renderer::captureSceneFrameAt(int width, int height, const Camera &camera,
                                           const DirectionalLight &light)
 {
-    // Throwaway FBO per call: captures are keypress-triggered or a build pass
-    // of a few dozen, never per-frame, so creation cost is irrelevant and
-    // nothing GPU-side outlives the call.
-    GLuint fbo = 0, colorRb = 0, depthRb = 0;
-    GLCall(glGenFramebuffers(1, &fbo));
-    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
-
-    GLCall(glGenRenderbuffers(1, &colorRb));
-    GLCall(glBindRenderbuffer(GL_RENDERBUFFER, colorRb));
-    GLCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_RGB8, width, height));
-    GLCall(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                                     GL_RENDERBUFFER, colorRb));
-
-    // Depth too: occlusion must hide back terrain in the capture exactly as it
-    // does on screen.
-    GLCall(glGenRenderbuffers(1, &depthRb));
-    GLCall(glBindRenderbuffer(GL_RENDERBUFFER, depthRb));
-    GLCall(glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height));
-    GLCall(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-                                     GL_RENDERBUFFER, depthRb));
-
-    FramePixels frame;
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-        const Viewport full{ 0, 0, width, height };
-        clear();
-        renderScene(camera, full, light, std::nullopt);   // nullopt sky, as above
-        frame = readViewportPixels(full);
-    } else {
+    OffscreenTarget target(width, height);
+    if (!target.complete()) {
         std::cerr << "capture: offscreen framebuffer incomplete at " << width << "x"
                   << height << " -- capture skipped" << std::endl;
+        return {};
     }
 
-    GLCall(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-    GLCall(glDeleteRenderbuffers(1, &depthRb));
-    GLCall(glDeleteRenderbuffers(1, &colorRb));
-    GLCall(glDeleteFramebuffers(1, &fbo));
-    return frame;
+    const Viewport full{ 0, 0, width, height };
+    clear();
+    renderScene(camera, full, light, std::nullopt);   // nullopt sky, as above
+    return readViewportPixels(full);
 }
 
 void Renderer::drawPoints(const std::vector<glm::vec3> &positions,
@@ -385,19 +390,19 @@ void Renderer::drawPoints(const std::vector<glm::vec3> &positions,
 {
     if (positions.empty()) return;
 
-    std::vector<float> verts;
-    verts.reserve(positions.size() * 6);
+    m_overlayVerts.clear();
     for (size_t i = 0; i < positions.size(); i++) {
         const glm::vec3 &p = positions[i];
         const glm::vec3 &c = colors[i];
-        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
-        verts.push_back(c.r); verts.push_back(c.g); verts.push_back(c.b);
+        m_overlayVerts.push_back(p.x); m_overlayVerts.push_back(p.y); m_overlayVerts.push_back(p.z);
+        m_overlayVerts.push_back(c.r); m_overlayVerts.push_back(c.g); m_overlayVerts.push_back(c.b);
     }
 
     GLCall(glDisable(GL_DEPTH_TEST));
     GLCall(glPointSize(size));
-    drawVertexBatch(verts, GL_POINTS, m_pointShader, mvp);
+    m_overlayBatch.draw(m_overlayVerts, GL_POINTS, m_pointShader, mvp);
     GLCall(glEnable(GL_DEPTH_TEST));
+    GLCall(glPointSize(1.0f));   // back to the GL default
 }
 
 // ── View aids ─────────────────────────────────────────────────
@@ -407,17 +412,17 @@ void Renderer::drawLines(const std::vector<glm::vec3> &segments, const glm::vec3
 {
     if (segments.size() < 2) return;
 
-    std::vector<float> verts;
-    verts.reserve(segments.size() * 6);
+    m_overlayVerts.clear();
     for (const glm::vec3 &p : segments) {
-        verts.push_back(p.x); verts.push_back(p.y); verts.push_back(p.z);
-        verts.push_back(color.r); verts.push_back(color.g); verts.push_back(color.b);
+        m_overlayVerts.push_back(p.x); m_overlayVerts.push_back(p.y); m_overlayVerts.push_back(p.z);
+        m_overlayVerts.push_back(color.r); m_overlayVerts.push_back(color.g); m_overlayVerts.push_back(color.b);
     }
 
     GLCall(glLineWidth(width));
     GLCall(glDisable(GL_DEPTH_TEST));
-    drawVertexBatch(verts, GL_LINES, m_sceneShader, mvp);
+    m_overlayBatch.draw(m_overlayVerts, GL_LINES, m_sceneShader, mvp);
     GLCall(glEnable(GL_DEPTH_TEST));
+    GLCall(glLineWidth(1.0f));   // back to the GL default
 }
 
 void Renderer::drawViewCone(const Camera &camera, float aspect, float reach,
@@ -438,26 +443,24 @@ void Renderer::drawViewCone(const Camera &camera, float aspect, float reach,
     for (int i = 0; i < 4; i++)
         corners[i] = camera.position + rayDirection(camera, cornerRays[i]) * reach;
 
-    std::vector<glm::vec3> segments;
-    segments.reserve(16);
+    m_overlaySegments.clear();
     for (int i = 0; i < 4; i++) {
-        segments.push_back(camera.position);          // edge from the eye ...
-        segments.push_back(corners[i]);
-        segments.push_back(corners[i]);               // ... and the far rectangle
-        segments.push_back(corners[(i + 1) % 4]);
+        m_overlaySegments.push_back(camera.position); // edge from the eye ...
+        m_overlaySegments.push_back(corners[i]);
+        m_overlaySegments.push_back(corners[i]);      // ... and the far rectangle
+        m_overlaySegments.push_back(corners[(i + 1) % 4]);
     }
-    drawLines(segments, color, width, mvp);
+    drawLines(m_overlaySegments, color, width, mvp);
 }
 
 void Renderer::drawSightLines(const Camera &camera, const std::vector<glm::vec2> &imageRays,
                               float reach, const glm::vec3 &color, float width,
                               const glm::mat4 &mvp)
 {
-    std::vector<glm::vec3> segments;
-    segments.reserve(imageRays.size() * 2);
+    m_overlaySegments.clear();
     for (const glm::vec2 &ray : imageRays) {
-        segments.push_back(camera.position);
-        segments.push_back(camera.position + rayDirection(camera, ray) * reach);
+        m_overlaySegments.push_back(camera.position);
+        m_overlaySegments.push_back(camera.position + rayDirection(camera, ray) * reach);
     }
-    drawLines(segments, color, width, mvp);
+    drawLines(m_overlaySegments, color, width, mvp);
 }
