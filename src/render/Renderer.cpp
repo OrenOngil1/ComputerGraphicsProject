@@ -315,9 +315,9 @@ FramePixels Renderer::captureTrackersFrame(const View &playerView,
 FramePixels Renderer::captureSceneFrame(const View &view, const DirectionalLight &light)
 {
     clear();
-    // nullopt sky: feature matching must not see sky pixels (they have no
+    // no sky: feature matching must not see sky pixels (they have no
     // terrain 3D position and differ per preset).
-    renderScene(view.camera, view.viewport, light, std::nullopt);
+    renderScene(view.camera, view.viewport, light);
     return readViewportPixels(view.viewport);
 }
 
@@ -380,7 +380,7 @@ FramePixels Renderer::captureSceneFrameAt(int width, int height, const Camera &c
 
     const Viewport full{ 0, 0, width, height };
     clear();
-    renderScene(camera, full, light, std::nullopt);   // nullopt sky, as above
+    renderScene(camera, full, light);   // no sky, as above
     return readViewportPixels(full);
 }
 

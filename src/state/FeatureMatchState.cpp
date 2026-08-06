@@ -11,39 +11,37 @@
 #include <glm/gtc/matrix_transform.hpp>   // glm::ortho
 
 #include "OverlayStyle.h"
-#include "../core/Menu.h"         // promptCount
+#include "../core/Menu.h"         // promptCount, promptOptionalCount
 #include "../core/Simulation.h"
 #include "../input/Callbacks.h"   // cursorPosPixels
 #include "../render/Renderer.h"
 #include "../vision/FeatureDbIo.h"
 #include "../vision/FeatureMatching.h"
 
-// Pre-phase scratch: which recorded view is being anchored, which suggestion
-// is active, the top-N SIFT suggestions for the current view, and their
-// descriptors (one row each, aligned with markers). In the .cpp so OpenCV
-// types stay out of the state header.
+// Pre-phase scratch: which recorded view is being anchored, which suggestion is
+// active, that view's top-N SIFT suggestions, and their descriptors. In the
+// .cpp so OpenCV types stay out of the state header.
 //
-// markers is DISPLAY ONLY -- the 2D SIFT position is just the dot the user aims
-// from; it never enters the database or PnP. The build stores only
-// (descriptor, user-picked 3D); run-phase PnP pairs each match with the LIVE
-// frame's keypoint pixel. That is what makes Mode D manual.
+// markers is DISPLAY ONLY -- the 2D SIFT position is the dot the user aims
+// from; only (descriptor, user-picked 3D) enters the database, and run-phase
+// PnP pairs each match with the LIVE frame's keypoint pixel.
 struct BuildScratch {
     size_t                 waypoint = 0;
     size_t                 active   = 0;
     std::vector<glm::vec2> markers;       // [0,1] screen fractions of the suggestions
     cv::Mat                descriptors;   // one SIFT descriptor row per marker
 
-    // Which markers have been anchored in THIS view, newest last -- the undo
-    // stack for 'U'. Marker indices rather than a count because skips leave
-    // gaps: stepping `active` back by one would land on a skipped suggestion,
-    // not the one just placed. Cleared whenever a new view loads.
+    // Markers anchored in THIS view, newest last -- the undo stack for 'U'.
+    // Indices rather than a count because skips leave gaps: stepping `active`
+    // back by one would land on a skipped suggestion. Cleared on a new view.
     std::vector<size_t> anchoredAt;
 };
 
 // FeatureDb + BuildScratch are complete in this TU, so the unique_ptr members'
 // special members are defined here.
-FeatureMatchState::FeatureMatchState(size_t featureCount)
-    : m_featureCount(std::clamp(featureCount, size_t(1), kMaxFeatures))
+FeatureMatchState::FeatureMatchState(size_t featureCount, std::optional<size_t> minInliers)
+    : m_featureCount(std::clamp(featureCount, size_t(1), kMaxFeatures)),
+      m_minInliers(minInliers)
 {}
 FeatureMatchState::~FeatureMatchState() = default;
 
@@ -52,10 +50,18 @@ size_t FeatureMatchState::promptCount()
     return ::promptCount("Features per view", kMaxFeatures, kDefaultFeatures);
 }
 
+std::optional<size_t> FeatureMatchState::promptMinInliers()
+{
+    return ::promptOptionalCount("Minimum agreeing matches", kMinConsensus, kMaxConsensus);
+}
+
 void FeatureMatchState::onEnter(Simulation &sim)
 {
     std::cout << "FEATURE MATCH: " << sim.waypoints.size() << " recorded views, "
-              << m_featureCount << " features each. G = build the database by hand: "
+              << m_featureCount << " features each";
+    if (m_minInliers)
+        std::cout << ", " << *m_minInliers << " agreeing matches per pose";
+    std::cout << ". G = build the database by hand: "
               << "for each view SIFT highlights a point (red) in the player (right) view "
               << "-- color-pick its 3D spot in the global (left) map; X skips one, "
               << "U undoes the last one.\n"
@@ -86,24 +92,27 @@ void FeatureMatchState::loadCurrentView(Simulation &sim, Renderer &renderer)
         cv::Mat desc;
         detectSpreadFeatures(frame, (int)m_featureCount, kps, desc);
 
-        if (!kps.empty()) {
-            m_build->markers.clear();
-            m_build->markers.reserve(kps.size());
-            for (const cv::KeyPoint &kp : kps)
-                m_build->markers.push_back(glm::vec2(kp.pt.x / frame.width,
-                                                     kp.pt.y / frame.height));
-            m_build->descriptors = desc;
-            m_build->active = 0;
-            m_build->anchoredAt.clear();   // undo is scoped to the current view
-            std::cout << "FEATURES: view " << (m_build->waypoint + 1) << "/"
-                      << sim.waypoints.size() << " -- place " << kps.size()
-                      << " features on the map. (" << m_db->anchors.size()
-                      << " anchored so far)" << std::endl;
-            return;
+        if (kps.empty()) {
+            std::cout << "FEATURES: view " << (m_build->waypoint + 1)
+                      << " has no features -- skipping." << std::endl;
+            m_build->waypoint++;
+            continue;
         }
-        std::cout << "FEATURES: view " << (m_build->waypoint + 1)
-                  << " has no features -- skipping." << std::endl;
-        m_build->waypoint++;
+
+        m_build->markers.clear();
+        m_build->markers.reserve(kps.size());
+        for (const cv::KeyPoint &kp : kps) {
+            m_build->markers.push_back(glm::vec2(kp.pt.x / frame.width,
+                                                 kp.pt.y / frame.height));
+        }
+        m_build->descriptors = desc;
+        m_build->active = 0;
+        m_build->anchoredAt.clear();   // undo is scoped to the current view
+        std::cout << "FEATURES: view " << (m_build->waypoint + 1) << "/"
+                  << sim.waypoints.size() << " -- place " << kps.size()
+                  << " features on the map. (" << m_db->anchors.size()
+                  << " anchored so far)" << std::endl;
+        return;
     }
     finishBuild(sim, renderer);
 }
@@ -138,28 +147,18 @@ void FeatureMatchState::refreshPlaces()
     m_outOfView.clear();
 }
 
-// Collect each anchored point's appearance in the OTHER recorded views.
-//
-// A human places one point in one view, so the hand-build leaves exactly one
-// descriptor per anchor: one appearance, from one angle. SIFT is not
-// viewpoint-invariant, and this terrain's appearance is shading rather than
-// texture, so from anywhere else that single appearance often simply does not
-// match. It is why capturing from a recorded waypoint works and free flight
-// between them does not.
-//
-// Nothing here invents a correspondence. The recorded poses are known exactly
-// and the anchor is the user's own 3D point, so where that point falls in every
-// other recorded view is plain projection -- no mesh is read, no 3D is chosen
-// by machine. The same hand-placed point simply gains the descriptors of its
-// other appearances, which is what the removed automatic variant had for free
-// and what the manual one has been missing.
-//
-// It is also self-limiting, which is what makes it safe. An appearance counts
-// only if there is a keypoint within a few pixels of the projection whose
-// descriptor still resembles the anchored one. A point whose depth was
-// misjudged projects somewhere else in every other view, finds nothing that
-// looks like it, and gains nothing -- a bad placement cannot poison the
-// database, it just stays as weak as it was.
+// Descriptor distance under which two rows are the same appearance rather than
+// a similar one -- a recomputed row is bit-identical, so this only absorbs
+// float noise.
+static constexpr double kIdenticalRowDistance = 1.0;
+
+// Nothing is invented here: the recorded poses are exact and the anchor is the
+// user's own 3D point, so where it falls in another view is plain projection --
+// no mesh is read, no 3D is chosen by machine. The pass is self-limiting, which
+// is what keeps it that way: an appearance counts only if a keypoint sits within
+// `radius` of the projection AND still resembles the anchored descriptor, so a
+// misjudged depth gains nothing instead of poisoning the database.
+// (docs/pose-estimation-modes.md, "Mode D")
 void FeatureMatchState::addOtherViewAppearances(Simulation &sim, Renderer &renderer)
 {
     if (!m_db || m_db->empty())
@@ -170,10 +169,7 @@ void FeatureMatchState::addOtherViewAppearances(Simulation &sim, Renderer &rende
     const Viewport vp = captureViewport(sim);
 
     // The RECORDED views only, per the course brief: the database describes
-    // what was actually seen at the recorded waypoints, and nothing is
-    // synthesized in between. (A variant that also collected from midpoint and
-    // look-around poses along the path was tried and reverted -- it widened
-    // free-flight coverage, but the spec asks for the recorded views alone.)
+    // what was actually seen at the waypoints, with nothing synthesized between.
     for (const Waypoint &waypoint : sim.waypoints) {
         // A throwaway Camera so the player camera is left where the build put it.
         Camera camera = sim.playerView.camera;
@@ -218,15 +214,10 @@ void FeatureMatchState::addOtherViewAppearances(Simulation &sim, Renderer &rende
                 continue;
 
             // Idempotence: a load re-runs this pass, and the same view of the
-            // same place recomputes the same descriptor. Skip rows the place
-            // already owns, so re-collection tops a database up instead of
-            // duplicating it.
-            bool alreadyStored = false;
-            for (size_t i = 0; i < m_db->anchors.size() && !alreadyStored; i++)
-                alreadyStored = m_db->anchors[i] == place &&
-                                cv::norm(m_db->descriptors.row((int)i),
-                                         descriptors.row(nearest), cv::NORM_L2) < 1.0;
-            if (alreadyStored)
+            // same place recomputes the same descriptor. Skipping rows the
+            // place already owns tops a database up instead of duplicating it.
+            if (hasAppearanceWithin(*m_db, place, descriptors.row(nearest),
+                                    kIdenticalRowDistance))
                 continue;
 
             m_db->descriptors.push_back(descriptors.row(nearest));
@@ -263,10 +254,9 @@ void FeatureMatchState::advance(Simulation &sim, Renderer &renderer)
 // Take back the last anchor placed in the CURRENT view: drop its database row
 // and 3D point, and make that suggestion active again.
 //
-// Scoped to this view on purpose. Crossing back over a view boundary would
-// mean re-posing the camera and re-running SIFT to rebuild the markers, and the
-// mistake this exists for -- noticing a misclick right after making it -- never
-// needs it.
+// Scoped to this view: crossing a view boundary would mean re-posing the camera
+// and re-running SIFT to rebuild the markers, and the mistake this exists for --
+// a misclick noticed right away -- never needs it.
 void FeatureMatchState::undoAnchor()
 {
     if (m_build->anchoredAt.empty()) {
@@ -286,10 +276,9 @@ void FeatureMatchState::undoAnchor()
               << (m_build->active + 1) << " again." << std::endl;
 }
 
-// Ctrl+S: write the placed database out. Run-phase only, which the mid-build
-// return below enforces -- a half-finished build has nothing meaningful to
-// save, and the count it would write disagrees with what the user is still
-// placing.
+// Ctrl+S: write the placed database out. Run-phase only (handleKey enforces
+// it): a half-finished build would write a count that disagrees with what the
+// user is still placing.
 void FeatureMatchState::saveDatabase(const Simulation &sim) const
 {
     if (!m_db || m_db->empty() || m_db->descriptors.rows != (int)m_db->anchors.size()) {
@@ -316,9 +305,7 @@ void FeatureMatchState::loadDatabase(Simulation &sim, Renderer &renderer)
 
     // The file's capture size is the resolution its descriptors were computed
     // at; every capture from here renders at it. A file from before the size
-    // was recorded adopts the live pane -- the next Ctrl+S makes that
-    // permanent (and its descriptors were built on some other session's pane
-    // anyway, so a rebuild is the real fix for those).
+    // was recorded adopts the live pane, and the next Ctrl+S makes that stick.
     if (captureWidth > 0 && captureHeight > 0) {
         m_captureWidth  = captureWidth;
         m_captureHeight = captureHeight;
@@ -330,20 +317,17 @@ void FeatureMatchState::loadDatabase(Simulation &sim, Renderer &renderer)
                   << "; Ctrl+S records it (a G rebuild gives exact matching)" << std::endl;
     }
 
-    // The waypoints come back too: the anchors were placed from those views, so
-    // restoring them is what makes Ctrl+B mean anything right after a load. The
-    // flight path between them was never saved -- it is only drawn -- so it is
-    // dropped rather than left describing a flight these waypoints are not on.
+    // The waypoints come back too -- the anchors were placed from those views,
+    // so restoring them is what makes Ctrl+B mean anything after a load. The
+    // path between them was only ever drawn, never saved, so it is dropped.
     if (!waypoints.empty()) {
         sim.waypoints = std::move(waypoints);
         sim.pathPoints.clear();
     }
 
-    // Collect whatever appearances the file does not yet have -- an older file
-    // may hold only the hand-placed rows, or predate the synthesized
-    // collection poses. Collection skips rows a place already owns, so running
-    // it on every load upgrades any vintage of file without bloating a
-    // current one, and never costs the user a re-placement.
+    // Top up whatever appearances the file lacks -- an older one may hold only
+    // the hand-placed rows. Collection skips rows a place already owns, so this
+    // upgrades any vintage of file without bloating a current one.
     if (!m_db->empty())
         addOtherViewAppearances(sim, renderer);
 
@@ -352,29 +336,103 @@ void FeatureMatchState::loadDatabase(Simulation &sim, Renderer &renderer)
 
 // ── The automated stand-in for the manual build (Ctrl+G) ──────
 //
-// A hand-built database is minutes of clicking, which taxes exactly the thing
-// the mode needs most: experiments. This runs the whole G workflow without the
-// human and saves the result -- and it SIMULATES the human rather than
-// replacing the pipeline. The run phase still consumes nothing but
-// (descriptor, 3D) pairs and cannot tell the two builds apart; the manual
-// build remains the assignment's mode, this produces test databases for it.
-//
-// The simulation is honest because ray-snapping already reduces a real
-// person's click to a single number: the depth along the suggestion's sight
-// line. So the simulated "human" reads the true ray-terrain intersection and
-// disturbs that depth with Gaussian aim error. Reading the terrain here plays
-// the human's eyes, not the estimator's -- the estimator never sees it. A ray
-// that misses the terrain is skipped, as a person would press X.
+// The human is SIMULATED, not skipped. Ray-snapping already reduces a real
+// click to one number -- the depth along the suggestion's sight line -- so this
+// reads the true ray-terrain hit and disturbs that depth with Gaussian aim
+// error. Reading the terrain plays the user's EYES, never the estimator's: the
+// run phase still sees nothing but (descriptor, 3D) pairs and cannot tell the
+// two builds apart. A ray that misses is skipped, as a person would press X.
 
 // Aim error, in units along the sight line -- the one dimension a human
-// actually supplies. Sized to what measured hand-built databases achieved
-// (poses 2-4 units off from carefully placed anchors).
+// actually supplies. Sized to what hand-built databases achieve.
 static constexpr float kSimulatedDepthErrorUnits = 4.0f;
 
-static constexpr size_t kDefaultAutoViews    = 8;    // ring stops
+static constexpr size_t kDefaultAutoViews    = 8;    // arc stops
 static constexpr size_t kMaxAutoViews        = 20;
 static constexpr size_t kDefaultAutoFeatures = 10;   // denser than the manual default:
                                                      // clicks are free here
+
+// The auto path: arc span, and the orbit radius / flight altitude as fractions
+// of the terrain's width.
+static constexpr float kAutoArcSpanDegrees       = 120.0f;
+static constexpr float kAutoPathRadiusFraction   = 0.30f;
+static constexpr float kAutoPathAltitudeFraction = 0.25f;
+
+// The canonical frame size an auto build pins its database to.
+static constexpr int kAutoCaptureWidth  = 1280;
+static constexpr int kAutoCaptureHeight = 720;
+
+// Anchor selection: the target map spacing as a fraction of what would tile the
+// terrain with the requested points, how far along a sight line terrain is
+// still worth anchoring, the frame rim a descriptor patch must clear, and how
+// many times the spacing may halve before a view settles for what it has.
+static constexpr float kMapSpacingFactor   = 0.8f;
+static constexpr float kReachLimitFraction = 1.25f;
+static constexpr float kRimMarginPx        = 16.0f;
+static constexpr int   kSpacingRetries     = 3;
+
+// The keypoints one view contributes, strongest first: taken only when its
+// terrain hit is at least `spacing` from every hit already taken -- this view's
+// and `taken`, every earlier view's -- so later views are pushed onto unclaimed
+// ground and the arc's union covers the sector.
+//
+// Spacing is judged on the MAP, not in the frame: perspective squeezes most of
+// the terrain into a frame's upper half, so pixel-uniform picks pile onto the
+// ground nearest the camera.
+//
+// `hits[i]` is empty where keypoint i has no anchorable ground under it.
+// Returns at most `count` indices into `kps`.
+static std::vector<size_t> selectSpacedAnchors(
+        const std::vector<cv::KeyPoint> &kps,
+        const std::vector<std::optional<glm::vec3>> &hits,
+        const std::vector<glm::vec3> &taken,
+        size_t count, float startSpacing, int frameWidth, int frameHeight)
+{
+    // Strongest first, so the spread is paid for with the weaker of any two
+    // crowded keypoints.
+    std::vector<size_t> order(kps.size());
+    std::iota(order.begin(), order.end(), size_t(0));
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        return kps[a].response > kps[b].response;
+    });
+
+    std::vector<size_t> picked;
+    float spacing = startSpacing;
+    // Halve and retry when a view cannot fill its quota that sparsely -- a
+    // tighter set beats a short one, exactly as detectSpreadFeatures does in
+    // frame space.
+    for (int attempt = 0; attempt < kSpacingRetries && picked.size() < count;
+         attempt++, spacing *= 0.5f) {
+        picked.clear();
+        for (size_t i : order) {
+            if (!hits[i])
+                continue;
+
+            // A rim keypoint's descriptor patch is half off-frame.
+            const cv::Point2f &pt = kps[i].pt;
+            if (pt.x < kRimMarginPx || pt.y < kRimMarginPx ||
+                pt.x > (float)frameWidth - kRimMarginPx ||
+                pt.y > (float)frameHeight - kRimMarginPx)
+                continue;
+
+            const auto farEnough = [&](const glm::vec3 &other) {
+                return glm::distance(*hits[i], other) >= spacing;
+            };
+            const bool clearOfEarlierViews =
+                std::all_of(taken.begin(), taken.end(), farEnough);
+            const bool clearOfThisView =
+                std::all_of(picked.begin(), picked.end(),
+                            [&](size_t j) { return farEnough(*hits[j]); });
+            if (!clearOfEarlierViews || !clearOfThisView)
+                continue;
+
+            picked.push_back(i);
+            if (picked.size() == count)
+                break;
+        }
+    }
+    return picked;
+}
 
 void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
 {
@@ -383,18 +441,13 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     const size_t features = ::promptCount("Features per view", kMaxFeatures,
                                           kDefaultAutoFeatures);
 
-    // The path: an ARC of views around the terrain's middle, not a full ring.
-    // Measured lesson: a 10-stop ring puts 36 degrees between neighbouring
-    // views of the same spot, which defeats SIFT's rough 15-20 degree
-    // viewpoint tolerance on 3D relief -- appearance collection found 6
-    // appearances across 100 points and free flight matched only noise. An
-    // arc keeps neighbours a dozen degrees apart, the geometry every
-    // successful manual corridor had, at the cost of covering a sector
-    // instead of the circle -- the same density-versus-coverage trade the
-    // manual mode makes, decided the same way.
-    const float arcSpan  = glm::radians(120.0f);
-    const float radius   = 0.30f * sim.terrainSize;
-    const float altitude = 0.25f * sim.terrainSize;
+    // An ARC around the terrain's middle, not a full ring: on a ring,
+    // neighbouring views of the same spot sit ~36 degrees apart, past SIFT's
+    // ~15-20 degree tolerance on 3D relief, and nothing matches across them.
+    // (docs/pose-estimation-modes.md, "Ctrl+G")
+    const float arcSpan  = glm::radians(kAutoArcSpanDegrees);
+    const float radius   = kAutoPathRadiusFraction * sim.terrainSize;
+    const float altitude = kAutoPathAltitudeFraction * sim.terrainSize;
 
     sim.waypoints.clear();
     sim.pathPoints.clear();
@@ -406,16 +459,14 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
         sim.pathPoints.push_back(eye);
     }
 
-    // Same lifecycle as startBuild: fresh database, any manual build in
-    // progress discarded exactly as G would. The capture resolution does NOT
-    // follow the window here: an auto build has no on-screen markers to keep
-    // aligned with the pane, so it uses one canonical size -- every auto
-    // database is the same kind of database, and a small window cannot
-    // quietly halve SIFT's keypoint yield (measured at a ~400-pixel pane).
+    // Same lifecycle as startBuild: fresh database, any build in progress
+    // discarded. The capture resolution does NOT follow the window here -- with
+    // no on-screen markers to stay aligned with, one canonical size means a
+    // small window cannot quietly starve SIFT of keypoints.
     m_db = std::make_unique<FeatureDb>();
     m_build.reset();
-    m_captureWidth  = 1280;
-    m_captureHeight = 720;
+    m_captureWidth  = kAutoCaptureWidth;
+    m_captureHeight = kAutoCaptureHeight;
 
     // A fixed seed, so two auto-builds with the same parameters are the same
     // database -- "change one thing and measure" stays possible.
@@ -423,22 +474,16 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     std::normal_distribution<float> aim(0.0f, kSimulatedDepthErrorUnits);
 
     const Viewport vp = captureViewport(sim);
+
+    // Ray-march step: about a thousandth of the terrain -- fine enough to land
+    // on the right hillside, coarse enough to stay cheap over a few thousand rays.
     const float step = std::max(0.25f, sim.terrainSize / 1200.0f);
 
-    // Selection is spaced on the MAP, not in the frame. Pixel spreading
-    // (what the manual build's suggestions use) oversamples the terrain near
-    // the camera -- perspective squeezes most of the map into the frame's
-    // upper half -- and ten views aimed at the same middle pile their "spread"
-    // picks onto one patch. The simulator knows each keypoint's 3D (the same
-    // ray hit that anchors it), so it can demand world spacing directly, and
-    // exclude the spots every EARLIER view already took: later views are
-    // pushed into unclaimed territory and the union covers the sector. The
-    // spacing starts at what would tile the whole terrain with this many
-    // points and halves when a view cannot fill its quota that sparsely.
+    // The spacing selection starts from: what would tile the whole terrain with
+    // this many points. See selectSpacedAnchors for why it is a map distance.
     const float idealSpacing =
-        0.8f * sim.terrainSize / std::sqrt((float)(views * features));
-    const float reachLimit = 1.25f * sim.terrainSize;   // grazing-angle mush past this
-    const float margin = 16.0f;                          // descriptor patch off the rim
+        kMapSpacingFactor * sim.terrainSize / std::sqrt((float)(views * features));
+    const float reachLimit = kReachLimitFraction * sim.terrainSize;
 
     std::vector<glm::vec3> taken;   // true positions of every anchor placed so far
     for (const Waypoint &waypoint : sim.waypoints) {
@@ -455,15 +500,12 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
         if (kps.empty())
             continue;
 
-        std::vector<size_t> order(kps.size());
-        std::iota(order.begin(), order.end(), size_t(0));
-        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-            return kps[a].response > kps[b].response;
-        });
-
-        // One raycast per keypoint, shared by selection and anchoring.
-        std::vector<glm::vec3>            directions(kps.size());
-        std::vector<std::optional<float>> depths(kps.size());
+        // One raycast per keypoint: its sight ray, and how far along that ray
+        // the terrain is. Selection reads the world hits, anchoring reads the
+        // ray and the depth.
+        std::vector<glm::vec3>                directions(kps.size());
+        std::vector<std::optional<float>>     depths(kps.size());
+        std::vector<std::optional<glm::vec3>> hits(kps.size());
         for (size_t i = 0; i < kps.size(); i++) {
             const glm::vec2 fraction(kps[i].pt.x / frame.width,
                                      kps[i].pt.y / frame.height);
@@ -471,47 +513,23 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
                                                                vp.aspect()));
             depths[i] = raycastTerrain(sim.mesh, camera.position, directions[i],
                                        3.0f * sim.terrainSize, step);
-        }
-        const auto hitOf = [&](size_t i) {
-            return camera.position + directions[i] * *depths[i];
-        };
-
-        std::vector<size_t> picked;
-        float spacing = idealSpacing;
-        for (int attempt = 0; attempt < 3 && picked.size() < features;
-             attempt++, spacing *= 0.5f) {
-            picked.clear();
-            for (size_t i : order) {
-                const cv::Point2f &pt = kps[i].pt;
-                if (pt.x < margin || pt.y < margin ||
-                    pt.x > (float)frame.width - margin ||
-                    pt.y > (float)frame.height - margin)
-                    continue;
-                if (!depths[i] || *depths[i] > reachLimit)
-                    continue;
-
-                const glm::vec3 hit = hitOf(i);
-                bool clear = true;
-                for (const glm::vec3 &t : taken)
-                    clear = clear && glm::distance(hit, t) >= spacing;
-                for (size_t j : picked)
-                    clear = clear && glm::distance(hit, hitOf(j)) >= spacing;
-                if (!clear)
-                    continue;
-
-                picked.push_back(i);
-                if (picked.size() == features)
-                    break;
-            }
+            // Anchorable ground only: past the reach limit the surface is
+            // grazing-angle mush and its keypoints are not repeatable.
+            if (depths[i] && *depths[i] <= reachLimit)
+                hits[i] = camera.position + directions[i] * *depths[i];
         }
 
-        for (size_t i : picked) {
+        // The simulated clicks: each chosen sight line's true depth, disturbed
+        // by aim error. A "human" whose error aimed behind the camera skips the
+        // suggestion, as pressing X would.
+        for (size_t i : selectSpacedAnchors(kps, hits, taken, features, idealSpacing,
+                                            frame.width, frame.height)) {
             const float judged = *depths[i] + aim(rng);
             if (judged <= 0.0f)
                 continue;
             m_db->descriptors.push_back(desc.row((int)i));
             m_db->anchors.push_back(camera.position + directions[i] * judged);
-            taken.push_back(hitOf(i));
+            taken.push_back(*hits[i]);
         }
     }
 
@@ -589,12 +607,9 @@ void FeatureMatchState::tick(Simulation &sim, GLFWwindow *window, float dt)
     reportAnchorCount();
 }
 
-// Can the player's current view actually use this anchor?
-//
-// Being inside the frustum is not enough. SIFT matches what was drawn, and a
-// feature behind a ridge was not drawn -- counting it would promise matches the
-// capture cannot deliver, which is exactly the wrong answer for a display whose
-// job is to say whether this position is worth capturing from.
+// Can the player's current view actually use this anchor? Frustum is not
+// enough: SIFT matches what was DRAWN, and a feature behind a ridge was not --
+// counting it would promise matches the capture cannot deliver.
 static bool anchorVisible(const Simulation &sim, const glm::vec3 &anchor)
 {
     const View &view = sim.playerView;
@@ -604,13 +619,10 @@ static bool anchorVisible(const Simulation &sim, const glm::vec3 &anchor)
     const glm::vec3 toAnchor = anchor - view.camera.position;
     const float distance = glm::length(toAnchor);
 
-    // Stop the march short of the anchor itself: an anchor sits on or near the
-    // surface, so a hit at its own distance is the ground it belongs to rather
-    // than something standing in front of it. The margin is generous because
-    // the snap can leave an anchor slightly under the surface (a click past
-    // where its ray meets the ground), and that should still read as usable.
-    // An anchor buried far deeper does read as hidden -- which is honest: it
-    // was placed badly, and the run phase will not match it well either.
+    // Stop the march short of the anchor itself: a hit at its own distance is
+    // the ground it belongs to, not something standing in front of it. The
+    // margin is generous because the snap can leave an anchor slightly under
+    // the surface. One buried far deeper does read as hidden -- honestly so.
     const float margin = std::max(1.0f, sim.terrainSize / 100.0f);
     const float step   = std::max(0.5f, sim.terrainSize / 300.0f);
     if (distance <= margin)
@@ -634,9 +646,9 @@ void FeatureMatchState::reportAnchorCount()
     if (m_places.empty())
         return;
 
-    // Only on a change, and no more than twice a second. The count moves
+    // Only on a change, and no more than twice a second: the count moves
     // continuously while flying, and a line per frame would bury every other
-    // message in the console -- which is the opposite of the point.
+    // message in the console.
     const double now = glfwGetTime();
     if (m_inView.size() == m_reportedInView || now - m_lastCountReport < 0.5)
         return;
@@ -671,18 +683,15 @@ void FeatureMatchState::handleMouseButton(Simulation &sim, Renderer &renderer,
     }
 
     // The manual anchor: the active suggestion's descriptor paired with the
-    // user's 3D pick -- the single step that would otherwise be automatic.
+    // user's 3D pick -- the one step that would otherwise be automatic.
     //
     // The click is snapped onto the suggestion's viewing ray first. That ray is
-    // known exactly -- this view's pose is a recorded waypoint and the keypoint's
-    // pixel is exact -- so the true point lies somewhere along it, and whatever
-    // sideways offset the click has is pure aim error. What the user is actually
-    // being asked for is the DEPTH, the one thing a single image cannot supply.
-    //
-    // Dropping the sideways part is worth more than it looks: an error along the
-    // ray reprojects onto the same pixel and costs the solve almost nothing,
-    // while a sideways slip of the same size reprojects tens of pixels away and
-    // gets a perfectly good correspondence voted out as an outlier.
+    // exact (a recorded pose, an exact keypoint pixel), so the true point lies
+    // along it and any sideways offset is pure aim error; what the user supplies
+    // is the DEPTH, the one thing a single image cannot. Dropping the sideways
+    // part matters: an error along the ray reprojects onto the same pixel, while
+    // a sideways slip of the same size lands tens of pixels off and gets a
+    // perfectly good correspondence voted out as an outlier.
     const Camera &camera = sim.playerView.camera;
     const glm::vec2 ray = fractionToRay(m_build->markers[m_build->active], camera.fov,
                                         captureViewport(sim).aspect());
@@ -700,6 +709,41 @@ void FeatureMatchState::handleMouseButton(Simulation &sim, Renderer &renderer,
     advance(sim, renderer);
 }
 
+// Could a camera at this pose have taken the frame? Judged on the ESTIMATE
+// alone -- the true pose is never consulted. A coalition of lookalike matches
+// can clear every gate and still put the camera an impossible distance out or
+// aimed at empty sky, which is what lets the consensus floor sit at five.
+// Refusals are reported on the console.
+static bool poseIsPlausible(const Simulation &sim, const Waypoint &estimate, float aspect)
+{
+    // How far from the origin-centered terrain an estimate may sit, in terrain widths.
+    constexpr float kPlausibleDistanceWidths = 2.0f;
+
+    const float distance = glm::length(estimate.position);
+    const float limit    = kPlausibleDistanceWidths * sim.terrainSize;
+    if (distance > limit) {
+        std::cout << "FEATURES: pose rejected as implausible -- it puts the camera "
+                  << (int)distance << " units from the terrain (nothing seeing this"
+                     " terrain can be past " << (int)limit << ")" << std::endl;
+        return false;
+    }
+
+    // Near it is not the same as looking at it. Probe the ray through the
+    // lower-third centre -- terrain lives in a frame's lower half, so even a
+    // pitched-up-but-valid view passes.
+    Camera estimated = sim.playerView.camera;
+    estimated.applyPose(estimate);
+    const glm::vec3 probe = rayDirection(
+        estimated, fractionToRay(glm::vec2(0.5f, 0.75f), estimated.fov, aspect));
+    if (!raycastTerrain(sim.mesh, estimated.position, probe, 3.0f * sim.terrainSize,
+                        std::max(1.0f, sim.terrainSize / 200.0f))) {
+        std::cout << "FEATURES: pose rejected as implausible -- a camera there, aimed"
+                     " that way, would be looking at no terrain at all" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 std::optional<Waypoint> FeatureMatchState::computePose(Simulation &sim, Renderer &renderer)
 {
     if (!m_db || m_db->empty()) {
@@ -708,11 +752,10 @@ std::optional<Waypoint> FeatureMatchState::computePose(Simulation &sim, Renderer
         return std::nullopt;
     }
 
-    // What was AVAILABLE, before what was found. Read together, the two lines
-    // separate a matching problem from a positioning one: 2 of 7 matched is a
-    // matcher story, 7 of 7 anchors in frame and 2 matched is a different one
-    // from 2 in frame and 2 matched. Recomputed here rather than trusted from
-    // the last tick, because Ctrl+B poses the camera itself between captures.
+    // What was AVAILABLE, before what was found: 7 anchors in frame and 2
+    // matched is a matcher problem, 2 in frame and 2 matched is a positioning
+    // one. Recomputed here, not trusted from the last tick -- Ctrl+B poses the
+    // camera itself between captures.
     refreshAnchorVisibility(sim);
     std::cout << "FEATURES: " << m_inView.size() << " of " << m_places.size()
               << " anchors in frame" << std::endl;
@@ -731,62 +774,20 @@ std::optional<Waypoint> FeatureMatchState::computePose(Simulation &sim, Renderer
         return std::nullopt;
     std::optional<Waypoint> estimate =
         estimatePoseFromFeatures(*m_db, frame, sim.playerView.camera.fov,
-                                 vp.width, vp.height);
+                                 vp.width, vp.height, m_minInliers);
 
-    // Plausibility, judged on the estimate alone -- the true pose is never
-    // consulted. A camera whose frame this terrain fills cannot be many
-    // terrain-widths away from it, yet a coalition of lookalike matches that
-    // survives every gate tends to produce exactly that: not a slightly-wrong
-    // pose but an impossible one (measured once at 24 terrain-widths out).
-    // The terrain is centered on the origin, so distance from it is the test.
-    if (estimate) {
-        const float distance = glm::length(estimate->position);
-        const float limit    = 2.0f * sim.terrainSize;
-        if (distance > limit) {
-            std::cout << "FEATURES: pose rejected as implausible -- it puts the"
-                         " camera " << (int)distance << " units from the terrain"
-                         " (nothing seeing this terrain can be past "
-                      << (int)limit << ")" << std::endl;
-            return std::nullopt;
-        }
-
-        // And it must be LOOKING at terrain, not merely near it. The matcher
-        // recognised terrain features in the frame, and terrain lives in a
-        // frame's lower half; probe the ray through the lower-third centre so
-        // even a pitched-up-but-valid view passes. Still judged on the
-        // estimate alone -- the true pose is never consulted. This is the
-        // check that carries the consensus floor's drop to five: a junk
-        // five-strong coalition tends to fling the camera somewhere absurd,
-        // and "absurd" usually means staring at sky.
-        Camera estimated = sim.playerView.camera;
-        estimated.applyPose(*estimate);
-        const glm::vec3 probe = rayDirection(
-            estimated, fractionToRay(glm::vec2(0.5f, 0.75f), estimated.fov, vp.aspect()));
-        const bool seesTerrain =
-            raycastTerrain(sim.mesh, estimated.position, probe, 3.0f * sim.terrainSize,
-                           std::max(1.0f, sim.terrainSize / 200.0f))
-                .has_value();
-        if (!seesTerrain) {
-            std::cout << "FEATURES: pose rejected as implausible -- a camera there,"
-                         " aimed that way, would be looking at no terrain at all"
-                      << std::endl;
-            return std::nullopt;
-        }
-    }
+    if (estimate && !poseIsPlausible(sim, *estimate, vp.aspect()))
+        return std::nullopt;
     return estimate;
 }
 
-// The build phase's map aids. The active suggestion's sight line is drawn in
-// the same red as its marker in the player view, so the dot to place and the
-// line to place it on are visibly one object; this view's earlier anchors get
-// a dim line each, which doubles as a check -- a green anchor sitting off its
-// own line was misplaced, and U takes it back.
+// The active suggestion's sight line is drawn in the same red as its marker in
+// the player view, so the dot to place and the line to place it on read as one
+// object; earlier anchors in this view get a dim line each, which doubles as a
+// check -- a green anchor off its own line was misplaced, and U takes it back.
 //
-// The lines stop at a fixed reach rather than at the terrain. Intersecting one
-// with the surface would BE the correspondence the user is here to supply: a
-// pixel fixes the direction, and choosing the depth along it by eye is the
-// manual anchoring the mode is built around (and what the brief means by
-// "map features to 3D using picking").
+// The lines stop at a fixed reach rather than at the terrain: intersecting one
+// with the surface would BE the correspondence the user is here to supply.
 void FeatureMatchState::drawSightAids(const Simulation &sim, Renderer &renderer,
                                       const glm::mat4 &mvp) const
 {
@@ -828,10 +829,8 @@ static void drawDots(Renderer &renderer, const std::vector<glm::vec3> &points,
 }
 
 // Where the database came from: the recorded flight and the views the anchors
-// were placed from. Grey and dim on purpose -- it is provenance, not a
-// measurement, and the run phase's own captures are already drawn in blue and
-// red by the base class. Without the split the same dots would mean two
-// different things on one map.
+// were placed from. Grey and dim on purpose -- provenance, not a measurement,
+// and the run phase's own captures are already blue and red on the same map.
 static void drawProvenance(const Simulation &sim, Renderer &renderer, const glm::mat4 &mvp)
 {
     renderer.drawPath(sim.pathPoints, overlay::provenanceColor, mvp);
@@ -859,10 +858,10 @@ void FeatureMatchState::renderGlobalOverlay(const Simulation &sim, Renderer &ren
         return;
     }
 
-    // Build phase: flight context (the current build view marked green by
-    // drawWaypoints), the sight lines, then the anchors placed so far on top.
-    // All bright -- the camera is pinned to the view being anchored, so the
-    // in-view split the run phase draws has nothing to say here.
+    // Build phase: flight context (drawWaypoints marks the current build view
+    // green), the sight lines, then the anchors placed so far on top. All
+    // bright -- the camera is pinned, so the run phase's in-view split has
+    // nothing to say here.
     renderer.drawPath(sim.pathPoints, overlay::truePathColor, mvp);
     renderer.drawWaypoints(sim.waypoints, sim.playerView.camera.position, mvp);
     drawSightAids(sim, renderer, mvp);
@@ -879,10 +878,9 @@ void FeatureMatchState::renderPlayerOverlay(const Simulation &sim, Renderer &ren
     }
     (void)mvp;
 
-    // Only the active suggestion is shown -- one at a time keeps the anchoring
-    // unambiguous. A screen-space marker over the live waypoint view: an ortho
-    // over the unit square maps the stored [0,1] fraction straight to the
-    // viewport (the same screen matrix PICK uses).
+    // Only the active suggestion -- one at a time keeps the anchoring
+    // unambiguous. An ortho over the unit square maps the stored [0,1] fraction
+    // straight to the viewport (the same screen matrix PICK uses).
     if (m_build->active < m_build->markers.size()) {
         const glm::mat4 screen = glm::ortho(0.0f, 1.0f, 1.0f, 0.0f);
         const glm::vec3 pos(m_build->markers[m_build->active], 0.0f);

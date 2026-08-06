@@ -29,19 +29,21 @@ struct BuildScratch;
 // degrades under another. Requires recorded waypoints (the views to anchor).
 class FeatureMatchState : public PoseComparisonState {
 public:
-    // 8 per view is what a pose actually needs from a hand-built database:
-    // fewer than that and a single misplaced anchor is a large share of the
-    // consensus. They are spread across the frame (see detectSpreadFeatures),
-    // so 8 is 8 usable places rather than 8 dots on one corner.
+    // What a pose needs from a hand-built database: fewer, and one misplaced
+    // anchor is a large share of the consensus. They are spread across the
+    // frame (see detectSpreadFeatures), so 8 is 8 usable places.
     static constexpr size_t kDefaultFeatures = 8;
     static constexpr size_t kMaxFeatures     = 20;
 
-    // featureCount (suggestions per view) is fixed for the mode's lifetime.
-    explicit FeatureMatchState(size_t featureCount = kDefaultFeatures);
+    // Both fixed for the mode's lifetime. minInliers is the consensus floor a
+    // capture must reach; nullopt leaves the choice to the solver's rule.
+    explicit FeatureMatchState(size_t featureCount = kDefaultFeatures,
+                               std::optional<size_t> minInliers = std::nullopt);
     ~FeatureMatchState() override;   // out-of-line: m_db/m_build are incomplete here
 
-    // The F-key terminal prompt (1..kMaxFeatures, plain Enter = the default).
+    // The two F-key terminal prompts; plain Enter takes the default in each.
     static size_t promptCount();
+    static std::optional<size_t> promptMinInliers();
 
     void onEnter(Simulation &sim) override;
     void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override;
@@ -67,7 +69,7 @@ private:
     void finishBuild(Simulation &sim, Renderer &renderer);
 
     // Give every hand-placed point the descriptors of its appearances in the
-    // OTHER recorded views. No descriptor is truly viewpoint-invariant, so one
+    // OTHER recorded views. No descriptor is viewpoint-invariant, so one
     // appearance per point is what makes free flight fail where a recorded
     // waypoint works; the 3D still comes entirely from the user's click.
     void addOtherViewAppearances(Simulation &sim, Renderer &renderer);
@@ -78,11 +80,11 @@ private:
     void saveDatabase(const Simulation &sim) const;
     void loadDatabase(Simulation &sim, Renderer &renderer);
 
-    // Ctrl+G: an automated stand-in for the whole G workflow -- lay an orbit
-    // of recorded views, anchor every suggestion with simulated human aim
-    // error (depth noise along the sight line), collect appearances, save.
-    // Exists to produce test databases in seconds for experiments; the manual
-    // build remains the mode. See the .cpp for why the simulation is honest.
+    // Ctrl+G: an automated stand-in for the whole G workflow -- lay an arc of
+    // recorded views, anchor every suggestion with simulated human aim error
+    // (depth noise along the sight line), collect appearances, save. Test
+    // databases in seconds; the manual build remains the mode. See the .cpp
+    // for why the simulation is honest.
     void autoBuild(Simulation &sim, Renderer &renderer);
 
     // Build-phase map aids: the active suggestion's sight line, plus a dim one
@@ -106,16 +108,15 @@ private:
 
     // The frame size every capture and collection renders at -- part of the
     // DATABASE's identity, not the window's. SIFT descriptors shift when the
-    // same scene is rasterised at another resolution, so a database is only
-    // exact against frames of the size it was built from; captures render
-    // offscreen at this size so the window may be anything, any session.
-    // Set by startBuild (from the live pane) and by loadDatabase (from the
-    // file). Zero until either happens; captureViewport then falls back to
-    // the live pane.
+    // same scene is rasterised at another resolution, so captures render
+    // offscreen at this size and the window may be anything, any session.
+    // Set by startBuild (from the live pane) and loadDatabase (from the file);
+    // zero until then, and captureViewport falls back to the live pane.
     Viewport captureViewport(const Simulation &sim) const;
     int m_captureWidth = 0, m_captureHeight = 0;
 
     size_t                     m_featureCount;
+    std::optional<size_t>      m_minInliers;   // nullopt = the solver's rule
     std::unique_ptr<FeatureDb> m_db;         // hand-built; empty until a build completes
     std::unique_ptr<BuildScratch> m_build;   // non-null only while building (G in progress)
 
