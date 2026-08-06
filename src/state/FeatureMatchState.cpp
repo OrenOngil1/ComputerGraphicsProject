@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <vector>
 
@@ -72,8 +73,8 @@ void FeatureMatchState::onEnter(Simulation &sim)
               << "right-drag = rotate.\n"
               << "               Then " << kCaptureHelp
               << ". Ctrl+S saves the database, Ctrl+O loads it back. Ctrl+G auto-builds"
-              << " and saves one (high survey circle, simulated aim error) when you"
-              << " just need a database to test against." << std::endl;
+              << " and saves one (arc / high circle / scattered path, simulated aim"
+              << " error) when you just need a database to test against." << std::endl;
 }
 
 // Pose the player camera at the current build waypoint (so the right pane
@@ -360,18 +361,64 @@ void FeatureMatchState::loadDatabase(Simulation &sim, Renderer &renderer)
 // actually supplies. Sized to what hand-built databases achieve.
 static constexpr float kSimulatedDepthErrorUnits = 4.0f;
 
-static constexpr size_t kDefaultAutoViews    = 12;   // circle stops: below ~12 the
-                                                     // azimuth step outgrows SIFT's
-                                                     // viewpoint tolerance
 static constexpr size_t kMaxAutoViews        = 20;
 static constexpr size_t kDefaultAutoFeatures = 10;   // denser than the manual default:
                                                      // clicks are free here
 
-// The auto path: a survey circle's orbit radius, flight altitude, and how far
-// past the centre each stop aims, as fractions of the terrain's width.
-static constexpr float kAutoPathRadiusFraction   = 0.22f;
-static constexpr float kAutoPathAltitudeFraction = 0.50f;
-static constexpr float kAutoAimOvershootFraction = 0.17f;
+// One seed for everything the auto build randomises (aim error, scattered
+// stations), so two builds with the same parameters are the same database --
+// "change one thing and measure" stays possible.
+static constexpr unsigned int kAutoBuildSeed = 20260805u;
+
+static constexpr float kTau = 6.28318530718f;
+
+// Arc: span around the terrain's middle, orbit radius, and flight altitude
+// (fractions of the terrain's width). Low and tight: its ~13 degree steps
+// reproduce the geometry of the manual corridors that work.
+static constexpr float kArcSpanDegrees      = 120.0f;
+static constexpr float kArcRadiusFraction   = 0.30f;
+static constexpr float kArcAltitudeFraction = 0.25f;
+
+// High survey circle: orbit radius, flight altitude, and how far past the
+// centre each stop aims (fractions of the terrain's width), plus the stop
+// count below which the azimuth step outgrows SIFT's viewpoint tolerance.
+static constexpr float  kCircleRadiusFraction       = 0.22f;
+static constexpr float  kCircleAltitudeFraction     = 0.50f;
+static constexpr float  kCircleAimOvershootFraction = 0.17f;
+static constexpr size_t kCircleComfortViews         = 12;
+
+// Scattered stations: the sampling extent and each station's look-ahead
+// (fractions of the terrain's width), the altitude band, and how many random
+// candidates compete for each station's spot (best-candidate spacing).
+static constexpr float kScatterExtentFraction    = 0.35f;
+static constexpr float kScatterLookaheadFraction = 0.45f;
+static constexpr float kScatterAltitudeMin       = 0.30f;
+static constexpr float kScatterAltitudeMax       = 0.50f;
+static constexpr int   kScatterCandidates        = 16;
+
+// The three path shapes Ctrl+G can fly. Each mode's default view count suits
+// its geometry: the circle needs ~12 stops to keep its azimuth steps inside
+// SIFT's viewpoint tolerance; the arc and the scattered stations have no such
+// coupling.
+enum class AutoPathMode { Arc, Circle, Scattered };
+
+struct AutoPathSpec {
+    const char *name;          // as printed in the build summary
+    size_t      defaultViews;
+    const char *flyingHint;    // where recognition is strongest, printed after the build
+};
+
+static const AutoPathSpec kAutoPathSpecs[] = {
+    { "an arc", 8,
+      "FEATURES: recognition is strongest along the arc's own corridor -- fly"
+      " the low sweep around the middle, looking at the centre" },
+    { "a high survey circle", kCircleComfortViews,
+      "FEATURES: recognition is strongest from viewpoints like the orbit's own"
+      " -- fly near the grey ring, high, looking across the middle" },
+    { "scattered survey stations", 10,
+      "FEATURES: recognition is strongest near the recorded stations -- their"
+      " spread trades per-spot depth for coverage of the whole map" },
+};
 
 // The canonical frame size an auto build pins its database to.
 static constexpr int kAutoCaptureWidth  = 1280;
@@ -478,39 +525,141 @@ static std::vector<size_t> selectSpacedAnchors(
     return picked;
 }
 
-// The path: a full circle flown HIGH, each stop aimed at a ground point PAST
-// the centre. Height is what makes a circle legal at all: a low ring's azimuth
-// steps (36 degrees at 10 stops) blow SIFT's ~15-20 degree viewpoint budget
-// and nothing matches across them, but from high up a step is mostly an
-// IN-PLANE rotation of the same picture, which SIFT absorbs by design -- the
-// harmful out-of-plane residue, 2*asin(sin(step/2)*sin(tilt)), is ~18 degrees
-// at 12 stops and this tilt, shrinking with every extra stop (hence the
-// 12-view default and the warning below it). The past-centre aim stretches
+// An ARC around the terrain's middle, not a full ring -- low, every stop aimed
+// at the centre. On a low ring neighbouring views of the same spot sit ~36
+// degrees apart, past SIFT's ~15-20 degree tolerance on 3D relief, and nothing
+// matches across them; the arc's ~13 degree steps reproduce the geometry of
+// every manual corridor that worked. (docs/pose-estimation-modes.md, "Ctrl+G")
+static void layOutArc(Simulation &sim, size_t views)
+{
+    const float arcSpan  = glm::radians(kArcSpanDegrees);
+    const float radius   = kArcRadiusFraction   * sim.terrainSize;
+    const float altitude = kArcAltitudeFraction * sim.terrainSize;
+
+    sim.waypoints.clear();
+    sim.pathPoints.clear();
+    for (size_t i = 0; i < views; i++) {
+        const float t     = views > 1 ? (float)i / (float)(views - 1) : 0.5f;
+        const float angle = (t - 0.5f) * arcSpan;
+        const glm::vec3 eye(radius * std::cos(angle), altitude, radius * std::sin(angle));
+        sim.waypoints.push_back({ eye, glm::vec3(0.0f) });
+        sim.pathPoints.push_back(eye);
+    }
+}
+
+// A full circle flown HIGH, each stop aimed at a ground point PAST the centre.
+// Height is what makes a circle legal at all: a low ring's azimuth steps blow
+// SIFT's viewpoint budget (see layOutArc), but from high up a step is mostly
+// an IN-PLANE rotation of the same picture, which SIFT absorbs by design --
+// the harmful out-of-plane residue, 2*asin(sin(step/2)*sin(tilt)), is ~18
+// degrees at 12 stops and this tilt, shrinking with every extra stop (hence
+// the 12-view default and the warning below it). The past-centre aim stretches
 // each stop's footprint from its own nadir across the middle to the far edge,
 // so the strips fan around the compass and their union covers essentially the
 // whole map. (docs/pose-estimation-modes.md, "Ctrl+G")
 static void layOutSurveyCircle(Simulation &sim, size_t views)
 {
-    const float tau       = 6.28318530718f;
-    const float radius    = kAutoPathRadiusFraction    * sim.terrainSize;
-    const float altitude  = kAutoPathAltitudeFraction  * sim.terrainSize;
-    const float overshoot = kAutoAimOvershootFraction  * sim.terrainSize;
+    const float radius    = kCircleRadiusFraction       * sim.terrainSize;
+    const float altitude  = kCircleAltitudeFraction     * sim.terrainSize;
+    const float overshoot = kCircleAimOvershootFraction * sim.terrainSize;
 
-    if (views < kDefaultAutoViews)
-        std::cout << "FEATURES: note -- with fewer than ~" << kDefaultAutoViews
+    if (views < kCircleComfortViews)
+        std::cout << "FEATURES: note -- with fewer than ~" << kCircleComfortViews
                   << " stops a circle's azimuth steps outgrow SIFT's viewpoint"
                      " tolerance; expect weaker cross-view collection" << std::endl;
 
     sim.waypoints.clear();
     sim.pathPoints.clear();
     for (size_t i = 0; i < views; i++) {
-        const float angle = tau * (float)i / (float)views;
+        const float angle = kTau * (float)i / (float)views;
         const glm::vec3 out(std::cos(angle), 0.0f, std::sin(angle));
         sim.waypoints.push_back({ out * radius + glm::vec3(0.0f, altitude, 0.0f),
                                   -out * overshoot });
         sim.pathPoints.push_back(sim.waypoints.back().position);
     }
     sim.pathPoints.push_back(sim.waypoints.front().position);   // close the ring on the map
+}
+
+// Best-candidate spacing: a station takes the best of kScatterCandidates
+// random spots -- the one farthest from every station already placed -- which
+// spreads the set without a tuning parameter to get wrong.
+static glm::vec2 bestSpacedSpot(std::mt19937 &rng, const std::vector<Waypoint> &placed,
+                                float extent)
+{
+    std::uniform_real_distribution<float> coord(-extent, extent);
+    glm::vec2 best(0.0f);
+    float bestScore = -1.0f;
+    for (int c = 0; c < kScatterCandidates; c++) {
+        const glm::vec2 candidate(coord(rng), coord(rng));
+        float nearest = std::numeric_limits<float>::max();
+        for (const Waypoint &w : placed)
+            nearest = std::min(nearest, glm::distance(candidate,
+                                                      glm::vec2(w.position.x, w.position.z)));
+        if (nearest > bestScore) {
+            bestScore = nearest;
+            best = candidate;
+        }
+    }
+    return best;
+}
+
+// Headings from an evenly divided compass, jittered and shuffled: the angular
+// spread is guaranteed, the order and exact bearings are not, so the set reads
+// as random without ever clustering half the stations on one bearing.
+static std::vector<float> spreadHeadings(std::mt19937 &rng, size_t views)
+{
+    std::uniform_real_distribution<float> jitter(-0.5f, 0.5f);
+    std::vector<float> headings(views);
+    for (size_t i = 0; i < views; i++)
+        headings[i] = kTau * ((float)i + jitter(rng)) / (float)views;
+    std::shuffle(headings.begin(), headings.end(), rng);
+    return headings;
+}
+
+// Scattered survey stations: well-spaced random positions over the map, each
+// at its own altitude, looking along its own compass heading at a ground point
+// ahead. Unlike the arc and the circle no geometry ties neighbouring views
+// together, so the cross-view collection pass finds little -- the mode trades
+// per-spot depth for coverage of positions and angles.
+static void layOutScatteredStations(Simulation &sim, size_t views)
+{
+    std::mt19937 rng(kAutoBuildSeed);   // deterministic, like the aim error
+    const float extent    = kScatterExtentFraction    * sim.terrainSize;
+    const float lookahead = kScatterLookaheadFraction * sim.terrainSize;
+    const float mapEdge   = 0.5f * sim.terrainSize;
+    std::uniform_real_distribution<float> altitude(kScatterAltitudeMin * sim.terrainSize,
+                                                   kScatterAltitudeMax * sim.terrainSize);
+    const std::vector<float> headings = spreadHeadings(rng, views);
+
+    sim.waypoints.clear();
+    sim.pathPoints.clear();
+    for (size_t i = 0; i < views; i++) {
+        const glm::vec2 spot = bestSpacedSpot(rng, sim.waypoints, extent);
+        glm::vec2 target = spot + glm::vec2(std::cos(headings[i]),
+                                            std::sin(headings[i])) * lookahead;
+        // A look target off the map anchors nothing, so a station that would
+        // stare outward looks inward across the centre instead (the circle's
+        // past-centre trick). ||spot| - lookahead| < half the map, so the
+        // re-aim always lands on it; off-map implies |spot| > 0, so the
+        // normalize is safe.
+        if (std::abs(target.x) > mapEdge || std::abs(target.y) > mapEdge)
+            target = spot - lookahead * glm::normalize(spot);
+        sim.waypoints.push_back({ glm::vec3(spot.x, altitude(rng), spot.y),
+                                  glm::vec3(target.x, 0.0f, target.y) });
+        sim.pathPoints.push_back(sim.waypoints.back().position);
+    }
+    std::cout << "FEATURES: note -- scattered stations rarely revisit a spot"
+                 " within SIFT's viewpoint tolerance; expect weaker cross-view"
+                 " collection than the circle's" << std::endl;
+}
+
+static void layOutAutoPath(Simulation &sim, AutoPathMode mode, size_t views)
+{
+    switch (mode) {
+        case AutoPathMode::Arc:       layOutArc(sim, views);               break;
+        case AutoPathMode::Circle:    layOutSurveyCircle(sim, views);      break;
+        case AutoPathMode::Scattered: layOutScatteredStations(sim, views); break;
+    }
 }
 
 // The knobs every simulated view consumes, derived once per build.
@@ -575,14 +724,32 @@ static void simulateViewClicks(FeatureDb &db, std::vector<glm::vec3> &taken,
     }
 }
 
+// The build's closing words: what was built on which path, then where flying
+// will recognise it best. captureHelp arrives as a parameter -- it is a
+// protected member of the base class, out of a file-static function's reach.
+static void reportAutoBuild(const Simulation &sim, const AutoBuildPlan &plan,
+                            const AutoPathSpec &spec, size_t placed,
+                            const char *captureHelp)
+{
+    std::cout << "FEATURES: auto-built " << placed << " points from "
+              << sim.waypoints.size() << " views on " << spec.name
+              << " (map spacing ~" << (int)plan.idealSpacing
+              << " units; simulated aim error sigma " << kSimulatedDepthErrorUnits
+              << " units along the sight line). " << captureHelp << std::endl;
+    std::cout << spec.flyingHint << std::endl;
+}
+
 void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
 {
+    const auto mode = (AutoPathMode)(::promptCount(
+        "Auto-path mode (1 = arc, 2 = high circle, 3 = scattered)", 3, 2) - 1);
+    const AutoPathSpec &spec = kAutoPathSpecs[(size_t)mode];
     const size_t views    = ::promptCount("Auto-path waypoints", kMaxAutoViews,
-                                          kDefaultAutoViews);
+                                          spec.defaultViews);
     const size_t features = ::promptCount("Features per view", kMaxFeatures,
                                           kDefaultAutoFeatures);
 
-    layOutSurveyCircle(sim, views);
+    layOutAutoPath(sim, mode, views);
 
     // Same lifecycle as startBuild: fresh database, any build in progress
     // discarded. The capture resolution does NOT follow the window here -- with
@@ -593,9 +760,7 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     m_captureWidth  = kAutoCaptureWidth;
     m_captureHeight = kAutoCaptureHeight;
 
-    // A fixed seed, so two auto-builds with the same parameters are the same
-    // database -- "change one thing and measure" stays possible.
-    std::mt19937 rng(20260805u);
+    std::mt19937 rng(kAutoBuildSeed);
     std::normal_distribution<float> aim(0.0f, kSimulatedDepthErrorUnits);
 
     const AutoBuildPlan plan = makeAutoBuildPlan(sim, captureViewport(sim),
@@ -614,14 +779,7 @@ void FeatureMatchState::autoBuild(Simulation &sim, Renderer &renderer)
     const size_t placed = m_db->anchors.size();
     addOtherViewAppearances(sim, renderer);
     refreshPlaces();
-    std::cout << "FEATURES: auto-built " << placed << " points from "
-              << sim.waypoints.size() << " views on a high survey circle (map spacing ~"
-              << (int)plan.idealSpacing << " units; simulated aim error sigma "
-              << kSimulatedDepthErrorUnits << " units along the sight line). "
-              << kCaptureHelp << std::endl;
-    std::cout << "FEATURES: recognition is strongest from viewpoints like the"
-                 " orbit's own -- fly near the grey ring, high, looking across"
-                 " the middle" << std::endl;
+    reportAutoBuild(sim, plan, spec, placed, kCaptureHelp);
     saveDatabase(sim);
 }
 
