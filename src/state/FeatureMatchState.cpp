@@ -575,13 +575,14 @@ static void layOutSurveyCircle(Simulation &sim, size_t views)
 // random spots -- the one farthest from every station already placed -- which
 // spreads the set without a tuning parameter to get wrong.
 static glm::vec2 bestSpacedSpot(std::mt19937 &rng, const std::vector<Waypoint> &placed,
-                                float extent)
+                                const glm::vec2 &extent)
 {
-    std::uniform_real_distribution<float> coord(-extent, extent);
+    std::uniform_real_distribution<float> coordX(-extent.x, extent.x);
+    std::uniform_real_distribution<float> coordZ(-extent.y, extent.y);
     glm::vec2 best(0.0f);
     float bestScore = -1.0f;
     for (int c = 0; c < kScatterCandidates; c++) {
-        const glm::vec2 candidate(coord(rng), coord(rng));
+        const glm::vec2 candidate(coordX(rng), coordZ(rng));
         float nearest = std::numeric_limits<float>::max();
         for (const Waypoint &w : placed)
             nearest = std::min(nearest, glm::distance(candidate,
@@ -615,9 +616,14 @@ static std::vector<float> spreadHeadings(std::mt19937 &rng, size_t views)
 static void layOutScatteredStations(Simulation &sim, size_t views)
 {
     std::mt19937 rng(kAutoBuildSeed);   // deterministic, like the aim error
-    const float extent    = kScatterExtentFraction    * sim.terrainSize;
-    const float lookahead = kScatterLookaheadFraction * sim.terrainSize;
-    const float mapEdge   = 0.5f * sim.terrainSize;
+    // Per-axis: the grid spans +-cols/2 in x by +-rows/2 in z, NOT a
+    // terrainSize square (that is max(cols, rows)); a non-square DEM would put
+    // square-sized stations over empty space where nothing anchors. The
+    // lookahead follows the short axis so the re-aim below stays on the grid.
+    const glm::vec2 grid((float)sim.mesh.cols, (float)sim.mesh.rows);
+    const glm::vec2 extent  = kScatterExtentFraction * grid;
+    const glm::vec2 mapEdge = 0.5f * grid;
+    const float lookahead = kScatterLookaheadFraction * std::min(grid.x, grid.y);
     std::uniform_real_distribution<float> altitude(kScatterAltitudeMin * sim.terrainSize,
                                                    kScatterAltitudeMax * sim.terrainSize);
     const std::vector<float> headings = spreadHeadings(rng, views);
@@ -630,10 +636,11 @@ static void layOutScatteredStations(Simulation &sim, size_t views)
                                             std::sin(headings[i])) * lookahead;
         // A look target off the map anchors nothing, so a station that would
         // stare outward looks inward across the centre instead (the circle's
-        // past-centre trick). ||spot| - lookahead| < half the map, so the
-        // re-aim always lands on it; off-map implies |spot| > 0, so the
-        // normalize is safe.
-        if (std::abs(target.x) > mapEdge || std::abs(target.y) > mapEdge)
+        // past-centre trick). Always on the grid: shrinking toward the centre
+        // stays inside the station's own box, and crossing it ends within
+        // lookahead of the centre -- under half of either axis. Off-map
+        // implies |spot| > 0, so the normalize is safe.
+        if (std::abs(target.x) > mapEdge.x || std::abs(target.y) > mapEdge.y)
             target = spot - lookahead * glm::normalize(spot);
         sim.waypoints.push_back({ glm::vec3(spot.x, altitude(rng), spot.y),
                                   glm::vec3(target.x, 0.0f, target.y) });
