@@ -43,7 +43,7 @@ static glm::vec3 getColor(float height, float minH, float maxH)
         return snow;
 }
 
-static void getColors(Mesh &mesh, float minH, float maxH)
+static void applyElevationColors(Mesh &mesh, float minH, float maxH)
 {
     for (Vertex &vertex : mesh.vertices)
         vertex.color = getColor(vertex.position.y, minH, maxH);
@@ -118,7 +118,7 @@ std::optional<Mesh> readTerrain(const std::string &filename)
 
     // Colors and normals both need the finished height field, so they run
     // after every vertex is in place.
-    getColors(mesh, minH, maxH);
+    applyElevationColors(mesh, minH, maxH);
     computeNormals(mesh);
 
     return mesh;
