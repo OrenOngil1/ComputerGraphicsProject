@@ -23,7 +23,8 @@
 #include "../src/core/Scene.h"
 #include "../src/core/Simulation.h"
 #include "../src/state/State.h"   // completes State: Simulation's unique_ptr member
-#include "../src/state/FeatureMatchState.h"   // layOutBuildRing
+#include "../src/core/FlightPaths.h"          // layOutBuildRing
+#include "../src/state/FeatureMatchState.h"   // nearestRecordedView, NearestView
 
 namespace {
 

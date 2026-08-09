@@ -13,19 +13,16 @@
 std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &correspondences,
                                           float fov, int viewportWidth, int viewportHeight);
 
-// RANSAC flavor, for machine-generated correspondences: fits candidate poses
-// on random subsets and keeps the one most correspondences agree with, so a
-// wrong descriptor match is outvoted instead of averaged in.
-//
-// minInliers is the smallest consensus the caller will trust (>= the algebraic
-// minimum of 4): raising it turns a poor-overlap frame into a refusal instead
-// of a confident-looking garbage pose. reprojErrorPx is the agreement radius;
-// <= 0 selects the fraction below of the frame height -- sized to what a
-// true-but-strained pair carries and no wider, or lookalike ridges assemble a
-// rival consensus. Measured twice: 4.5% turned five of eight solves on a
-// hand-built database into coalitions 60-240 units off. Slack cannot stand in
-// for appearance coverage. (Full record: docs/pose-estimation-modes.md,
-// "Run-phase (B)".)
+// RANSAC flavor, for machine-generated correspondences: fits candidate poses on
+// random subsets and keeps the one most agree with, so a wrong descriptor match
+// is outvoted instead of averaged in. minInliers is the smallest consensus the
+// caller will trust (>= the algebraic minimum of 4); reprojErrorPx is the
+// agreement radius, and <= 0 selects the fraction below.
+
+// Sized to what a true-but-strained pair carries and no wider, or lookalike
+// ridges assemble a rival consensus: at 4.5%, five of eight solves became
+// coalitions 60-240 units off. Slack cannot stand in for appearance coverage.
+// (docs/pose-estimation-modes.md, "Run-phase (B)")
 constexpr float kHandPlacedReprojFraction = 0.03f;   // of the frame height
 
 // inlierIndices, when given, receives the winning consensus (indices into

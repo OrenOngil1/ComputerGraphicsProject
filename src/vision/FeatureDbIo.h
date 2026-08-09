@@ -8,16 +8,12 @@
 #include "FeatureMatching.h"   // FeatureDb
 #include "../core/Camera.h"    // Waypoint
 
-// On-disk storage for a hand-built feature database (Mode D's pre-phase).
-//
-// The database is the one thing in this app a human makes by hand, minutes at a
-// time, and it is otherwise lost on exit. Saving it makes the database an input
-// to a test run rather than part of one. The recorded waypoints travel with it:
-// the anchors were placed from those views and the all-waypoints evaluation
-// replays them, so a database without them is only half restored. The flight
-// path travels too -- it is only provenance drawing, but a reloaded database
-// that shows dots without the line they were flown on reads as a different
-// (poorer) build than the one that was saved.
+// On-disk storage for a hand-built feature database (Mode D's pre-phase). It is
+// the one thing here a human makes by hand, minutes at a time; saving it makes
+// the database an input to a test run rather than part of one. The waypoints
+// travel with it -- the anchors were placed from those views -- and so does the
+// flight path, which is only provenance drawing but reads as a poorer build
+// when the dots come back without the line they were flown on.
 
 // Where `terrainFile`'s database lives: captures/featuredb_<terrain>.yml.
 std::string featureDbPath(const std::string &terrainFile);

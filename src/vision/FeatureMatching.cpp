@@ -46,29 +46,24 @@ std::vector<size_t> rankByResponse(const std::vector<cv::KeyPoint> &keypoints)
     return order;
 }
 
-// Walk the response ranking and take a keypoint only when it clears `radius`
-// from everything already taken -- strongest first, so the spread is paid for
-// with the weaker of any two crowded keypoints. A cramped or feature-poor
-// frame may not have maxCount points that far apart: relax and retry rather
-// than return a short set -- a tighter spread still beats the cluster the
-// ranking alone would give.
+// Take a keypoint only when it clears the current spacing from everything
+// already taken -- strongest first, so the spread is paid for with the weaker
+// of any two crowded keypoints. Spacing starts at what maxCount points would
+// have if they tiled the frame evenly, pulled in so the quota still fills.
 static std::vector<size_t> pickSpreadKeypoints(const std::vector<cv::KeyPoint> &kps,
-                                               int maxCount, float radius,
-                                               int width, int height)
+                                               size_t maxCount, int width, int height)
 {
-    // A rim keypoint is a poor anchor: half its surroundings are off-screen, so
-    // its 3D spot is hard to recognise on the map, and it drops out of view
-    // under the smallest camera move.
-    const float margin = 16.0f;
+    float radius = 0.8f * std::sqrt((float)width * (float)height / (float)maxCount);
     const std::vector<size_t> order = rankByResponse(kps);
 
     std::vector<size_t> chosen;
-    for (int attempt = 0; attempt < 3 && (int)chosen.size() < maxCount; attempt++, radius *= 0.5f) {
+    for (size_t attempt = 0; attempt < kSpacingRetries && chosen.size() < maxCount; attempt++, radius *= 0.5f) {
         chosen.clear();
         for (size_t i : order) {
             const cv::Point2f &pt = kps[i].pt;
-            if (pt.x < margin || pt.y < margin ||
-                pt.x > (float)width - margin || pt.y > (float)height - margin)
+            if (pt.x < kRimMarginPx || pt.y < kRimMarginPx ||
+                pt.x > (float)width - kRimMarginPx ||
+                pt.y > (float)height - kRimMarginPx)
                 continue;
 
             const bool crowded = std::any_of(chosen.begin(), chosen.end(),
@@ -79,14 +74,14 @@ static std::vector<size_t> pickSpreadKeypoints(const std::vector<cv::KeyPoint> &
                 continue;
 
             chosen.push_back(i);
-            if ((int)chosen.size() == maxCount)
+            if (chosen.size() == maxCount)
                 break;
         }
     }
     return chosen;
 }
 
-void detectSpreadFeatures(const FramePixels &frame, int maxCount,
+void detectSpreadFeatures(const FramePixels &frame, size_t maxCount,
                           std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
 {
     std::vector<cv::KeyPoint> allKps;
@@ -95,16 +90,11 @@ void detectSpreadFeatures(const FramePixels &frame, int maxCount,
 
     keypoints.clear();
     descriptors.release();
-    if (allKps.empty() || maxCount <= 0)
+    if (allKps.empty() || maxCount == 0)
         return;
 
-    // What maxCount points would have if they tiled the frame evenly, pulled in
-    // a little so a merely well-spread set still fills the quota.
-    const float radius = 0.8f * std::sqrt((float)frame.width * (float)frame.height /
-                                          (float)maxCount);
-    keypoints.reserve((size_t)maxCount);
-    for (size_t i : pickSpreadKeypoints(allKps, maxCount, radius,
-                                        frame.width, frame.height)) {
+    keypoints.reserve(maxCount);
+    for (size_t i : pickSpreadKeypoints(allKps, maxCount, frame.width, frame.height)) {
         keypoints.push_back(allKps[i]);
         descriptors.push_back(allDesc.row((int)i));   // copies the row
     }
@@ -132,8 +122,7 @@ bool hasAppearanceWithin(const FeatureDb &db, const glm::vec3 &place,
 bool resemblesAnyAnchoredPoint(const FeatureDb &db, const cv::Mat &descriptor)
 {
     for (int i = 0; i < db.descriptors.rows; i++)
-        if (cv::norm(db.descriptors.row(i), descriptor, cv::NORM_L2)
-                <= kDuplicateSuggestionDistance)
+        if (cv::norm(db.descriptors.row(i), descriptor) <= kDuplicateSuggestionDistance)
             return true;
     return false;
 }
@@ -342,18 +331,13 @@ std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
 {
     const std::vector<Correspondence> correspondences = matchFeaturesToDb(db, frame);
 
-    // The default scales with what this frame MATCHED, not with the database
-    // -- a frame only sees the anchors of the views near it, so any fraction of
-    // the total becomes unmeetable once the database outgrows one frame. A
-    // sixth, not a quarter, because the pool is polluted and the pollution was
-    // measured: on a 64-place database, lookalike cross-matches roughly double
-    // the pool (40 matched with 14 in frame), and a quarter of a polluted pool
-    // demanded 7-11 while genuine near-ring consensus measured 6-9 -- refusing
-    // measured-good poses over matches that can never vote for any pose. The
-    // clamp's kMinConsensus carries the hard safety line (every accepted-wrong
-    // pose ever measured had exactly 5 inliers); what the floor gives up in
-    // caution is carried by the reprojection gate and the caller's
-    // plausibility checks.
+    // Scales with what this frame MATCHED, not with the database: a frame sees
+    // only the anchors of nearby views, so any fraction of the total goes
+    // unmeetable once the database outgrows one frame. A sixth, not a quarter,
+    // because the pool is polluted -- lookalikes roughly double it, and a
+    // quarter then demanded 7-11 where genuine consensus measured 6-9. The
+    // clamp's kMinConsensus holds the safety line (every accepted-wrong pose
+    // measured had exactly 5 inliers).
     const size_t consensus = std::clamp(minInliers.value_or(correspondences.size() / 6),
                                         kMinConsensus, kMaxConsensus);
     if (correspondences.size() < consensus) {

@@ -12,7 +12,7 @@
 #include "../input/Callbacks.h"        // pollMovementIntent (GLFW glue)
 #include "../render/Renderer.h"
 #include "../vision/Pnp.h"        // computeCameraPose
-#include "FeatureMatchState.h"    // layOutBuildRing (RECORD's O key)
+#include "../core/FlightPaths.h"   // layOutBuildRing (RECORD's O key)
 
 // Has the camera moved far enough since the previous sample to be worth
 // recording? Thins out path recording so a steady glide doesn't append a
