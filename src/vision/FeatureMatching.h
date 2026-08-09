@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -11,6 +12,10 @@
 
 #include "../core/Scene.h"    // FramePixels
 #include "../core/Camera.h"   // Waypoint
+
+// How a pass renders a view without knowing what a Renderer is: the caller
+// binds one in. Keeps this layer free of render/, and its passes headless.
+using FrameCapture = std::function<FramePixels(const Camera &, const Viewport &)>;
 
 // The pre-phase product: SIFT descriptors, each anchored to a 3D terrain point
 // the user hand-placed on the map; anchors[i] is the world point behind
@@ -45,7 +50,7 @@ struct FeatureDb {
 // Spread, not merely strong: top responses cluster a few pixels apart, where
 // the user cannot tell the dots apart on the map and crowded points barely
 // constrain a pose however accurately they are placed.
-void detectSpreadFeatures(const FramePixels &frame, int maxCount,
+void detectSpreadFeatures(const FramePixels &frame, size_t maxCount,
                           std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors);
 
 // Every SIFT feature in a frame -- the full population the run phase matches
@@ -60,6 +65,14 @@ void detectAllFeatures(const FramePixels &frame,
 // naturally single out. Shared so the suggestion spread (frame space) and the
 // auto-build's anchor selection (map space) walk the same ranking.
 std::vector<size_t> rankByResponse(const std::vector<cv::KeyPoint> &keypoints);
+
+// The spread-selection policy, obeyed by both selectors in their own spaces.
+// A rim keypoint is a poor anchor: half its descriptor patch is off-frame.
+constexpr float kRimMarginPx = 16.0f;
+
+// Neither selector can always fill its quota at the spacing it would prefer, so
+// both halve and retry -- a tighter spread beats a short set.
+constexpr size_t kSpacingRetries = 3;
 
 // How near (L2) `descriptor` comes to the closest appearance row `place`
 // owns; a large sentinel if it owns none. The one scan behind every "is this
@@ -77,65 +90,44 @@ bool hasAppearanceWithin(const FeatureDb &db, const glm::vec3 &place,
 // kDuplicateSuggestionDistance.
 bool resemblesAnyAnchoredPoint(const FeatureDb &db, const cv::Mat &descriptor);
 
-// The two descriptor bars. Both measured on hand-built databases; the numbers
-// and their failed alternatives are in docs/pose-estimation-modes.md
-// ("Hardening the database").
-//
-// MATCH bar -- how close a frame descriptor must come to a stored row before
-// a capture may claim it saw that place. Genuine cross-view re-sightings
-// measured 250-310, and an earlier bar at 250 refused the database's own
-// cross-view matches; 320 admits the measured band while staying under the
-// lookalike cloud (different places' rows come no nearer than ~337 on a
-// 33-place build, two audited outliers aside). Every capture prints accepted
-// distances and nearest misses -- read both against this number before
-// turning it.
+// The three descriptor bars, all measured on hand-built databases. The numbers
+// and the alternatives that failed: docs/pose-estimation-modes.md ("Hardening
+// the database").
+
+// MATCH bar -- how close a frame descriptor must come to a stored row before a
+// capture may claim it saw that place. Genuine re-sightings measured 250-310;
+// distinct places come no nearer than ~337. Every capture prints its accepted
+// distances and nearest misses -- read both against this before turning it.
 constexpr float kMaxDescriptorDistance = 320.0f;
 
-// COLLECTION bar -- how close a keypoint must come to a place's stored rows
-// for the appearance pass to adopt it as a new row. Deliberately looser than
-// the match bar: at collection time geometry has already pinned WHERE (the
-// occlusion ray, the world-budget radius, one keypoint per place), so this
-// check only rejects a DIFFERENT feature at that spot, and a wrong corner
-// inside the radius sits within the slop budget anyway. Reusing the match bar
-// here starved the pass -- same-place cross-view rows measured 106-480
-// (median 250), so half the genuine re-sightings were refused and 26 of 33
-// places never grew past one row.
+// COLLECTION bar -- the same question for the appearance pass, looser on
+// purpose: geometry has already pinned WHERE, so this only rejects a DIFFERENT
+// feature at that spot. At the match bar the pass starved -- same-place rows
+// measured 106-480, and 26 of 33 places never grew past one row.
 constexpr float kCollectResemblanceDistance = 400.0f;
 
-// DUPLICATE bar -- how close a fresh suggestion must come to an existing row
-// before the build refuses to offer it for anchoring. This one must be TIGHT,
-// and for the opposite reason the others are loose: it is the only bar whose
-// verdict the user cannot overrule, so every false positive is a terrain
-// feature that can never be anchored at all. The match bar is far too wide for
-// it -- reportDbAudit measured 45 pairs of genuinely DISTINCT places whose
-// rows sit under 320 on a 64-place build, so a guard at the match bar
-// withholds real places, and the more the database grows the more it
-// withholds. 150 is the bottom of the measured same-place band (106-480), so
-// it still catches the near-identical re-detection this guard exists for --
-// the same feature suggested again from a nearby view -- while staying far
-// under anything two distinct places have ever measured. Duplicates that slip
-// past it are visible afterwards in the audit's confusable-pair count.
+// DUPLICATE bar -- how close a fresh suggestion must come before the build
+// refuses to offer it. TIGHT, because it is the only bar the user cannot
+// overrule: a false positive is terrain that can never be anchored at all. At
+// the match bar, 45 pairs of DISTINCT places were withheld on a 64-place build.
+// 150 is the bottom of the measured same-place band; leaks past it show up in
+// the audit's confusable-pair count.
 constexpr float kDuplicateSuggestionDistance = 150.0f;
 
-// How far a carefully hand-placed anchor may sit from the true point, in world
-// units -- the appearance pass's error budget. Calibrated by measurement: the
-// build debrief put a careful snap-assisted hand at median 6.4 units, and the
-// original guess of 3 -- half that -- left the pass finding almost nothing to
-// collect. Recalibrate from the debrief if placement technique changes.
+// How far a hand-placed anchor may sit from the true point -- the appearance
+// pass's error budget. The build debrief put a careful snap-assisted hand at
+// median 6.4 units; the original guess of 3 collected almost nothing.
 constexpr float kAnchorSlopUnits = 7.0f;
 
-// That budget as a search radius in pixels at a given range: a fixed pixel
-// radius is a VARIABLE world budget (~1 unit from a low view), which starved
-// collection for hand-built databases. Floored so SIFT's localisation slop
-// always fits; capped only against degenerate cases (a place almost at the
-// camera), because keeping keypoints apart is the claim step's job, not the
-// radius's -- an earlier 2.5% cap silently re-clamped the world budget below
-// the measured hand error at typical ranges and made the slop constant inert.
+// That budget as a pixel radius at a given range. A fixed pixel radius is a
+// VARIABLE world budget (~1 unit from a low view), which starved collection.
+// Floored so SIFT's localisation slop fits; the cap only guards a place almost
+// at the camera, since keeping keypoints apart is the claim step's job.
 inline float projectionRadiusPx(float slopUnits, float focalPx, float range,
                                 float frameHeight)
 {
     const float px = slopUnits * focalPx / std::max(range, 1.0f);
-    return std::clamp(px, 6.0f, 0.05f * frameHeight);
+    return std::clamp(px, 6.0f, std::max(0.05f * frameHeight, 6.0f));
 }
 
 // Console hygiene report for a freshly built or loaded database: appearance
@@ -161,21 +153,15 @@ std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePi
 constexpr size_t kMinConsensus = 6;
 constexpr size_t kMaxConsensus = 25;
 
-// Run-phase: match the frame against the database and solve the surviving
-// 2D-3D pairs with RANSAC PnP. nullopt when there are too few confident
-// matches or no consensus pose.
+// Run-phase: match the frame against the database and solve the surviving 2D-3D
+// pairs with RANSAC PnP. nullopt when too few matches are confident or nothing
+// reaches consensus.
 //
-// minInliers is how many matches must agree on the pose, clamped to
-// [kMinConsensus, kMaxConsensus]; nullopt takes a sixth of what this frame
-// matched -- the same demand at every database size, see the .cpp.
-//
-// inliersOut, when given, receives the consensus correspondences of a
-// successful solve -- the caller's plausibility check asks whether the
-// estimate could actually see them.
-//
-// pinnedFloorNoted is the caller's once-per-pin latch for the small-pinned-
-// floor warning: raised the first time it fires. Owned by the caller rather
-// than a static here so a new mode entry with a new pin warns again.
+// minInliers: how many matches must agree, clamped to [kMinConsensus,
+// kMaxConsensus]; nullopt takes a sixth of what this frame matched (see .cpp).
+// inliersOut: the winning consensus, for the caller's plausibility check.
+// pinnedFloorNoted: the caller's once-per-pin latch for the small-floor
+// warning, owned there so a new mode entry with a new pin warns again.
 std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
                                                  const FramePixels &frame,
                                                  float fov, int viewportWidth,

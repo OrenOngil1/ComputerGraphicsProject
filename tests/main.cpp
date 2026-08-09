@@ -21,6 +21,7 @@ void testFeatureDbIo();
 void testSkyboxLoader();
 void testViewAids();
 void testRayAnchor();
+void testManualBuild();
 
 int main()
 {
@@ -38,6 +39,7 @@ int main()
     testSkyboxLoader();
     testViewAids();
     testRayAnchor();
+    testManualBuild();
 
     if (failures == 0)
         std::cout << "All checks passed." << std::endl;

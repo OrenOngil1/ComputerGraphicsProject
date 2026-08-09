@@ -12,31 +12,17 @@
 
 // Both behind pointers so OpenCV types stay out of the state headers.
 struct FeatureDb;
-struct BuildScratch;
+class ManualBuild;
 
-// Lay the calibrated hand-build ring as the recorded path (O in RECORD mode):
-// 16 stations at the arc's measured-good radius and altitude, every stop aimed
-// at the centre. One keystroke replaces the freehand flight so a hand build
-// starts from the geometry every good manual run shared -- the anchoring
-// itself stays entirely by hand. Defined with the other path layers in
-// FeatureMatchState.cpp.
-void layOutBuildRing(Simulation &sim);
-
-// How far the camera's heading may turn from a stored view's before SIFT stops
-// re-finding that view's appearances on this shading-driven terrain. Measured,
-// not theoretical: build rings at 22.5-degree steps cross-match between
-// neighbouring stations, while a 36-degree ring collected nothing between
-// stops. Lives here rather than beside the descriptor bars because NO matching
-// path reads it -- the envelope aid below colors by it, and nothing gates on
-// it.
+// How far the heading may turn from a stored view's before SIFT stops
+// re-finding its appearances. Measured, not theoretical: 22.5-degree steps
+// cross-match between stations, a 36-degree ring collected nothing. Nothing
+// gates on it -- the envelope aid below only colors by it.
 constexpr float kViewpointToleranceDegrees = 25.0f;
 
-// The recorded view the camera is closest to, and by how much in the two
-// dimensions recognition actually depends on: distance between the eyes, and
-// the angle between the headings. Estimates are only trustworthy near a
-// collected view looking roughly its way (kViewpointToleranceDegrees), so
-// these two numbers are the pilot's live "am I inside the envelope" readout.
-// Empty when nothing was recorded.
+// The nearest recorded view, in the two dimensions recognition depends on:
+// distance between the eyes and angle between the headings -- the pilot's live
+// "am I inside the envelope" readout. Empty when nothing was recorded.
 struct NearestView {
     size_t    index;              // into the waypoint list, for the console line
     glm::vec3 position;           // that view's eye, COPIED: the overlay draws to it
@@ -49,13 +35,11 @@ std::optional<NearestView> nearestRecordedView(const std::vector<Waypoint> &view
                                                const Camera &camera);
 
 // Mode D: pose estimation by 2D feature matching, with manual anchoring
-// (docs/pose-estimation-modes.md, "Mode D"). G builds the database: SIFT
-// suggests each recorded view's strongest points and the user color-picks each
-// one's 3D spot on the global map -- the hand-placed (descriptor, 3D) pairs
-// ARE the database. B is the inherited capture flow: match the live view
-// against the database, RANSAC PnP. Lighting (L) feeds the experiment (a
-// database anchored under one light degrades under another); requires
-// recorded waypoints, the views to anchor.
+// (docs/pose-estimation-modes.md, "Mode D"). G builds the database -- SIFT
+// suggests each view's strongest points, the user color-picks each one's 3D
+// spot, and those hand-placed (descriptor, 3D) pairs ARE the database. B is the
+// inherited capture flow. Needs recorded waypoints: they are the views to
+// anchor.
 class FeatureMatchState : public PoseComparisonState {
 public:
     // What a pose needs from a hand-built database: fewer, and one misplaced
@@ -91,11 +75,14 @@ protected:
 private:
     bool building() const { return m_build != nullptr; }
 
-    void startBuild(Simulation &sim, Renderer &renderer);        // G: begin the manual build
-    void loadCurrentView(Simulation &sim, Renderer &renderer);   // pose + detect for m_build->waypoint
-    void advance(Simulation &sim, Renderer &renderer);           // active suggestion done (anchored/skipped)
-    void skipView(Simulation &sim, Renderer &renderer);          // Ctrl+X: the rest of this view at once
-    void undoAnchor();                                           // U: take back the last placement
+    void startBuild(Simulation &sim, Renderer &renderer);   // G: begin the manual build
+
+    // Pose the player camera at the view being anchored, and take over once the
+    // build reports it has no views left. Called after every build step.
+    void followBuild(Simulation &sim, Renderer &renderer);
+
+    // Take the finished build's database, report on it, and return to the run
+    // phase. Only followBuild calls this.
     void finishBuild(Simulation &sim, Renderer &renderer);
 
     // Give every hand-placed point the descriptors of its appearances in the
@@ -141,15 +128,20 @@ private:
     // DATABASE's identity, not the window's. SIFT descriptors shift when the
     // same scene is rasterised at another resolution, so captures render
     // offscreen at this size and the window may be anything, any session.
-    // Set by startBuild (from the live pane) and loadDatabase (from the file);
-    // zero until then, and captureViewport falls back to the live pane.
+    // Adopted from the finished build, from the file on a load, or from the
+    // auto-build's canonical size; zero until then, and captureViewport falls
+    // back to the live pane. Mid-build the build owns the frame size instead.
     Viewport captureViewport(const Simulation &sim) const;
     int m_captureWidth = 0, m_captureHeight = 0;
 
     size_t                     m_featureCount;
     std::optional<size_t>      m_minInliers;   // nullopt = the solver's rule
-    std::unique_ptr<FeatureDb> m_db;         // hand-built; empty until a build completes
-    std::unique_ptr<BuildScratch> m_build;   // non-null only while building (G in progress)
+
+    // Only one of these holds a database at a time: the build owns it while
+    // placing and hands it over when the views run out, so there is no
+    // half-built database for the save path to reach.
+    std::unique_ptr<FeatureDb>   m_db;      // empty until a build completes or a load
+    std::unique_ptr<ManualBuild> m_build;   // non-null only while building (G in progress)
 
     // The database's distinct hand-placed points, and the refreshAnchorVisibility
     // split of them for the overlay to draw.

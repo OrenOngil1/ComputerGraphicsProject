@@ -62,6 +62,13 @@ quit. All three unwind normally, so destructors run. No global state.
     experiment depends on that).
   - `Menu.{h,cpp}` — `selectTerrain(dir)`: console menu over the DEM images in
     a folder; `nullopt` = the user chose Exit.
+  - `FlightPaths.{h,cpp}` — canned camera paths: geometry only, writing a
+    flight into `waypoints` + `pathPoints`. `layOutBuildRing` is RECORD's `O`
+    key; `layOutAutoPath` lays the arc / high survey circle / scattered
+    stations Mode D's `Ctrl+G` flies. Shared by two modes, which is why it sits
+    here rather than in either. Every radius, altitude and stop count is
+    calibrated from measured builds — the `.cpp` records which measurement
+    fixed which number.
   - `Random.h` — `randomIndex(n)`.
 - `src/render/Renderer.{h,cpp}` — **sole owner of GPU resources**: three
   `Shader`s (scene, pick, point), two `GpuMesh`es (`m_terrain`, swapped per
@@ -100,7 +107,18 @@ quit. All three unwind normally, so destructors run. No global state.
   (a preset whose skybox fails to load warns once and keeps the clear-color
   sky). The asset root is injected at construction, so no draw code composes
   paths.
-- `src/state/` — one `State` subclass per mode (see below).
+- `src/state/` — one `State` subclass per mode (see below), plus `OverlayStyle.h`,
+  the shared colors and marker sizes the modes draw with. A mode file holds only
+  what a mode *is* — keys, mouse, overlays, lifecycle; the geometry and OpenCV
+  it drives live in `core/` and `vision/`.
+  - `ManualBuild.{h,cpp}` — Mode D's hand build as its own object: walks the
+    recorded views, offers each one's SIFT suggestions, and pairs the active
+    one's descriptor with a 3D point the caller picked. **Owns the `FeatureDb`
+    while placing** and hands it over when the views run out, so a half-built
+    database does not exist to be saved. Knows nothing of `Renderer`,
+    `Simulation` or GLFW — the caller picks and draws, and passes a `Context`
+    in per call — so it reports `finished()` rather than tearing itself down,
+    and a build can be driven headlessly.
 - `src/input/`
   - `Callbacks.{h,cpp}` — GLFW glue: the callbacks, the transition machinery
     (`setState`, `requireWaypoints`, `tryTransition`), and
@@ -111,7 +129,10 @@ quit. All three unwind normally, so destructors run. No global state.
     `OrbitController` drag lifecycle. Window-free by design, so all of it is
     unit-tested headlessly.
 - `src/vision/` — the OpenCV layer, decoupled from rendering: it operates on
-  `Correspondence`s and `FramePixels`, never GL.
+  `Correspondence`s and `FramePixels`, never GL. A pass that needs to *see* the
+  scene takes a `FrameCapture` (`FeatureMatching.h`) — a callable the caller
+  binds its renderer into — so the layer stays render-free and the passes stay
+  testable headlessly.
   - `Pnp.{h,cpp}` — `computeCameraPose` (SQPnP, exact correspondences) and
     `computeCameraPoseRansac(..., minInliers, reprojErrorPx)` (noisy feature
     matches). The pinhole intrinsics **K** is a file-local detail here — square
@@ -146,6 +167,30 @@ quit. All three unwind normally, so destructors run. No global state.
     (`cv::FileStorage` YAML, `captures/featuredb_<terrain>.yml`), with its
     waypoints, refusing a file from a different terrain. Placing anchors is
     human time, so it is an input to a measurement rather than part of one.
+  - `AnchorVisibility.{h,cpp}` — `anchorVisibleFrom`: can a camera actually
+    *use* this anchor? Frustum is not enough, since SIFT matches what was
+    drawn and a feature behind a ridge was not, so this marches the terrain.
+    One test, three askers — the run phase's in-view split, the appearance
+    pass, and the plausibility check below.
+  - `AppearanceCollection.{h,cpp}` — `collectAppearances`: give every
+    hand-placed point the descriptors of its appearances in the *other*
+    recorded views, since no descriptor is viewpoint-invariant. Geometry first
+    (occlusion, then a world-budget search radius, then one keypoint per
+    place), descriptors only over what geometry already vouched for. Runs to a
+    fixpoint — a place anchored late reaches early views only through rows a
+    later pass adds. Reports its own per-gate losses, so a starved collection
+    names its starver.
+  - `PosePlausibility.{h,cpp}` — `poseIsPlausible`: four predicates asking
+    whether a camera could have taken the frame at all — impossibly far out,
+    under the ground, aimed at empty sky, or somewhere ridges hide its own
+    inliers. Judges the estimate alone; the true pose is never consulted.
+    Passing all four is what lets the consensus floor sit as low as it does.
+  - `FeatureAutoBuild.{h,cpp}` — `autoBuildDatabase`: the automated stand-in
+    for the manual build (`Ctrl+G`). The human is *simulated*, not skipped —
+    true ray-terrain depth plus Gaussian aim error plays the user's eyes, never
+    the estimator's, so the run phase cannot tell the two builds apart.
+    Anchors are spaced on the **map**, not in the frame, or perspective piles
+    them onto the nearest ground.
 - `src/loader/TerrainLoader.{h,cpp}` — DEM image → `Mesh` (heights, elevation
   ramp colors, central-difference normals).
 - `src/loader/SkyboxLoader.{h,cpp}` — skybox folder → `CubemapFaces` (six
@@ -206,9 +251,9 @@ an app-level concern in `Callbacks.cpp`; states never name other states.
   table row are directly comparable. The one pure virtual is `computePose`.
 - `TrackersState` (Mode C) — scatters colored fiducial spheres; `computePose` =
   detection-frame read-back → blob centroids → PnP. No clicks.
-- `FeatureMatchState` (Mode D) — `G` runs the interactive database build (a
-  `.cpp`-private `BuildScratch` sub-state): per recorded view, SIFT suggests
-  points one at a time and the user anchors each on the map. `computePose`
+- `FeatureMatchState` (Mode D) — `G` hands the interactive database build to a
+  `ManualBuild`: per recorded view, SIFT suggests points one at a time and the
+  user anchors each on the map. `computePose`
   matches the live view against that database + RANSAC, then refuses any
   estimate landing implausibly far from the terrain (judged on the estimate
   alone — truth is never consulted).
