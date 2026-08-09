@@ -121,7 +121,10 @@ quit. All three unwind normally, so destructors run. No global state.
     sized for the residual a true-but-strained pair carries, and kept no wider
     so lookalike false matches cannot build a rival consensus — and it refits
     on `SOLVEPNP_EPNP` rather than the default `SOLVEPNP_ITERATIVE`, whose DLT
-    seed is ill-conditioned on near-planar terrain.
+    seed is ill-conditioned on near-planar terrain. It can surface the winning
+    consensus through an optional out-param; `estimatePoseFromFeatures` relays
+    it so Mode D's plausibility check can ask whether the estimate could
+    actually see its own inliers.
   - `TrackerDetection.{h,cpp}` — `findTrackerCentroids`: classify each
     read-back pixel against the tracker palette; each color's blob centroid is
     its 2D point.
@@ -131,10 +134,13 @@ quit. All three unwind normally, so destructors run. No global state.
     match through), `matchFeaturesToDb` (database → frame, **cross-checked**, so
     a place can be matched at most once and no ratio test is needed — see the
     mode doc for why Lowe's test fails on shading-driven terrain),
-    `resemblesAnchoredPoint` (the gate on collecting a place's appearance from a
-    second view), and `estimatePoseFromFeatures` (match, then RANSAC PnP with a
-    consensus floor scaled to the match count). A `FeatureDb` row is one
-    *appearance*; `places()` is the distinct points a human placed.
+    `nearestAppearanceDistance` (the scan behind the two descriptor bars: the
+    match bar, and the looser collection bar the appearance pass judges
+    re-sightings against — geometry pins *where*, so collection only rejects a
+    *different* feature at that spot), and `estimatePoseFromFeatures` (match,
+    then RANSAC PnP with a consensus floor scaled to the match count). A
+    `FeatureDb` row is one *appearance*; `places()` is the distinct points a
+    human placed.
   - `FeatureDbIo.{h,cpp}` — the hand-built `FeatureDb` on disk
     (`cv::FileStorage` YAML, `captures/featuredb_<terrain>.yml`), with its
     waypoints, refusing a file from a different terrain. Placing anchors is
@@ -159,9 +165,11 @@ quit. All three unwind normally, so destructors run. No global state.
   `render*Overlay(sim, renderer, mvp)`.
 - **Key input** (`keyCallback`): ignores releases; Escape / `Ctrl+Q` / `L` /
   `V` are handled globally, then `tryTransition` (mode hotkeys) short-circuits,
-  otherwise the event routes to `currentState->handleKey`. `V` flips
-  `Simulation::showViewAids`; like the light preset it is session state, not
-  per-mode, because every mode draws the same aids.
+  otherwise the event routes to `currentState->handleKey`. `V` cycles
+  `Simulation::viewAids` (full → cone only → off); like the light preset it is
+  session state, not per-mode, because every mode draws the same aids. Below
+  full, Mode D's build clicks also stop snapping onto the active sight line —
+  the aid level governs the assist, not just the drawing.
 - **Mouse input** (`mouseButtonCallback`): middle/right are intercepted for the
   global-map controls; left routes to `currentState->handleMouseButton` —
   `PickState` and the `FeatureMatchState` build use it to color-pick a vertex.

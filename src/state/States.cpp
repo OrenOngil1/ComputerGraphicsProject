@@ -12,6 +12,7 @@
 #include "../input/Callbacks.h"        // pollMovementIntent (GLFW glue)
 #include "../render/Renderer.h"
 #include "../vision/Pnp.h"        // computeCameraPose
+#include "FeatureMatchState.h"    // layOutBuildRing (RECORD's O key)
 
 // Has the camera moved far enough since the previous sample to be worth
 // recording? Thins out path recording so a steady glide doesn't append a
@@ -36,7 +37,8 @@ void RecordState::onEnter(Simulation &sim)
     sim.waypoints.clear();
 
     std::cout << "RECORD: recording started (previous path and waypoints cleared). "
-                 "Fly with WASD / arrows / Q-E; press B to drop a waypoint." << std::endl;
+                 "Fly with WASD / arrows / Q-E; press B to drop a waypoint, or O to"
+                 " lay the calibrated 16-station build ring in one stroke." << std::endl;
 }
 
 void RecordState::tick(Simulation &sim, GLFWwindow *window, float dt)
@@ -60,6 +62,18 @@ void RecordState::handleKey(Simulation &sim, Renderer &renderer, int key, int mo
         const glm::vec3 &p = sim.playerView.camera.position;
         std::cout << "RECORD: waypoint " << sim.waypoints.size()
                   << " saved at (" << p.x << ", " << p.y << ", " << p.z << ")" << std::endl;
+    }
+
+    // O replaces the freehand flight with the calibrated build ring -- the
+    // measured height, spacing, and aim every good manual build shared. The
+    // anchoring workflow it feeds is unchanged: F, then G, anchor every other
+    // view and Ctrl+X the rest.
+    if (key == GLFW_KEY_O) {
+        layOutBuildRing(sim);
+        std::cout << "RECORD: build ring laid -- " << sim.waypoints.size()
+                  << " stations at the calibrated height and spacing, all aimed at"
+                     " the centre. F starts FEATURE MATCH; in the build, anchor"
+                     " every other view and Ctrl+X the rest." << std::endl;
     }
 }
 
@@ -141,7 +155,8 @@ void PickState::onEnter(Simulation &sim)
                  "      The cyan cone on the map is what the player view sees; the "
                  "white line is where your pending pick's 3D point must lie (judge "
                  "how far along it). X cancels a pending pick, U undoes the last "
-                 "correspondence, V hides the aids." << std::endl;
+                 "correspondence, V cycles the aids (full / cone only / off)."
+              << std::endl;
 }
 
 // Phase A, the 2D half: must land in the player view AND on terrain. Stored as
@@ -328,7 +343,7 @@ void PickState::drawImageMarkers(Renderer &renderer, float fov, const Viewport &
 void PickState::drawSightAids(const Simulation &sim, Renderer &renderer,
                               const glm::mat4 &mvp) const
 {
-    if (!sim.showViewAids)
+    if (sim.viewAids != ViewAids::Full)
         return;
 
     const Camera &camera = sim.playerView.camera;

@@ -47,8 +47,8 @@ private:
 // match color-picked on the global map -- and 'C' solves PnP. Both views then
 // compare estimate against truth (picked points + estimated camera on the
 // map, ghost terrain in the player view). Finding the 3D match by eye is the
-// hard part, so the map carries aids: V toggles them, X cancels a
-// half-finished pair, U undoes the last one.
+// hard part, so the map carries aids: V cycles them (full / cone only /
+// off), X cancels a half-finished pair, U undoes the last one.
 class PickState : public State {
 public:
     void onEnter(Simulation &sim) override;                      // seed pose, reset picks

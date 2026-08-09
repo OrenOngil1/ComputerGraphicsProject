@@ -22,11 +22,16 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &cor
 // of a confident-looking garbage pose. reprojErrorPx is the agreement radius;
 // <= 0 selects the fraction below of the frame height -- sized to what a
 // true-but-strained pair carries and no wider, or lookalike ridges assemble a
-// rival consensus. (Measurements and sizing rationale:
-// docs/pose-estimation-modes.md, "Run-phase (B)".)
+// rival consensus. Measured twice: 4.5% turned five of eight solves on a
+// hand-built database into coalitions 60-240 units off. Slack cannot stand in
+// for appearance coverage. (Full record: docs/pose-estimation-modes.md,
+// "Run-phase (B)".)
 constexpr float kHandPlacedReprojFraction = 0.03f;   // of the frame height
 
+// inlierIndices, when given, receives the winning consensus (indices into
+// `points`) of a successful solve; untouched on refusal.
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,
                                                 int minInliers = 4,
-                                                float reprojErrorPx = 0.0f);
+                                                float reprojErrorPx = 0.0f,
+                                                std::vector<int> *inlierIndices = nullptr);

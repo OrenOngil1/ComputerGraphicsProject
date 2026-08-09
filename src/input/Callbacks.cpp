@@ -184,11 +184,11 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods
         return;
     }
 
-    // V toggles the global map's view aids. Global like L rather than a mode
-    // key: the cone belongs to the map, and every mode draws the same one.
+    // V cycles the global map's view aids: full -> cone only -> off. Global
+    // like L rather than a mode key: the cone belongs to the map, and every
+    // mode draws the same one.
     if (key == GLFW_KEY_V) {
-        sim->showViewAids = !sim->showViewAids;
-        std::cout << "View aids: " << (sim->showViewAids ? "on" : "off") << std::endl;
+        std::cout << "View aids: " << sim->cycleViewAids() << std::endl;
         return;
     }
 

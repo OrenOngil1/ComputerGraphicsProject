@@ -121,7 +121,7 @@ void Renderer::renderGlobalView(const View &view, const Simulation &sim)
     // question in every mode, and putting it here keeps five states from
     // repeating the same call. Mode-specific aids (the sight lines) stay in
     // the overlays below, where they belong.
-    if (sim.showViewAids)
+    if (sim.viewAids != ViewAids::Off)
         drawViewCone(sim.playerView.camera, sim.playerView.viewport.aspect(),
                      viewConeReach(sim), overlay::viewConeColor,
                      overlay::viewConeWidth, mvp);

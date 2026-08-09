@@ -14,6 +14,28 @@
 struct FeatureDb;
 struct BuildScratch;
 
+// Lay the calibrated hand-build ring as the recorded path (O in RECORD mode):
+// 16 stations at the arc's measured-good radius and altitude, every stop aimed
+// at the centre. One keystroke replaces the freehand flight so a hand build
+// starts from the geometry every good manual run shared -- the anchoring
+// itself stays entirely by hand. Defined with the other path layers in
+// FeatureMatchState.cpp.
+void layOutBuildRing(Simulation &sim);
+
+// The recorded view the camera is closest to, and by how much in the two
+// dimensions recognition actually depends on: distance between the eyes, and
+// the angle between the headings. Estimates are only trustworthy near a
+// collected view looking roughly its way (kViewpointToleranceDegrees), so
+// these two numbers are the pilot's live "am I inside the envelope" readout.
+// Empty when nothing was recorded.
+struct NearestView {
+    size_t index;              // into the waypoint list
+    float  distanceUnits;      // camera eye to the view's eye
+    float  headingOffDegrees;  // between the two view directions
+};
+std::optional<NearestView> nearestRecordedView(const std::vector<Waypoint> &views,
+                                               const Camera &camera);
+
 // Mode D: pose estimation by 2D feature matching, with manual anchoring
 // (docs/pose-estimation-modes.md, "Mode D"). G builds the database: SIFT
 // suggests each recorded view's strongest points and the user color-picks each
@@ -60,6 +82,7 @@ private:
     void startBuild(Simulation &sim, Renderer &renderer);        // G: begin the manual build
     void loadCurrentView(Simulation &sim, Renderer &renderer);   // pose + detect for m_build->waypoint
     void advance(Simulation &sim, Renderer &renderer);           // active suggestion done (anchored/skipped)
+    void skipView(Simulation &sim, Renderer &renderer);          // Ctrl+X: the rest of this view at once
     void undoAnchor();                                           // U: take back the last placement
     void finishBuild(Simulation &sim, Renderer &renderer);
 
@@ -121,9 +144,17 @@ private:
     std::vector<glm::vec3> m_places;
     std::vector<glm::vec3> m_inView, m_outOfView;
 
-    // Debounce state for reportAnchorCount: the count last printed (npos so the
-    // first refresh always reports) and when.
+    // Where the camera stands relative to the collected views, refreshed with
+    // the visibility split: the console line reads it, and the overlay draws
+    // it as the envelope tether.
+    std::optional<NearestView> m_nearestView;
+
+    // Debounce state for reportAnchorCount: the values last printed (npos /
+    // -1 so the first refresh always reports) and when. The nearest-view pair
+    // is bucketed (5 units, 5 degrees) so drifting a hair does not spam.
     size_t m_reportedInView  = (size_t)-1;
+    int    m_reportedDistanceBucket = -1;
+    int    m_reportedHeadingBucket  = -1;
     double m_lastCountReport = -1.0;
 
     // Said once, on the first capture of the session: captures are easy to

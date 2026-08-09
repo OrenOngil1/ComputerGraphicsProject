@@ -52,7 +52,7 @@ bool hasShape(const cv::Mat &m, int cols, int type)
 // header fields.
 struct RawDbFile {
     std::string terrain;
-    cv::Mat descriptors, anchors, waypoints;
+    cv::Mat descriptors, anchors, waypoints, pathPoints;
     int captureWidth = 0, captureHeight = 0;
 };
 
@@ -69,6 +69,7 @@ bool readDbFile(const std::string &path, RawDbFile &raw)
         fs["descriptors"] >> raw.descriptors;
         fs["anchors"]     >> raw.anchors;
         fs["waypoints"]   >> raw.waypoints;
+        fs["pathPoints"]  >> raw.pathPoints;   // absent (older file) reads as empty
         // Absent in files from before the size was recorded: load as 0x0 and
         // let the caller fall back to the live viewport.
         if (!fs["captureWidth"].empty())
@@ -109,6 +110,11 @@ bool validateDbFile(const RawDbFile &raw, const std::string &path,
         std::cerr << "FEATURES: " << path << " has malformed waypoints" << std::endl;
         return false;
     }
+
+    if (!raw.pathPoints.empty() && !hasShape(raw.pathPoints, kAnchorCols, CV_32F)) {
+        std::cerr << "FEATURES: " << path << " has a malformed flight path" << std::endl;
+        return false;
+    }
     return true;
 }
 
@@ -121,7 +127,9 @@ std::string featureDbPath(const std::string &terrainFile)
 }
 
 bool saveFeatureDb(const std::string &path, const FeatureDb &db,
-                   const std::vector<Waypoint> &waypoints, const std::string &terrainFile,
+                   const std::vector<Waypoint> &waypoints,
+                   const std::vector<glm::vec3> &pathPoints,
+                   const std::string &terrainFile,
                    int captureWidth, int captureHeight)
 {
     if (db.empty() || db.descriptors.rows != (int)db.anchors.size()) {
@@ -148,6 +156,8 @@ bool saveFeatureDb(const std::string &path, const FeatureDb &db,
         fs << "descriptors"   << db.descriptors;
         fs << "anchors"       << anchorsToMat(db.anchors);
         fs << "waypoints"     << waypointsToMat(waypoints);
+        if (!pathPoints.empty())
+            fs << "pathPoints" << anchorsToMat(pathPoints);   // same xyz row layout
         fs.release();
     } catch (const cv::Exception &e) {
         std::cerr << "FEATURES: could not write " << path << " (" << e.what() << ")"
@@ -161,7 +171,8 @@ bool saveFeatureDb(const std::string &path, const FeatureDb &db,
 }
 
 bool loadFeatureDb(const std::string &path, FeatureDb &db,
-                   std::vector<Waypoint> &waypoints, const std::string &terrainFile,
+                   std::vector<Waypoint> &waypoints, std::vector<glm::vec3> &pathPoints,
+                   const std::string &terrainFile,
                    int &captureWidth, int &captureHeight)
 {
     // Read into a local; the outputs are only touched once everything checks
@@ -185,6 +196,16 @@ bool loadFeatureDb(const std::string &path, FeatureDb &db,
         waypoints.push_back({ glm::vec3(row[0], row[1], row[2]),
                               glm::vec3(row[3], row[4], row[5]) });
     }
+
+    // Cleared even when the file has none, so a caller's stale path can't
+    // pose as this database's flight.
+    pathPoints.clear();
+    pathPoints.reserve(raw.pathPoints.rows);
+    for (int i = 0; i < raw.pathPoints.rows; i++) {
+        const float *row = raw.pathPoints.ptr<float>(i);
+        pathPoints.push_back(glm::vec3(row[0], row[1], row[2]));
+    }
+
     captureWidth  = raw.captureWidth;
     captureHeight = raw.captureHeight;
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <optional>
 #include <vector>
@@ -59,20 +61,80 @@ void detectAllFeatures(const FramePixels &frame,
 // auto-build's anchor selection (map space) walk the same ranking.
 std::vector<size_t> rankByResponse(const std::vector<cv::KeyPoint> &keypoints);
 
-// Does `place` already own a stored appearance within `maxDistance` (L2) of
-// `descriptor`? The single scan behind both of the build's descriptor
-// questions, which differ only in where they set the bar: close enough to join
-// the point, or close enough to BE a row a previous pass already stored.
+// How near (L2) `descriptor` comes to the closest appearance row `place`
+// owns; a large sentinel if it owns none. The one scan behind every "is this
+// that place?" question -- the bars below are where each asker draws the line.
+double nearestAppearanceDistance(const FeatureDb &db, const glm::vec3 &place,
+                                 const cv::Mat &descriptor);
+
+// nearestAppearanceDistance against a caller-chosen bar.
 bool hasAppearanceWithin(const FeatureDb &db, const glm::vec3 &place,
                          const cv::Mat &descriptor, double maxDistance);
 
-// Does `descriptor` look like the point already anchored at `place`? The same
-// question at the pipeline's quality bar (see kMaxDescriptorDistance), and the
-// gate on collecting an appearance from a second view: geometry says the point
-// should be at that pixel, this says the view shows it rather than a ridge in
-// front of it.
-bool resemblesAnchoredPoint(const FeatureDb &db, const glm::vec3 &place,
-                            const cv::Mat &descriptor);
+// Does `descriptor` look like ANY anchored point? The build's duplicate guard:
+// a suggestion that resembles an existing place would be re-anchored as a
+// second identity the matcher cannot tell apart. Re-sightings belong to the
+// appearance pass instead.
+bool resemblesAnyAnchoredPoint(const FeatureDb &db, const cv::Mat &descriptor);
+
+// The two descriptor bars. Both measured on hand-built databases; the numbers
+// and their failed alternatives are in docs/pose-estimation-modes.md
+// ("Hardening the database").
+//
+// MATCH bar -- how close a frame descriptor must come to a stored row before
+// a capture may claim it saw that place. Genuine cross-view re-sightings
+// measured 250-310, and an earlier bar at 250 refused the database's own
+// cross-view matches; 320 admits the measured band while staying under the
+// lookalike cloud (different places' rows come no nearer than ~337 on a
+// 33-place build, two audited outliers aside). Every capture prints accepted
+// distances and nearest misses -- read both against this number before
+// turning it.
+constexpr float kMaxDescriptorDistance = 320.0f;
+
+// COLLECTION bar -- how close a keypoint must come to a place's stored rows
+// for the appearance pass to adopt it as a new row. Deliberately looser than
+// the match bar: at collection time geometry has already pinned WHERE (the
+// occlusion ray, the world-budget radius, one keypoint per place), so this
+// check only rejects a DIFFERENT feature at that spot, and a wrong corner
+// inside the radius sits within the slop budget anyway. Reusing the match bar
+// here starved the pass -- same-place cross-view rows measured 106-480
+// (median 250), so half the genuine re-sightings were refused and 26 of 33
+// places never grew past one row.
+constexpr float kCollectResemblanceDistance = 400.0f;
+
+// How far the camera's heading may turn from a stored view's before SIFT
+// stops re-finding that view's appearances on this shading-driven terrain.
+// Measured, not theoretical: build rings at 22.5-degree steps cross-match
+// between neighbouring stations, while a 36-degree ring collected nothing
+// between stops. The run phase's envelope aid colors by this number; it
+// predicts recognition, it does not gate anything.
+constexpr float kViewpointToleranceDegrees = 25.0f;
+
+// How far a carefully hand-placed anchor may sit from the true point, in world
+// units -- the appearance pass's error budget. Calibrated by measurement: the
+// build debrief put a careful snap-assisted hand at median 6.4 units, and the
+// original guess of 3 -- half that -- left the pass finding almost nothing to
+// collect. Recalibrate from the debrief if placement technique changes.
+constexpr float kAnchorSlopUnits = 7.0f;
+
+// That budget as a search radius in pixels at a given range: a fixed pixel
+// radius is a VARIABLE world budget (~1 unit from a low view), which starved
+// collection for hand-built databases. Floored so SIFT's localisation slop
+// always fits; capped only against degenerate cases (a place almost at the
+// camera), because keeping keypoints apart is the claim step's job, not the
+// radius's -- an earlier 2.5% cap silently re-clamped the world budget below
+// the measured hand error at typical ranges and made the slop constant inert.
+inline float projectionRadiusPx(float slopUnits, float focalPx, float range,
+                                float frameHeight)
+{
+    const float px = slopUnits * focalPx / std::max(range, 1.0f);
+    return std::clamp(px, 6.0f, 0.05f * frameHeight);
+}
+
+// Console hygiene report for a freshly built or loaded database: appearance
+// coverage per place, and how many place PAIRS sit under the descriptor bar --
+// identities the matcher cannot separate, each a built-in outlier source.
+void reportDbAudit(const FeatureDb &db);
 
 // The run-phase match step alone: each database anchor this frame appears to
 // contain, paired with the pixel it was found at (a [0,1] fraction). Matched
@@ -82,10 +144,14 @@ bool resemblesAnchoredPoint(const FeatureDb &db, const glm::vec3 &place,
 // its consensus out of contradictions. See the .cpp.
 std::vector<Correspondence> matchFeaturesToDb(const FeatureDb &db, const FramePixels &frame);
 
-// The consensus floor's legal range. Below five a pose has no independent
-// witness -- RANSAC fits each candidate on a 4-point sample that always votes
-// for itself -- and above 25 no single frame can be expected to reach it.
-constexpr size_t kMinConsensus = 5;
+// The consensus floor's legal range. RANSAC fits each candidate on a 4-point
+// sample that always votes for itself, so witnesses start at five -- and one
+// witness measured as not enough: across two hand-built flights, every
+// accepted-but-wrong pose carried exactly 5 inliers (135-702 units off),
+// while every pose at 6+ was either exact or caught by the plausibility
+// checks. Six -- two independent witnesses -- is where the confident garbage
+// stopped. Above 25 no single frame can be expected to reach the floor.
+constexpr size_t kMinConsensus = 6;
 constexpr size_t kMaxConsensus = 25;
 
 // Run-phase: match the frame against the database and solve the surviving
@@ -93,10 +159,15 @@ constexpr size_t kMaxConsensus = 25;
 // matches or no consensus pose.
 //
 // minInliers is how many matches must agree on the pose, clamped to
-// [kMinConsensus, kMaxConsensus]; nullopt takes a quarter of what this frame
+// [kMinConsensus, kMaxConsensus]; nullopt takes a sixth of what this frame
 // matched -- the same demand at every database size, see the .cpp.
+//
+// inliersOut, when given, receives the consensus correspondences of a
+// successful solve -- the caller's plausibility check asks whether the
+// estimate could actually see them.
 std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
                                                  const FramePixels &frame,
                                                  float fov, int viewportWidth,
                                                  int viewportHeight,
-                                                 std::optional<size_t> minInliers = std::nullopt);
+                                                 std::optional<size_t> minInliers = std::nullopt,
+                                                 std::vector<Correspondence> *inliersOut = nullptr);
