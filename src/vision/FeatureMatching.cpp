@@ -25,9 +25,10 @@ static cv::Mat toGray(const FramePixels &frame)
 
 // The one detection entry for every phase: routing all detection through here
 // makes pre- and run-phase descriptors comparable structurally, not by
-// convention. SIFT by measurement: this terrain is textureless shading, where
-// ORB's binary brightness tests stop separating "the same place again" from a
-// lookalike ridge at any threshold (docs/pose-estimation-modes.md, "Run-phase (B)").
+// convention. SIFT because this terrain is textureless shading: separating
+// "the same place again" from a lookalike ridge needs the gradient-orientation
+// histograms, and binary brightness tests cannot do it at any threshold
+// (docs/pose-estimation-modes.md, "Run-phase (B)").
 void detectAllFeatures(const FramePixels &frame,
                        std::vector<cv::KeyPoint> &keypoints, cv::Mat &descriptors)
 {
@@ -131,7 +132,8 @@ bool hasAppearanceWithin(const FeatureDb &db, const glm::vec3 &place,
 bool resemblesAnyAnchoredPoint(const FeatureDb &db, const cv::Mat &descriptor)
 {
     for (int i = 0; i < db.descriptors.rows; i++)
-        if (cv::norm(db.descriptors.row(i), descriptor, cv::NORM_L2) <= kMaxDescriptorDistance)
+        if (cv::norm(db.descriptors.row(i), descriptor, cv::NORM_L2)
+                <= kDuplicateSuggestionDistance)
             return true;
     return false;
 }
@@ -335,7 +337,8 @@ std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
                                                  float fov, int viewportWidth,
                                                  int viewportHeight,
                                                  std::optional<size_t> minInliers,
-                                                 std::vector<Correspondence> *inliersOut)
+                                                 std::vector<Correspondence> *inliersOut,
+                                                 bool *pinnedFloorNoted)
 {
     const std::vector<Correspondence> correspondences = matchFeaturesToDb(db, frame);
 
@@ -362,11 +365,12 @@ std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
 
     // A pinned floor does not scale with the pool, and coalitions do: measured
     // once at a floor of 5 against 30-match pools, five confident poses came
-    // out 60-436 units wrong. Warn ONCE per run -- the first sighting teaches,
-    // thirty repeats bury the log -- and the pinned value still rules.
-    static bool floorNoteShown = false;
-    if (!floorNoteShown && minInliers && correspondences.size() > 4 * consensus) {
-        floorNoteShown = true;
+    // out 60-436 units wrong. Warn once per PIN -- the first sighting teaches,
+    // thirty repeats bury the log -- and the pinned value still rules. The
+    // caller owns the flag, so a new mode entry with a new pin warns again.
+    if (pinnedFloorNoted && !*pinnedFloorNoted && minInliers &&
+        correspondences.size() > 4 * consensus) {
+        *pinnedFloorNoted = true;
         std::cout << "FEATURES: note -- " << correspondences.size()
                   << " matches against a pinned floor of " << consensus
                   << ": lookalike coalitions can seat a floor this small; Enter at"

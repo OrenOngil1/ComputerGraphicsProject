@@ -127,9 +127,11 @@ sources the MSVC environment, the debugger runs the binary from the project root
   features in the live view, asks the database where
   each of its points is (cross-checked, distance-capped), solves with
   **RANSAC PnP** for robustness to wrong matches, and sanity-checks the estimate
-  — including that it could actually *see* the anchors it claims. (SIFT rather than ORB by
-  measurement: ORB's binary descriptor stops separating true matches from
-  lookalike ridges on texture-free shading, at any threshold.) `Ctrl+G`
+  — including that it could actually *see* the anchors it claims. (SIFT because
+  this terrain is texture-free shading: gradient-orientation histograms are
+  what separates a re-sighting from a lookalike ridge here, and the accepted
+  distances are printed every capture so the bar can be read against reality.)
+  `Ctrl+G`
   generates a test database automatically — an arc, a high survey circle, or
   scattered survey stations, with human aim error simulated as depth noise
   along each sight line — for experiments; the hand build remains the mode.

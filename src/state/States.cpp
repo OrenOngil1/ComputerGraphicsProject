@@ -35,6 +35,7 @@ void RecordState::onEnter(Simulation &sim)
 {
     sim.pathPoints.clear();
     sim.waypoints.clear();
+    m_ringLaid = false;
 
     std::cout << "RECORD: recording started (previous path and waypoints cleared). "
                  "Fly with WASD / arrows / Q-E; press B to drop a waypoint, or O to"
@@ -48,15 +49,27 @@ void RecordState::tick(Simulation &sim, GLFWwindow *window, float dt)
 
     fly(playerCamera, pollMovementIntent(window), sim.terrainSize, dt);
 
-    if (movedFarEnough(prevPosition, playerCamera.position, sim.terrainSize))
+    // Flying stays free after O -- looking around is how the ring gets judged
+    // -- but the recording is closed: appending here would draw (and, since
+    // the path is saved with the database, store) a tail from the ring's
+    // closing point to wherever the camera wandered.
+    if (!m_ringLaid && movedFarEnough(prevPosition, playerCamera.position, sim.terrainSize))
         sim.pathPoints.push_back(playerCamera.position);
 }
 
 void RecordState::handleKey(Simulation &sim, Renderer &renderer, int key, int mods)
 {
-    (void)renderer; (void)mods;
+    (void)renderer;
 
     if (key == GLFW_KEY_B) {
+        // The ring's spacing IS its calibration, so a stray waypoint is not a
+        // small addition to it; say so rather than silently making 17 stations.
+        if (m_ringLaid) {
+            std::cout << "RECORD: the build ring is laid -- B would add a 17th station"
+                         " off its 22.5-degree spacing. Press R to record freehand"
+                         " instead." << std::endl;
+            return;
+        }
         sim.waypoints.push_back(sim.playerView.camera.pose());
 
         const glm::vec3 &p = sim.playerView.camera.position;
@@ -68,12 +81,18 @@ void RecordState::handleKey(Simulation &sim, Renderer &renderer, int key, int mo
     // measured height, spacing, and aim every good manual build shared. The
     // anchoring workflow it feeds is unchanged: F, then G, anchor every other
     // view and Ctrl+X the rest.
-    if (key == GLFW_KEY_O) {
+    //
+    // Bare O only. This discards the recording with no undo, and Ctrl+O is
+    // FEATURE MATCH's load-database chord: a hand that arrives here with that
+    // habit must not lose a flight to it.
+    if (key == GLFW_KEY_O && mods == 0) {
         layOutBuildRing(sim);
+        m_ringLaid = true;
         std::cout << "RECORD: build ring laid -- " << sim.waypoints.size()
                   << " stations at the calibrated height and spacing, all aimed at"
-                     " the centre. F starts FEATURE MATCH; in the build, anchor"
-                     " every other view and Ctrl+X the rest." << std::endl;
+                     " the centre (freehand recording is closed; R starts over)."
+                     " F starts FEATURE MATCH; in the build, anchor every other"
+                     " view and Ctrl+X the rest." << std::endl;
     }
 }
 

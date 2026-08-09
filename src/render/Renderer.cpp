@@ -435,6 +435,15 @@ void Renderer::drawLines(const std::vector<glm::vec3> &segments, const glm::vec3
     GLCall(glEnable(GL_DEPTH_TEST));
 }
 
+void Renderer::drawLine(const glm::vec3 &from, const glm::vec3 &to, const glm::vec3 &color,
+                        float width, const glm::mat4 &mvp)
+{
+    m_overlaySegments.clear();
+    m_overlaySegments.push_back(from);
+    m_overlaySegments.push_back(to);
+    drawLines(m_overlaySegments, color, width, mvp);
+}
+
 void Renderer::drawViewCone(const Camera &camera, float aspect, float reach,
                             const glm::vec3 &color, float width, const glm::mat4 &mvp)
 {

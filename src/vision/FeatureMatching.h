@@ -71,10 +71,10 @@ double nearestAppearanceDistance(const FeatureDb &db, const glm::vec3 &place,
 bool hasAppearanceWithin(const FeatureDb &db, const glm::vec3 &place,
                          const cv::Mat &descriptor, double maxDistance);
 
-// Does `descriptor` look like ANY anchored point? The build's duplicate guard:
-// a suggestion that resembles an existing place would be re-anchored as a
-// second identity the matcher cannot tell apart. Re-sightings belong to the
-// appearance pass instead.
+// Is `descriptor` a re-detection of a point already anchored? The build's
+// duplicate guard: the same feature anchored twice becomes two identities the
+// matcher cannot tell apart. Deliberately NOT the match bar -- see
+// kDuplicateSuggestionDistance.
 bool resemblesAnyAnchoredPoint(const FeatureDb &db, const cv::Mat &descriptor);
 
 // The two descriptor bars. Both measured on hand-built databases; the numbers
@@ -102,13 +102,20 @@ constexpr float kMaxDescriptorDistance = 320.0f;
 // places never grew past one row.
 constexpr float kCollectResemblanceDistance = 400.0f;
 
-// How far the camera's heading may turn from a stored view's before SIFT
-// stops re-finding that view's appearances on this shading-driven terrain.
-// Measured, not theoretical: build rings at 22.5-degree steps cross-match
-// between neighbouring stations, while a 36-degree ring collected nothing
-// between stops. The run phase's envelope aid colors by this number; it
-// predicts recognition, it does not gate anything.
-constexpr float kViewpointToleranceDegrees = 25.0f;
+// DUPLICATE bar -- how close a fresh suggestion must come to an existing row
+// before the build refuses to offer it for anchoring. This one must be TIGHT,
+// and for the opposite reason the others are loose: it is the only bar whose
+// verdict the user cannot overrule, so every false positive is a terrain
+// feature that can never be anchored at all. The match bar is far too wide for
+// it -- reportDbAudit measured 45 pairs of genuinely DISTINCT places whose
+// rows sit under 320 on a 64-place build, so a guard at the match bar
+// withholds real places, and the more the database grows the more it
+// withholds. 150 is the bottom of the measured same-place band (106-480), so
+// it still catches the near-identical re-detection this guard exists for --
+// the same feature suggested again from a nearby view -- while staying far
+// under anything two distinct places have ever measured. Duplicates that slip
+// past it are visible afterwards in the audit's confusable-pair count.
+constexpr float kDuplicateSuggestionDistance = 150.0f;
 
 // How far a carefully hand-placed anchor may sit from the true point, in world
 // units -- the appearance pass's error budget. Calibrated by measurement: the
@@ -165,9 +172,14 @@ constexpr size_t kMaxConsensus = 25;
 // inliersOut, when given, receives the consensus correspondences of a
 // successful solve -- the caller's plausibility check asks whether the
 // estimate could actually see them.
+//
+// pinnedFloorNoted is the caller's once-per-pin latch for the small-pinned-
+// floor warning: raised the first time it fires. Owned by the caller rather
+// than a static here so a new mode entry with a new pin warns again.
 std::optional<Waypoint> estimatePoseFromFeatures(const FeatureDb &db,
                                                  const FramePixels &frame,
                                                  float fov, int viewportWidth,
                                                  int viewportHeight,
                                                  std::optional<size_t> minInliers = std::nullopt,
-                                                 std::vector<Correspondence> *inliersOut = nullptr);
+                                                 std::vector<Correspondence> *inliersOut = nullptr,
+                                                 bool *pinnedFloorNoted = nullptr);

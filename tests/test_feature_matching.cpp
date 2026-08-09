@@ -150,4 +150,12 @@ void testFeatureMatching()
           "far ranges floor at SIFT's own localisation slop");
     check(std::fabs(projectionRadiusPx(3.0f, 1264.0f, 60.0f, 1047.0f) - 0.05f * 1047.0f) < 0.01f,
           "degenerate near ranges cap instead of swallowing the frame");
+
+    // ── degenerate inputs ─────────────────────────────────────
+    // The empty database is a real state -- the mode is entered before G, and
+    // B works there -- and the reporting built on top of matching counts
+    // places with unsigned arithmetic, so "no rows at all" has to stay a
+    // quiet, empty answer rather than an underflow.
+    check(matchFeaturesToDb(FeatureDb{}, frame).empty(), "an empty database matches nothing");
+    check(FeatureDb{}.places().empty(), "an empty database has no places");
 }

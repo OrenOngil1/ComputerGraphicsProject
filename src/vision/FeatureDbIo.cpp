@@ -84,8 +84,8 @@ bool readDbFile(const std::string &path, RawDbFile &raw)
     return true;
 }
 
-// Refuse anything this build did not write: another terrain's anchors, an
-// ORB-era descriptor width, mismatched row counts, malformed waypoints.
+// Refuse anything this build did not write: another terrain's anchors, rows
+// that are not SIFT descriptors, mismatched row counts, malformed waypoints.
 bool validateDbFile(const RawDbFile &raw, const std::string &path,
                     const std::string &terrainFile)
 {
@@ -101,8 +101,8 @@ bool validateDbFile(const RawDbFile &raw, const std::string &path,
         raw.descriptors.rows != raw.anchors.rows) {
         std::cerr << "FEATURES: " << path << " is not usable -- descriptors must be "
                   << kDescriptorCols << "-float SIFT rows pairing one to one with"
-                  << " anchors (a database saved by the earlier ORB build must be"
-                  << " rebuilt with G and saved again)" << std::endl;
+                  << " anchors; rebuild the database with G and save it again"
+                  << std::endl;
         return false;
     }
 

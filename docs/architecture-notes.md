@@ -134,10 +134,11 @@ quit. All three unwind normally, so destructors run. No global state.
     match through), `matchFeaturesToDb` (database → frame, **cross-checked**, so
     a place can be matched at most once and no ratio test is needed — see the
     mode doc for why Lowe's test fails on shading-driven terrain),
-    `nearestAppearanceDistance` (the scan behind the two descriptor bars: the
-    match bar, and the looser collection bar the appearance pass judges
-    re-sightings against — geometry pins *where*, so collection only rejects a
-    *different* feature at that spot), and `estimatePoseFromFeatures` (match,
+    `nearestAppearanceDistance` (the scan behind the descriptor bars: the match
+    bar, the looser collection bar the appearance pass judges re-sightings
+    against — geometry pins *where*, so collection only rejects a *different*
+    feature at that spot — and the tight duplicate bar the build's suggestion
+    guard uses), and `estimatePoseFromFeatures` (match,
     then RANSAC PnP with a consensus floor scaled to the match count). A
     `FeatureDb` row is one *appearance*; `places()` is the distinct points a
     human placed.

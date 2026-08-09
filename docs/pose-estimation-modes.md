@@ -90,7 +90,13 @@ The recorded path the build steps through can itself be laid in one stroke:
 arc's measured-good radius and altitude (0.30 / 0.25 of the terrain width),
 every stop aimed at the centre, 22.5° apart so neighbouring views stay inside
 SIFT's measured recognition range. It replaces only the *flying*; the
-suggestions and the anchoring are exactly the hand workflow below. The recipe
+suggestions and the anchoring are exactly the hand workflow below. Bare `O`
+only — it discards the recording with no undo, and `Ctrl+O` is Mode D's
+load-database chord, which is exactly the hand that must not lose a flight
+here. Laying the ring also **closes the recording**: flying stays free (that
+is how the ring gets judged) but no further path points or waypoints are
+added, since either would corrupt the geometry the ring exists to guarantee.
+`R` starts a fresh freehand recording. The recipe
 for a consistent human-grade database is: `O` → `F` → `G`, anchor every
 *other* view and `Ctrl+X` the rest, with the aids at cone-only (`V` once) so
 clicks land unassisted; then read the placement debrief — a median of ~4–8
@@ -177,9 +183,18 @@ unsnapped) was measured to produce the pipeline's worst outcome — floods of
 confident garbage poses — and each cause became a guard:
 
 - **Duplicate places** (the same feature re-anchored from a later view, twins
-  1–3 units apart): suggestions resembling an anchored point are dropped
-  before they are offered (`resemblesAnyAnchoredPoint` in `loadCurrentView`;
-  the auto-build's `selectSpacedAnchors` is the same guard in map space).
+  1–3 units apart): suggestions that are re-detections of an anchored point are
+  dropped before they are offered (`resemblesAnyAnchoredPoint` in
+  `loadCurrentView`; the auto-build's `selectSpacedAnchors` is the same guard
+  in map space). This guard gets its own bar, `kDuplicateSuggestionDistance` =
+  150, and it is the one bar that must err toward **offering** the suggestion:
+  its verdict is the only one the user cannot overrule, so every false positive
+  is a terrain feature that can never be anchored at all. The match bar is far too wide for the job
+  — the audit measures dozens of pairs of genuinely distinct places whose rows
+  sit under 320 on a 64-place build — while 150 is the bottom of the measured
+  same-place band (106–480) and stays far under anything two distinct places
+  have measured. Duplicates that slip past show up in the audit's
+  confusable-pair count, where a human can act on them.
 - **Shared rows** (one keypoint credited to two places on nearly the same view
   ray — literally identical descriptors 12 and 54 units apart): collection now
   requires the place to be **unoccluded by geometry** (the same terrain
@@ -650,7 +665,7 @@ worth knowing when reading the numbers.
 | middle-drag | over global view | pan the global map |
 | right-drag | over global view | rotate (orbit) the global map — see behind mountains |
 | B | RECORD | drop a waypoint |
-| O | RECORD | lay the calibrated 16-station build ring (replaces the recording; anchoring stays by hand) |
+| O | RECORD | lay the calibrated 16-station build ring (replaces and closes the recording; anchoring stays by hand) |
 | B | TRACKERS / FEATURE MATCH | take a capture (true + computed pose) |
 | Ctrl+B | TRACKERS / FEATURE MATCH | capture at every recorded view; print the error table |
 | N / M | TRACKERS / FEATURE MATCH | review next / previous capture |

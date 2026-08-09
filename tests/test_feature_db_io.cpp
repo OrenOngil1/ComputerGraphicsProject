@@ -132,18 +132,19 @@ void testFeatureDbIo()
     check(presizePathPoints.empty(),
           "and a file without a flight path clears the caller's, not keeps it");
 
-    // A file from the earlier ORB build carries 32-byte binary rows; SIFT
-    // matching cannot use them, so the load must refuse rather than hand the
-    // matcher rows of the wrong type.
-    const std::string orbPath = (dir / "orb-era.yml").string();
+    // Binary rows of another width are not SIFT descriptors; matching indexes
+    // 128 floats per row, so the load must refuse rather than hand the matcher
+    // rows of the wrong type and size.
+    const std::string wrongRowsPath = (dir / "wrong-descriptor-rows.yml").string();
     {
-        cv::Mat orbRows(4, 32, CV_8U, cv::Scalar(7));
+        cv::Mat binaryRows(4, 32, CV_8U, cv::Scalar(7));
         cv::Mat anchorRows(4, 3, CV_32F, cv::Scalar(1.0f));
-        cv::FileStorage fs(orbPath, cv::FileStorage::WRITE);
-        fs << "terrain" << terrain << "descriptors" << orbRows << "anchors" << anchorRows;
+        cv::FileStorage fs(wrongRowsPath, cv::FileStorage::WRITE);
+        fs << "terrain" << terrain << "descriptors" << binaryRows << "anchors" << anchorRows;
     }
-    check(!loadFeatureDb(orbPath, other, otherWaypoints, otherPath, terrain, otherW, otherH),
-          "a database saved by the ORB-era build is refused");
+    check(!loadFeatureDb(wrongRowsPath, other, otherWaypoints, otherPath, terrain,
+                         otherW, otherH),
+          "a file whose descriptors are not 128-float SIFT rows is refused");
 
     // A database with several appearances of one place -- the normal state
     // after addOtherViewAppearances -- must keep its repeats: collapsing them

@@ -22,6 +22,15 @@ struct BuildScratch;
 // FeatureMatchState.cpp.
 void layOutBuildRing(Simulation &sim);
 
+// How far the camera's heading may turn from a stored view's before SIFT stops
+// re-finding that view's appearances on this shading-driven terrain. Measured,
+// not theoretical: build rings at 22.5-degree steps cross-match between
+// neighbouring stations, while a 36-degree ring collected nothing between
+// stops. Lives here rather than beside the descriptor bars because NO matching
+// path reads it -- the envelope aid below colors by it, and nothing gates on
+// it.
+constexpr float kViewpointToleranceDegrees = 25.0f;
+
 // The recorded view the camera is closest to, and by how much in the two
 // dimensions recognition actually depends on: distance between the eyes, and
 // the angle between the headings. Estimates are only trustworthy near a
@@ -29,9 +38,12 @@ void layOutBuildRing(Simulation &sim);
 // these two numbers are the pilot's live "am I inside the envelope" readout.
 // Empty when nothing was recorded.
 struct NearestView {
-    size_t index;              // into the waypoint list
-    float  distanceUnits;      // camera eye to the view's eye
-    float  headingOffDegrees;  // between the two view directions
+    size_t    index;              // into the waypoint list, for the console line
+    glm::vec3 position;           // that view's eye, COPIED: the overlay draws to it
+                                  // a frame later, and the waypoint list can be
+                                  // replaced (a load, an auto-build) in between
+    float     distanceUnits;      // camera eye to the view's eye
+    float     headingOffDegrees;  // between the two view directions
 };
 std::optional<NearestView> nearestRecordedView(const std::vector<Waypoint> &views,
                                                const Camera &camera);
@@ -156,6 +168,11 @@ private:
     int    m_reportedDistanceBucket = -1;
     int    m_reportedHeadingBucket  = -1;
     double m_lastCountReport = -1.0;
+
+    // The once-per-pin latch for estimatePoseFromFeatures's small-pinned-floor
+    // warning. A member, not a static in the solver: the warning is about THIS
+    // mode entry's pinned floor, so a re-entry with a new pin must warn again.
+    bool m_pinnedFloorNoted = false;
 
     // Said once, on the first capture of the session: captures are easy to
     // misread as growing the database, since both a capture and an anchor draw
