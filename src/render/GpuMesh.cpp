@@ -47,7 +47,7 @@ static GpuMesh uploadBuffers(const std::vector<float> &verts,
 // per cell, sharing the cell's diagonal:
 //
 //   i00 --- i01        first  triangle: i00 -> i10 -> i01
-//    |  \    |         second triangle: i01 -> i10 -> i11
+//    |   \   |         second triangle: i01 -> i10 -> i11
 //   i10 --- i11
 static std::vector<unsigned int> gridIndices(int rows, int cols)
 {

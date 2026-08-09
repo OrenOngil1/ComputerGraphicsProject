@@ -1,8 +1,11 @@
 #include "Window.h"
 
 #include <iostream>
+#include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
@@ -25,14 +28,30 @@ static const GLenum kDebugOutput               = 0x92E0;   // GL_DEBUG_OUTPUT
 static const GLenum kDebugOutputSynchronous    = 0x8242;   // GL_DEBUG_OUTPUT_SYNCHRONOUS
 static const GLenum kDebugSeverityNotification = 0x826B;   // GL_DEBUG_SEVERITY_NOTIFICATION
 
-static void APIENTRY glDebugLogger(GLenum /*source*/, GLenum type, GLuint id,
+// True the first time a given message identity is seen. Drivers re-issue
+// per-draw complaints every frame -- Intel's wide-line deprecation notice fires
+// from each glLineWidth(>1) in the overlay pass -- so without this the console
+// grows by tens of MB and a real error scrolls away unread.
+static bool firstReportOf(GLenum source, GLenum type, GLuint id)
+{
+    // Debug output is only synchronous in debug builds; elsewhere the driver
+    // may deliver on a thread of its own.
+    static std::mutex mutex;
+    static std::set<std::tuple<GLenum, GLenum, GLuint>> seen;
+    const std::lock_guard<std::mutex> lock(mutex);
+    return seen.emplace(source, type, id).second;
+}
+
+static void APIENTRY glDebugLogger(GLenum source, GLenum type, GLuint id,
                                    GLenum severity, GLsizei /*length*/,
                                    const GLchar *message, const void * /*userParam*/)
 {
     if (severity == kDebugSeverityNotification)
         return;   // routine buffer-usage chatter
+    if (!firstReportOf(source, type, id))
+        return;
     std::cerr << "GL debug (type 0x" << std::hex << type << ", id " << std::dec
-              << id << "): " << message << std::endl;
+              << id << "): " << message << " (repeats suppressed)" << std::endl;
 }
 
 static void installGlDebugCallback()
