@@ -68,6 +68,12 @@ public:
     void drawLines(const std::vector<glm::vec3> &segments, const glm::vec3 &color,
                    float width, const glm::mat4 &mvp);
 
+    // One segment, staged through the same reused scratch: a caller drawing a
+    // single line every frame would otherwise build a two-element vector per
+    // frame, which is a heap allocation in the render loop.
+    void drawLine(const glm::vec3 &from, const glm::vec3 &to, const glm::vec3 &color,
+                  float width, const glm::mat4 &mvp);
+
     // ── View aids: one view's geometry drawn into another ──────
     // Both take the PLAYER camera and are drawn through the GLOBAL view's mvp,
     // which is what makes them useful: they answer "where is the other pane

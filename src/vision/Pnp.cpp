@@ -106,7 +106,8 @@ std::optional<Waypoint> computeCameraPose(const std::vector<Correspondence> &pic
 
 std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence> &points,
                                                 float fov, int viewportWidth, int viewportHeight,
-                                                int minInliers, float reprojErrorPx)
+                                                int minInliers, float reprojErrorPx,
+                                                std::vector<int> *inlierIndices)
 {
     if (points.size() < 4) {
         std::cerr << "PnP (RANSAC) needs at least 4 correspondences (have "
@@ -152,5 +153,7 @@ std::optional<Waypoint> computeCameraPoseRansac(const std::vector<Correspondence
 
     std::cout << "PnP (RANSAC): " << inliers.size() << " of " << points.size()
               << " correspondences are inliers" << std::endl;
+    if (inlierIndices)
+        *inlierIndices = inliers;
     return extrinsicsToPose(rvec, tvec);
 }

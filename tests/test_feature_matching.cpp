@@ -115,16 +115,47 @@ void testFeatureMatching()
             stillDistinct = stillDistinct && collapsed[i].worldPos != collapsed[j].worldPos;
     check(stillDistinct, "and no place is claimed to be in two spots at once");
 
-    // ── resemblesAnchoredPoint ────────────────────────────────
-    // The gate on collecting a place's appearance from another view: it must
-    // still look like what the user anchored, or that view is showing something
-    // standing in front of it.
-    check(resemblesAnchoredPoint(db, db.anchors[2], descriptors.row(2)),
-          "a place's own descriptor resembles it");
-    check(!resemblesAnchoredPoint(db, db.anchors[2], descriptors.row(5)),
-          "an unrelated feature's descriptor does not");
+    // ── nearestAppearanceDistance / the two bars ──────────────
+    // The scan behind every "is this that place?" question, and the collection
+    // gate built on it: a place's own row is at distance ~0, an unrelated
+    // feature is beyond even the loose collection bar.
+    check(nearestAppearanceDistance(db, db.anchors[2], descriptors.row(2)) < 1.0,
+          "a place's own descriptor sits at zero distance from its row");
+    check(!hasAppearanceWithin(db, db.anchors[2], descriptors.row(5), kMaxDescriptorDistance),
+          "an unrelated feature's descriptor does not resemble it");
+    const cv::Mat nothingLikeIt(1, 128, CV_32F, cv::Scalar(400.0f));
+    check(!hasAppearanceWithin(db, db.anchors[2], nothingLikeIt, kCollectResemblanceDistance),
+          "a descriptor unlike anything real fails even the collection bar");
+    check(kCollectResemblanceDistance > kMaxDescriptorDistance,
+          "collection is deliberately looser than matching -- geometry compensates");
+
+    // ── resemblesAnyAnchoredPoint ─────────────────────────────
+    // The build's duplicate guard: a re-suggested feature must be recognised
+    // as already anchored, and a genuinely new one must not be.
+    check(resemblesAnyAnchoredPoint(db, descriptors.row(2)),
+          "an anchored feature's descriptor resembles SOME anchored point");
+    const cv::Mat alien(1, 128, CV_32F, cv::Scalar(400.0f));
+    check(!resemblesAnyAnchoredPoint(db, alien),
+          "a descriptor unlike every row resembles none");
+
+    // ── projectionRadiusPx ────────────────────────────────────
+    // The appearance pass's search radius is a constant WORLD budget: it must
+    // scale inversely with range between its floor and cap.
+    const float mid = projectionRadiusPx(3.0f, 724.0f, 150.0f, 600.0f);
+    check(std::fabs(mid - 3.0f * 724.0f / 150.0f) < 0.01f,
+          "in the linear region the radius is the budget projected at range");
+    check(std::fabs(projectionRadiusPx(3.0f, 724.0f, 300.0f, 600.0f) - mid / 2.0f) < 0.01f,
+          "twice the range, half the radius");
+    check(projectionRadiusPx(3.0f, 724.0f, 3000.0f, 600.0f) == 6.0f,
+          "far ranges floor at SIFT's own localisation slop");
+    check(std::fabs(projectionRadiusPx(3.0f, 1264.0f, 60.0f, 1047.0f) - 0.05f * 1047.0f) < 0.01f,
+          "degenerate near ranges cap instead of swallowing the frame");
 
     // ── degenerate inputs ─────────────────────────────────────
+    // The empty database is a real state -- the mode is entered before G, and
+    // B works there -- and the reporting built on top of matching counts
+    // places with unsigned arithmetic, so "no rows at all" has to stay a
+    // quiet, empty answer rather than an underflow.
     check(matchFeaturesToDb(FeatureDb{}, frame).empty(), "an empty database matches nothing");
     check(FeatureDb{}.places().empty(), "an empty database has no places");
 }

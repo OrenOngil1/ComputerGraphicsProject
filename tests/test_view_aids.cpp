@@ -13,6 +13,7 @@
 #include <cmath>
 #include <iostream>
 #include <optional>
+#include <vector>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -20,6 +21,9 @@
 #include "check.h"
 #include "../src/core/Camera.h"
 #include "../src/core/Scene.h"
+#include "../src/core/Simulation.h"
+#include "../src/state/State.h"   // completes State: Simulation's unique_ptr member
+#include "../src/state/FeatureMatchState.h"   // layOutBuildRing
 
 namespace {
 
@@ -179,4 +183,66 @@ void testViewAids()
           "a point between the clip planes is in frame");
     check(!isInFrame(camera, landscape, camera.position + forward * (camera.far * 1.5f)),
           "a point beyond the far plane is not");
+
+    // ── the V dial ────────────────────────────────────────────
+    // The order is a contract: the sight lines and the click snap are tied to
+    // Full, so a wraparound slip would leave a user "one press past off" being
+    // silently assisted again.
+    Simulation sim;
+    check(sim.viewAids == ViewAids::Full, "the aids start at full");
+    sim.cycleViewAids();
+    check(sim.viewAids == ViewAids::ConeOnly, "one press: cone only");
+    sim.cycleViewAids();
+    check(sim.viewAids == ViewAids::Off, "two presses: off");
+    sim.cycleViewAids();
+    check(sim.viewAids == ViewAids::Full, "three presses: back to full");
+
+    // ── the calibrated build ring ─────────────────────────────
+    // O in RECORD mode replaces the freehand flight; the numbers ARE the
+    // calibration, so they are pinned: 16 stops (22.5-degree steps, inside the
+    // measured recognition range), all at one height, one radius, aimed at the
+    // centre.
+    sim.terrainSize = 633.0f;
+    layOutBuildRing(sim);
+    check(sim.waypoints.size() == 16, "the build ring lays 16 stations");
+    check(sim.pathPoints.size() == 17, "and closes its map trace back to the start");
+    bool ringHolds = true;
+    for (const Waypoint &w : sim.waypoints) {
+        ringHolds = ringHolds && near(w.position.y, 0.25f * sim.terrainSize, 0.01f);
+        ringHolds = ringHolds && near(glm::length(glm::vec2(w.position.x, w.position.z)),
+                                      0.30f * sim.terrainSize, 0.01f);
+        ringHolds = ringHolds && glm::length(w.target) < 1e-5f;
+    }
+    check(ringHolds, "every station sits at the calibrated height and radius, aimed at the centre");
+
+    // ── nearestRecordedView ───────────────────────────────────
+    // The envelope readout: which recorded view the camera is closest to, and
+    // by how much in eye distance and heading. Recognition depends on both, so
+    // a wrong pick or a mirrored angle would coach the pilot into dead air.
+    const std::vector<Waypoint> views = {
+        { { 0, 0, 0 }, { 10, 0, 0 } },      // at the origin, looking +x
+        { { 100, 0, 0 }, { 100, 0, 10 } },  // far away, looking +z
+    };
+    Camera probe{ { 3, 0, 0 }, { 20, 0, 0 }, { 0, 1, 0 }, 45.0f, 0.1f, 1000.0f };
+
+    check(!nearestRecordedView({}, probe).has_value(),
+          "no recorded views: no nearest view");
+
+    std::optional<NearestView> nv = nearestRecordedView(views, probe);
+    check(nv && nv->index == 0 && near(nv->distanceUnits, 3.0f, 1e-4f),
+          "the closer view wins, at the eye-to-eye distance");
+    check(nv && near(nv->headingOffDegrees, 0.0f, 0.01f),
+          "matching the view's heading reads as zero degrees off");
+
+    probe.target = glm::vec3(3, 0, 10);   // same spot, turned 90 degrees to +z
+    nv = nearestRecordedView(views, probe);
+    check(nv && nv->index == 0 && near(nv->headingOffDegrees, 90.0f, 0.01f),
+          "turning away from the view's heading is measured in degrees");
+
+    probe.position = glm::vec3(98, 0, 0);   // now beside the far view ...
+    probe.target   = glm::vec3(98, 0, 10);  // ... and looking its way (+z)
+    nv = nearestRecordedView(views, probe);
+    check(nv && nv->index == 1 && near(nv->distanceUnits, 2.0f, 1e-4f) &&
+              near(nv->headingOffDegrees, 0.0f, 0.01f),
+          "moving across the map hands the readout to the other view");
 }

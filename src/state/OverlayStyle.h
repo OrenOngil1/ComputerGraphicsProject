@@ -60,6 +60,16 @@ inline const float     provenanceMarkerSize = 5.0f;
 inline const glm::vec3 viewConeColor(0.35f, 0.85f, 1.0f);
 inline const float     viewConeWidth = 2.0f;   // GL line px
 
+// FEATURE MATCH's envelope tether: player camera to the nearest recorded
+// view, the live answer to "would a capture here be recognized". THE cone's
+// cyan, not a copy of it -- both are aids and the docs promise the family
+// reads as one color, so a repaint of one must take the other with it --
+// while the heading is inside the measured recognition range
+// (kViewpointToleranceDegrees), dimming to the grey below when the camera has
+// turned past what the database can re-find.
+inline const glm::vec3 &tetherColor = viewConeColor;
+inline const float      tetherWidth = 2.0f;   // GL line px
+
 // A sight line is drawn in the color of the marker it belongs to (PICK's white
 // pending dot, FEATURE MATCH's red suggestion), so the line on the map and the
 // dot in the player view are visibly the same observation.

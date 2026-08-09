@@ -78,11 +78,30 @@ colors, not from deleting the terrain before looking at it.
 ## Mode D — Feature Matching (`F`, requires recorded waypoints)
 
 No markers; the salient points come from SIFT features
-(`src/vision/FeatureMatching.cpp`; SIFT rather than ORB, a choice forced by
-measurement — see the run-phase section). Like Mode B, the 2D→3D
-correspondence is **manual** — SIFT only *suggests* where to look; the user
-supplies the 3D. `F` prompts for the number of features per view (default 8)
-and for a fixed consensus floor (plain Enter keeps the automatic rule).
+(`src/vision/FeatureMatching.cpp`; SIFT because its gradient-histogram
+descriptors are what shading-driven terrain needs — see the run-phase
+section). Like Mode B, the 2D→3D correspondence is **manual** — SIFT only
+*suggests* where to look; the user supplies the 3D. `F` prompts for the number
+of features per view (default 8) and for a fixed consensus floor (plain Enter
+keeps the automatic rule).
+
+The recorded path the build steps through can itself be laid in one stroke:
+**O in RECORD mode** lays the **calibrated build ring** — 16 stations at the
+arc's measured-good radius and altitude (0.30 / 0.25 of the terrain width),
+every stop aimed at the centre, 22.5° apart so neighbouring views stay inside
+SIFT's measured recognition range. It replaces only the *flying*; the
+suggestions and the anchoring are exactly the hand workflow below. Bare `O`
+only — it discards the recording with no undo, and `Ctrl+O` is Mode D's
+load-database chord, which is exactly the hand that must not lose a flight
+here. Laying the ring also **closes the recording**: flying stays free (that
+is how the ring gets judged) but no further path points or waypoints are
+added, since either would corrupt the geometry the ring exists to guarantee.
+`R` starts a fresh freehand recording. The recipe
+for a consistent human-grade database is: `O` → `F` → `G`, anchor every
+*other* view and `Ctrl+X` the rest, with the aids at cone-only (`V` once) so
+clicks land unassisted; then read the placement debrief — a median of ~4–8
+units is the human band — and `Ctrl+S`.
+
 Two phases:
 
 **Pre-phase (G) — interactive, by hand.** The build steps through each recorded
@@ -97,10 +116,20 @@ They are presented **one at a time** — the active suggestion is a large red
 screen-space marker in the player view — and the user **color-picks its matching
 3D point on the global (left) map** (`pickVertex(globalView)` → `mesh.worldPos`,
 the same color-pick Mode B uses). The map draws the aids described below to make
-that placement findable. Press **X** to skip an unplaceable suggestion and **U**
-to take back the last one, and use the global-map mouse controls (scroll = zoom,
-middle-drag = pan, right-drag = orbit) to frame hard-to-see spots, including
-behind mountains.
+that placement findable. Press **X** to skip an unplaceable suggestion,
+**Ctrl+X** to skip the rest of the current view at once (the dense-ring
+workflow: anchor in a few spread views, let the appearance pass harvest the
+others), and **U** to take back the last one; use the global-map mouse
+controls (scroll = zoom, middle-drag = pan, right-drag = orbit) to frame
+hard-to-see spots, including behind mountains. Suggestions that already **resemble an anchored point are
+dropped before they are offered** (with a console note): anchoring the same
+feature twice would store it as two identities the matcher cannot tell apart,
+and re-sightings are the appearance pass's job. When the build finishes, a
+**placement debrief** reports the median and worst distance from your anchors
+to their rays' true terrain points — measured at placement, disclosed only
+once nothing remains to assist — followed by a database **audit line**
+(appearance rows per place, and any place pairs left confusable under the
+descriptor bar).
 
 **The click is snapped onto the suggestion's viewing ray** before it is stored
 (`snapToViewRay`, `src/core/Camera.h`). The camera pose here is a recorded
@@ -112,7 +141,9 @@ also the half that matters — error along the ray reprojects onto the same pixe
 and costs the solve almost nothing, while the same error across it reprojects
 tens of pixels away and gets a perfectly good correspondence voted out as an
 outlier. (This is why the placed violet markers always sit exactly on their own
-sight lines.)
+sight lines.) The snap is part of the **full** aid level: cycling **V** down to
+cone-only or off removes the line *and* the snap together, so a pick is stored
+exactly where it landed — the fully unassisted variant of the exercise.
 
 Each placement stores `(descriptor, snapped 3D anchor)` in the `FeatureDb`. The
 suggestion's 2D position is *only* on-screen guidance and the ray it defines — it
@@ -136,20 +167,98 @@ machine. The same hand-placed point simply gains the descriptors of its other
 appearances, which is what the removed automatic variant had for free.
 
 It is self-limiting, which is what makes it safe: an appearance counts only if
-there is a keypoint within a few pixels of the projection *and* its descriptor
-still resembles the anchored one (`resemblesAnchoredPoint`). A point whose depth
-was misjudged projects somewhere else in every other view, finds nothing that
-looks like it, and gains nothing — a bad placement cannot poison the database.
+there is a keypoint near the projection *and* its descriptor still resembles a
+row the place already owns (`nearestAppearanceDistance` against the collection
+bar, `kCollectResemblanceDistance`). A point whose depth was misjudged projects
+somewhere else in every other view, finds nothing that looks like it, and gains
+nothing — a bad placement cannot poison the database.
 
 So a `FeatureDb` row is one **appearance**, not one place: `anchors` repeats a
 position once per appearance, and `places()` is what the user actually placed.
+
+### Hardening the database
+
+A dense hand build (68 places anchored across all 13 views of a ring, fast and
+unsnapped) was measured to produce the pipeline's worst outcome — floods of
+confident garbage poses — and each cause became a guard:
+
+- **Duplicate places** (the same feature re-anchored from a later view, twins
+  1–3 units apart): suggestions that are re-detections of an anchored point are
+  dropped before they are offered (`resemblesAnyAnchoredPoint` in
+  `loadCurrentView`; the auto-build's `selectSpacedAnchors` is the same guard
+  in map space). This guard gets its own bar, `kDuplicateSuggestionDistance` =
+  150, and it is the one bar that must err toward **offering** the suggestion:
+  its verdict is the only one the user cannot overrule, so every false positive
+  is a terrain feature that can never be anchored at all. The match bar is far too wide for the job
+  — the audit measures dozens of pairs of genuinely distinct places whose rows
+  sit under 320 on a 64-place build — while 150 is the bottom of the measured
+  same-place band (106–480) and stays far under anything two distinct places
+  have measured. Duplicates that slip past show up in the audit's
+  confusable-pair count, where a human can act on them.
+- **Shared rows** (one keypoint credited to two places on nearly the same view
+  ray — literally identical descriptors 12 and 54 units apart): collection now
+  requires the place to be **unoccluded by geometry** (the same terrain
+  raycast the run phase's in-view split uses), and a keypoint feeds **at most
+  one place**, nearest projection first.
+- **Radius starvation** (a fixed ~10 px search radius is ~1 world unit from a
+  low view — 18 appearances collected for 68 places on a perfect ring): the
+  radius is now a constant **world** budget projected at the anchor's range
+  (`projectionRadiusPx`, `kAnchorSlopUnits` = 7 units — calibrated to the
+  debrief's measured median of 6.4 for a careful snap-assisted hand; the
+  original guess of 3 still starved collection), floored at SIFT's own
+  localisation slop and capped only against degenerate near ranges. The cap
+  used to be 2.5% of frame height, which sounded generous and measured
+  otherwise: in world units it is ~2% of range regardless of resolution, so at
+  a ring's 150–530-unit ranges it silently re-clamped the budget to a median
+  5.4 units — below the measured hand error — and raising the slop constant
+  changed nothing. Keeping keypoints apart was never its job; the claim step
+  does that.
+- **Bar starvation** (the pass reused the run phase's match bar, 320, to ask
+  "is this keypoint still that place?" — and 26 of 33 places never grew past
+  one row): collection now has its own bar, `kCollectResemblanceDistance` =
+  400. The two questions deserve different bars because they have different
+  evidence: a capture match has *only* the descriptor, while collection has
+  geometry first — the occlusion ray, the world-budget radius, one keypoint
+  per place — so its descriptor check only needs to reject a *different*
+  feature at a spot geometry already vouched for. Measured on the 17-station
+  ring: same-place cross-view rows run 106–480 (median 250), different places
+  come no nearer than ~337 — the match bar sat in the middle of the genuine
+  band and cut the neighbour-to-neighbour chain the fixpoint pass depends on.
+- **Buried anchors** (snap error is along the sight line, so roughly half of
+  all placements land *under* the surface; a buried point fails the occlusion
+  test from every camera): visibility is judged at the **surface point above
+  the anchor** (`anchorVisibleFrom` lifts the tested point to `heightAt`). A
+  buried anchor's "hidden" verdict carried no information — it read hidden
+  from true poses and garbage alike — and it silently exempted those places
+  from collection, deflated the in-view counter, and made the run phase's
+  plausibility check reject genuine poses whose consensus leaned on them. The
+  stored 3D never moves; PnP still solves against exactly what the user
+  clicked.
+- **Order dependence** (a place anchored late reaches early views only through
+  rows added by later ones): the pass repeats, up to three times, until an
+  iteration adds nothing.
+- **Observability**: every build and load ends with an **audit line** — rows
+  per place, and the count of place pairs still confusable under the
+  descriptor bar (each such pair is a built-in outlier source) — plus, for
+  hand builds, the placement debrief described above, a **buried-anchor
+  count** (how many points sit below the surface and how deep — depth the
+  solver still pays for even though visibility now forgives it), and the
+  collection pass's own losses line: its final fixpoint pass reports where
+  every (place, view) pair went — hidden, no keypoint in reach, unlike the
+  place's rows (with the nearest misses, read against the collection bar),
+  claimed by a nearer place, already stored, or added — so a starved
+  collection names its starver.
 
 **Ctrl+S / Ctrl+O** write the database to `captures/featuredb_<terrain>.yml`
 (relative to the directory the app was launched from) and read it back
 (`src/vision/FeatureDbIo.cpp`, `cv::FileStorage` YAML). The recorded waypoints
 travel with it, since the anchors were placed from those views — which is also
 why a **fresh run needs no recording first**: when a saved database exists, `F`
-enters the mode without waypoints so `Ctrl+O` can bring both back. The
+enters the mode without waypoints so `Ctrl+O` can bring both back. The flight
+path travels with it too — provenance drawing only, but a reload that showed
+grey dots with no line read as a different (poorer) build than the one saved;
+a file from before paths were stored falls back to joining its views in order,
+and the next `Ctrl+S` records that. The
 **capture resolution travels with it too**, and every capture renders
 offscreen at that stored size (`captureSceneFrameAt`): SIFT descriptors shift
 when the same scene is rasterised at another resolution, so a database is only
@@ -157,7 +266,8 @@ exact against frames of the size it was built at — measured as a 0.7 → 4.0
 unit `Ctrl+B` regression on an identical database when the window size
 differed between sessions. With the size pinned, the window may be anything,
 any session. A file saved
-under a different terrain is refused, as is one from the earlier ORB build.
+under a different terrain is refused, as is one whose descriptors are not
+128-float SIFT rows.
 Placing thirty points by hand is minutes of work, and without this every
 measurement would start by redoing it. Every load re-runs the appearance
 collection (recorded views only), which skips rows a place already owns — so
@@ -207,10 +317,19 @@ territory), which also gives PnP the near/far depth mix it conditions best
 on. The "human" is *simulated*, not skipped: ray-snapping already reduces a
 real click to one number — the depth along the suggestion's sight line — so
 the simulator reads the true ray–terrain intersection and disturbs that depth
-with Gaussian aim error (σ = 4 units, the accuracy measured from careful
-hand-builds; misses are skipped like a person pressing X). Reading the terrain
-here plays the human's eyes, never the estimator's — the run phase still
-consumes only `(descriptor, 3D)` pairs and cannot tell the two builds apart. A
+with Gaussian aim error (misses are skipped like a person pressing X). The
+σ is the fourth prompt, **default 4 units**, and the default is deliberately
+modest — not because 4 is a typical human, but because depth-only noise
+stops *resembling* a human before it reaches human-sized: a person clicks a
+terrain vertex, so real anchors always sit on the surface, while this noise
+leaves the sight line wherever it lands. Measured at σ = 15, matching stayed
+healthy but a third of the anchors sat buried past the visibility margin and
+the plausibility check (rightly) refused every pose — error a human cannot
+produce. Tune σ upward gently if the sweep reads too clean, and calibrate it
+to your own number from the manual build's placement debrief. Reading the
+terrain here plays the human's eyes, never the estimator's — the run phase
+still consumes only `(descriptor, 3D)` pairs and cannot tell the two builds
+apart. A
 fixed random seed makes equal parameters produce equal databases, so
 change-one-thing experiments stay repeatable. It exists to generate test
 databases in seconds (e.g. for the lighting experiment); **the manual build
@@ -246,35 +365,74 @@ and a 64-bit cap still admitted 25–34 of 48 with as few as **one** place
 actually on screen. The bands overlap; the descriptor simply does not carry
 the information on this terrain. SIFT's gradient-orientation histograms do
 (this is the classic smooth-gradient-imagery case), and every capture prints
-the accepted distances so the bar can be read against reality.
+the accepted distances so the bar can be read against reality. Read that way
+once already: on a hand-built 3-view database the genuine cross-view
+re-sightings measured 250–310 — above the original bar of 250, which was
+silently refusing the database's own cross-view matches — and the losses
+readout moved the bar to 320.
 
-The surviving pairs go to `computeCameraPoseRansac`. Two settings there are
-sized for ray-snapped human anchors: the inlier gate is **3% of the frame
-height** (`kHandPlacedReprojFraction`, ≈22 px on a 720-tall capture) — a
-fraction rather than a pixel count because pixels of tolerance only mean
-anything relative to how many pixels the frame has. Its width is set by what a
-*true-but-strained* pair actually carries (keypoint drift under a 10–20°
-viewpoint change, the ≤6 px appearance-collection offset, the parallax of a
-misjudged depth along the sight line — stacked, 10–25 px at 720p): a fixed
-16 px gate was measured to pass only near-exact matches and guillotine that
-strained band, so poses came out either sub-3-unit or refused, nothing
-between. And deliberately no wider than the strained band needs, because on
-self-similar terrain the false matches are lookalike ridges that can assemble
-a rival consensus in any slack past the true error (measured at a 40 px gate:
-coalitions of 6–9 false pairs winning with poses hundreds of units off). The
-consensus floor defaults to **a quarter of the matches** (clamped to 5–25; the
+The surviving pairs go to `computeCameraPoseRansac`. The inlier gate is
+**3% of the frame height** (`kHandPlacedReprojFraction`, ≈22 px on a
+720-tall capture) — a fraction rather than a pixel count because pixels of
+tolerance only mean anything relative to how many pixels the frame has. Its
+width is set by what a *true-but-strained* pair actually carries (keypoint
+drift under a 10–20° viewpoint change, the ≤6 px appearance-collection offset,
+the parallax of a misjudged depth along the sight line — stacked, 10–25 px at
+720p): a fixed 16 px gate was measured to pass only near-exact matches and
+guillotine that strained band, so poses came out either sub-3-unit or refused,
+nothing between. Widening past the strained band was measured twice, and
+failed both times the same way: at a 40 px gate, coalitions of 6–9 false
+pairs won with poses hundreds of units off; and at 4.5% of the frame (27 px
+on a 600-tall capture), tried against a hand-built single-appearance database
+whose far-angle captures kept refusing, **five of eight "solved" captures
+were lookalike coalitions 60–240 units off** — one of them "matched" more
+anchors than were in frame. A refusal says *move*; a coalition pose lies.
+The gate therefore stays at the strained band's width, and captures that
+refuse from angles no database view sampled are an appearance-coverage
+problem, not a slack problem. The
+consensus floor defaults to **a sixth of the matches** (clamped to 6–25; the
 F-key prompt can pin it to a fixed value in that range)
 instead of a fixed number that is a high bar at 20 anchors and trivial at
-9 000. Scaled to the *matches* rather than the database, deliberately: a frame
+9 000. A pinned floor does not scale with the pool and coalitions do —
+measured once at a pin of 5 against 30-match pools, five confident poses came
+out 60–436 units wrong — so a capture whose pool exceeds four times a pinned
+floor prints a one-time warning; the pinned value still rules. Scaled to the *matches* rather than the database, deliberately: a frame
 only sees the anchors of the views near it, so any fraction of the database
 total becomes unmeetable once the database spans more views than one frame can
-contain. The floor of five is one above RANSAC's self-certifying 4-point
-sample — one independent witness — chosen by measurement (genuine poses at
-recorded views were refused "5 of 7 agree" with exact-hit distances), and what
-it gives up in caution is carried by two plausibility checks on every
+contain. The divisor is calibrated against measured pool *pollution*: an
+earlier quarter-of-the-pool rule was set when small databases matched almost
+nothing but genuine candidates, but on a 64-place database (45 confusable
+place pairs in the audit) lookalike cross-matches roughly double the pool —
+one capture matched 40 anchors with only 14 in frame — and a quarter of that
+polluted pool demanded 7–11 agreements where genuine near-ring consensus
+measured 6–9, refusing 24 of 39 measured-good captures over matches that can
+never vote for any pose. A sixth of the polluted pool restores the original
+quarter-of-the-genuine intent. The floor of six is two above RANSAC's self-certifying 4-point
+sample — two independent witnesses — and both steps were set by measurement.
+Five (one witness) was the original floor, until two hand-built flights showed
+every accepted-but-wrong pose carrying *exactly* five inliers (135–702 units
+off, headings up to 116° wrong) while every pose at six or more was either
+exact or caught by the plausibility checks. The cost that once argued for
+five — genuine recorded-view poses refused at "5 of 7 agree" — has since been
+paid down by the appearance pass: anchoring views now reach 7–10 inliers, so
+the sixth witness costs almost no true poses. What the floor still gives up
+in caution is carried by four plausibility checks on every
 estimate, judged without ever consulting the true pose: the camera must land
-within two terrain-widths, and it must actually be *looking at terrain*
-(the ray through the frame's lower-third centre must hit the surface).
+within two terrain-widths, must sit *above* the surface wherever the map can
+answer, must actually be *looking at terrain* (the ray through the frame's
+lower-third centre must hit the surface), and must be able to **see its own
+evidence** — at most one consensus anchor in eight (minimum one) may be
+occluded from the estimated pose; anchor noise buries the odd point just
+under a slope, and a fixed allowance of one was measured to refuse good
+25-inlier captures over two such burials. Occlusion here is judged at each
+anchor's surface point (see "Hardening the database"): a buried anchor used
+to read hidden from *every* pose, true or garbage, and at small consensus
+that spent the whole allowance on noise — genuine recorded-view poses died to
+"2 of its 6 agreeing anchors would be hidden" while the anchors in question
+were simply a few units under the surface. The check is the coalition killer:
+a lookalike consensus places the camera somewhere ridges hide the very
+anchors it claims to be matching, and ridge occlusion still reads exactly as
+before.
 
 Underneath, `solvePnPRansac` runs with `SOLVEPNP_AP3P` explicitly, and the
 flag matters twice. It selects the solver RANSAC fits each minimal sample
@@ -307,11 +465,30 @@ good place to press B?*
 "Can use" is `isInFrame` (`src/core/Camera.h`, the clip volume of the matrix the
 renderer draws with) **and** unoccluded — the existing `raycastTerrain` marches
 from the eye and stops short of the anchor itself, because the matcher matches
-what was drawn and a feature behind a ridge was not. (An anchor buried well *under* the
-surface also reads as hidden. That is honest rather than a false negative: it
-means the depth was misjudged when it was placed, and the run phase will not
-match it well either.) `FeatureMatchState::tick` recomputes the split once per
-frame and prints the count when it changes, at most twice a second.
+what was drawn and a feature behind a ridge was not. Both questions are asked
+of the **surface point above the anchor**, not the stored point: snap error is
+along the sight line, so a misjudged depth routinely leaves the point a few
+units *under* the surface, and a buried point would read hidden from every
+camera — a verdict that says nothing about *this* one (the terrain feature it
+denotes is still right there, drawn and matchable). `FeatureMatchState::tick`
+recomputes the split once per frame and prints the count when it changes, at
+most twice a second.
+
+The same debounced line carries the **envelope readout**: which recorded view
+the camera is nearest, how far, and how far off that view's heading —
+
+```
+FEATURES: 14 of 64 anchors in view | nearest view 3: 42u away, heading 18 deg off
+```
+
+because the whole session's finding is that estimates are only trustworthy
+near a collected view looking roughly its way. The map draws the same answer
+as a **tether line** from the camera to that view: cyan while the heading is
+within the measured recognition range (`kViewpointToleranceDegrees`, ~25° —
+22.5° ring steps cross-matched, 36° collected nothing), provenance-grey once
+the camera has turned past what the database can re-find. Distance is the
+line's length on the map; the color is the angle. It predicts recognition, it
+gates nothing.
 
 Four kinds of thing share the map, so they share one rule: **grey is where the
 database came from, violet is what the database knows, blue/red is truth measured
@@ -324,11 +501,12 @@ now, orange is what was computed.**
 | database anchor not usable (out of frame, or behind a ridge) | small dim violet dot |
 | captured true poses (`B`) | blue path, red dots — green on the one under review |
 | computed poses | orange path + dots |
+| envelope tether: camera to the nearest recorded view | cyan line — grey when the heading is past ~25° off |
 
 Violet, not the green it used to be: green already means "the camera is standing
 on this waypoint" in `Renderer::drawWaypoints`, and it vanishes into a green
-elevation ramp. `V` still toggles only the cone and sight lines — the anchors are
-the mode's data, not an aid.
+elevation ramp. `V` governs the cone, the sight lines, and the tether — the
+aids, cyan by family — while the anchors are the mode's data, not an aid.
 
 The console reports anchors in frame → matched → RANSAC inliers → error per
 capture, so a poor result separates into a positioning problem and a matching
@@ -341,11 +519,23 @@ PnP (RANSAC): 6 of 7 correspondences are inliers
 CAPTURE 3 of 3: position error 8.4 units (1.3% of terrain), heading off by 2.1 deg
 ```
 
+When anchors are lost between "in frame" and "matched", a losses line follows
+the matched count and splits the drop by which filter took it. Places with **no
+mutual match** are an appearance-coverage problem: the database's recorded views
+sampled this spot from angles too different from the capture's, the descriptor
+drifted past recognition, and no threshold change recovers it — only more views
+around the area would. Places that **matched only above the bar** print
+their nearest misses; distances just over the bar mean the absolute cutoff is
+what is binding, distances far above it are lookalikes the bar is correctly
+refusing.
+
 ## Reading the map: the view aids (V)
 
 Both manual modes ask the same awkward thing: *find, on a map of the whole
 terrain, the point you are looking at in the other pane.* The global view draws
-three aids for it. **V** toggles them all; they are on by default.
+three aids for it. **V** cycles three levels — **full** (everything, the
+default), **cone only** (the frustum stays, the sight lines and Mode D's click
+snap go), and **off** (no aids, no snap).
 
 **The view cone** (pale cyan, drawn in every mode) is the player camera's
 frustum: apex at the eye, four edges out to where its center ray meets the
@@ -371,7 +561,8 @@ ridge the line grazes.
 Mode D's snap does not cross that line. It moves the click *onto* the ray the
 click was already aiming at, using only the camera pose and the keypoint pixel —
 the depth along the ray, the part the terrain would have answered, is still
-entirely the user's.
+entirely the user's. And it only runs at the full aid level: an invisible ray
+must not keep correcting clicks, so below full the pick is taken as-is.
 
 **Dim sight lines** mark observations already matched. In PICK they are a
 self-check: a 3D marker that does not sit on its own line was mis-picked. In
@@ -462,7 +653,7 @@ worth knowing when reading the numbers.
 | Esc | anywhere | back to the terrain menu |
 | Ctrl+Q | anywhere | quit |
 | L | anywhere | cycle the light preset |
-| V | anywhere | toggle the global map's view aids (cone + sight lines) |
+| V | anywhere | cycle the view aids: full / cone only / off (below full, clicks are not snapped) |
 | R | anywhere | RECORD mode (fresh recording) |
 | Ctrl+R | anywhere | PLAYBACK mode (needs waypoints) |
 | P | anywhere | PICK mode (needs waypoints) |
@@ -474,15 +665,17 @@ worth knowing when reading the numbers.
 | middle-drag | over global view | pan the global map |
 | right-drag | over global view | rotate (orbit) the global map — see behind mountains |
 | B | RECORD | drop a waypoint |
+| O | RECORD | lay the calibrated 16-station build ring (replaces and closes the recording; anchoring stays by hand) |
 | B | TRACKERS / FEATURE MATCH | take a capture (true + computed pose) |
 | Ctrl+B | TRACKERS / FEATURE MATCH | capture at every recorded view; print the error table |
 | N / M | TRACKERS / FEATURE MATCH | review next / previous capture |
 | G | FEATURE MATCH | start the manual database build (steps through each view) |
 | left-click | FEATURE MATCH build | color-pick the active suggestion's 3D point on the global map |
 | X | FEATURE MATCH build | skip the active (unplaceable) suggestion |
+| Ctrl+X | FEATURE MATCH build | skip the rest of the current view (anchors already placed stay) |
 | U | FEATURE MATCH build | undo the last anchor placed in this view |
-| Ctrl+S | FEATURE MATCH run-phase | save the database (+ waypoints) to `captures/` |
-| Ctrl+O | FEATURE MATCH run-phase | load it back (with its recorded views; works on a fresh run) |
+| Ctrl+S | FEATURE MATCH run-phase | save the database (+ waypoints and flight path) to `captures/` |
+| Ctrl+O | FEATURE MATCH run-phase | load it back (with its recorded views and path; works on a fresh run) |
 | Ctrl+G | FEATURE MATCH | auto-build and save a database: arc, high survey circle, or scattered stations, with simulated aim error (a test-database generator; G remains the mode) |
 | click | PICK | pick a 2D–3D correspondence |
 | X | PICK | cancel the pending 2D pick |

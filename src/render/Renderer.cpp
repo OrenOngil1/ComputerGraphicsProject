@@ -121,7 +121,7 @@ void Renderer::renderGlobalView(const View &view, const Simulation &sim)
     // question in every mode, and putting it here keeps five states from
     // repeating the same call. Mode-specific aids (the sight lines) stay in
     // the overlays below, where they belong.
-    if (sim.showViewAids)
+    if (sim.viewAids != ViewAids::Off)
         drawViewCone(sim.playerView.camera, sim.playerView.viewport.aspect(),
                      viewConeReach(sim), overlay::viewConeColor,
                      overlay::viewConeWidth, mvp);
@@ -433,6 +433,15 @@ void Renderer::drawLines(const std::vector<glm::vec3> &segments, const glm::vec3
     GLCall(glDisable(GL_DEPTH_TEST));
     m_overlayBatch.draw(m_overlayVerts, GL_LINES, m_sceneShader, mvp);
     GLCall(glEnable(GL_DEPTH_TEST));
+}
+
+void Renderer::drawLine(const glm::vec3 &from, const glm::vec3 &to, const glm::vec3 &color,
+                        float width, const glm::mat4 &mvp)
+{
+    m_overlaySegments.clear();
+    m_overlaySegments.push_back(from);
+    m_overlaySegments.push_back(to);
+    drawLines(m_overlaySegments, color, width, mvp);
 }
 
 void Renderer::drawViewCone(const Camera &camera, float aspect, float reach,

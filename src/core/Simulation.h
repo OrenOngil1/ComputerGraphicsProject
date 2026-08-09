@@ -11,6 +11,12 @@
 // declaration suffices for the unique_ptr member.
 class State;
 
+// The global map's view-aid dial (the V key). Full is everything: the view
+// cone, the sight lines, and Mode D's click snap onto the active line.
+// ConeOnly keeps just the cone -- no lines, and picks land exactly where
+// clicked. Off draws nothing (a clean demo view), likewise unassisted.
+enum class ViewAids { Full, ConeOnly, Off };
+
 // The per-session application state: everything the modes, callbacks, and
 // renderer share. Owned by Application, reset per terrain in loadTerrain.
 struct Simulation {
@@ -44,12 +50,23 @@ struct Simulation {
         return kLightPresets[lightPreset].name;
     }
 
-    // The global map's view aids (the V key): the player camera's view cone,
-    // and the sight lines of observations awaiting a 3D match. Session-level
-    // like the light rather than per-mode -- "where is the player camera
-    // looking" is the same question in every mode, and the manual modes are
-    // unusable without it. On by default; off gives a clean demo view.
-    bool showViewAids = true;
+    // Session-level like the light rather than per-mode -- "where is the
+    // player camera looking" is the same question in every mode. Starts at
+    // Full: the manual modes are hard to use without the aids.
+    ViewAids viewAids = ViewAids::Full;
+
+    // Step the dial one notch (the V key); returns the new level's name.
+    const char *cycleViewAids()
+    {
+        switch (viewAids) {
+        case ViewAids::Full:     viewAids = ViewAids::ConeOnly;
+                                 return "cone only (no sight lines, clicks not snapped)";
+        case ViewAids::ConeOnly: viewAids = ViewAids::Off;
+                                 return "off (no aids, clicks not snapped)";
+        default:                 viewAids = ViewAids::Full;
+                                 return "full (cone, sight lines, clicks snap to the line)";
+        }
+    }
 
     // Set by Escape: leave the current terrain, back to the menu. Quitting the
     // program is a separate signal (glfwWindowShouldClose, via Ctrl+Q or the

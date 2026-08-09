@@ -18,15 +18,23 @@ public:
 };
 
 // Records the player's flight: same continuous movement, each new position
-// captured as a path point, 'B' storing a camera waypoint. The global view
-// overlays the path and waypoints.
+// captured as a path point, 'B' storing a camera waypoint, 'O' replacing the
+// whole recording with the calibrated build ring. The global view overlays the
+// path and waypoints.
 class RecordState : public State {
 public:
     void onEnter(Simulation &sim) override;   // start a fresh recording
-    void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override;  // 'B'
+    void handleKey(Simulation &sim, Renderer &renderer, int key, int mods) override;  // 'B' / 'O'
     void tick(Simulation &sim, GLFWwindow *window, float dt) override;
     void renderGlobalOverlay(const Simulation &sim, Renderer &renderer,
                              const glm::mat4 &mvp) const override;
+private:
+    // Set by 'O'. The ring is a laid-out geometry, not a flight: once it is
+    // down, freehand recording stops, because a path point appended after it
+    // draws a tail from the ring to wherever the camera drifted, and an extra
+    // waypoint breaks the 22.5-degree spacing the ring exists to guarantee.
+    // R starts a fresh recording and clears it.
+    bool m_ringLaid = false;
 };
 
 // Steps the player camera through the recorded waypoints with UP/DOWN. The
@@ -47,8 +55,8 @@ private:
 // match color-picked on the global map -- and 'C' solves PnP. Both views then
 // compare estimate against truth (picked points + estimated camera on the
 // map, ghost terrain in the player view). Finding the 3D match by eye is the
-// hard part, so the map carries aids: V toggles them, X cancels a
-// half-finished pair, U undoes the last one.
+// hard part, so the map carries aids: V cycles them (full / cone only /
+// off), X cancels a half-finished pair, U undoes the last one.
 class PickState : public State {
 public:
     void onEnter(Simulation &sim) override;                      // seed pose, reset picks

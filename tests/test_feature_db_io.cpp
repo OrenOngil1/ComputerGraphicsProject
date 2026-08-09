@@ -63,18 +63,28 @@ void testFeatureDbIo()
         { { 1, 2, 3 }, { 4, 5, 6 } },
         { { -7, 8, -9 }, { 0, 1, 2 } },
     };
+    // More points than waypoints, like a real freehand flight: the line is
+    // denser than the stops, so surviving the round trip is not derivable
+    // from the waypoints.
+    const std::vector<glm::vec3> flightPath = {
+        { 1, 2, 3 }, { 0.5f, 4.25f, -1.75f }, { -3, 6, -5 }, { -7, 8, -9 },
+    };
 
-    check(saveFeatureDb(path, original, waypoints, terrain, 960, 540),
+    check(saveFeatureDb(path, original, waypoints, flightPath, terrain, 960, 540),
           "a built database saves");
 
     FeatureDb loaded;
     std::vector<Waypoint> loadedWaypoints;
+    std::vector<glm::vec3> loadedPath;
     int loadedW = 0, loadedH = 0;
-    check(loadFeatureDb(path, loaded, loadedWaypoints, terrain, loadedW, loadedH),
+    check(loadFeatureDb(path, loaded, loadedWaypoints, loadedPath, terrain,
+                        loadedW, loadedH),
           "and loads back");
     check(sameDb(original, loaded), "descriptors and anchors survive the round trip exactly");
     check(loadedWaypoints == waypoints,
           "the waypoints travel with it (the views the anchors were placed from)");
+    check(loadedPath == flightPath,
+          "the flight path travels with it (the line the map draws them on)");
     check(loadedW == 960 && loadedH == 540,
           "the capture resolution travels with it (the size its descriptors need)");
 
@@ -82,9 +92,10 @@ void testFeatureDbIo()
     // another, so loading it there must fail rather than localise onto nothing.
     FeatureDb other = makeDb(3);
     std::vector<Waypoint> otherWaypoints;
+    std::vector<glm::vec3> otherPath;
     int otherW = 0, otherH = 0;
-    check(!loadFeatureDb(path, other, otherWaypoints, "assets/terrains/terrain2.png",
-                         otherW, otherH),
+    check(!loadFeatureDb(path, other, otherWaypoints, otherPath,
+                         "assets/terrains/terrain2.png", otherW, otherH),
           "a database built on another terrain is refused");
     check(other.anchors.size() == 3, "and the refusal leaves the current database intact");
 
@@ -92,15 +103,18 @@ void testFeatureDbIo()
     // exception escaping would unwind through C.
     const std::string junkPath = (dir / "junk.yml").string();
     std::ofstream(junkPath) << "this is not a YAML FileStorage document {{{\n";
-    check(!loadFeatureDb(junkPath, other, otherWaypoints, terrain, otherW, otherH),
+    check(!loadFeatureDb(junkPath, other, otherWaypoints, otherPath, terrain,
+                         otherW, otherH),
           "a malformed file is refused, not thrown out of");
 
-    check(!loadFeatureDb((dir / "nope.yml").string(), other, otherWaypoints, terrain,
-                         otherW, otherH),
+    check(!loadFeatureDb((dir / "nope.yml").string(), other, otherWaypoints, otherPath,
+                         terrain, otherW, otherH),
           "a missing file is refused");
 
     // A valid file from before the capture size was recorded must load, with
-    // the size reported as 0x0 so the caller knows to fall back.
+    // the size reported as 0x0 so the caller knows to fall back. It also
+    // predates saved flight paths, so a preloaded path must come back empty,
+    // not stale.
     const std::string presizePath = (dir / "presize.yml").string();
     {
         cv::FileStorage fs(presizePath, cv::FileStorage::WRITE);
@@ -109,23 +123,28 @@ void testFeatureDbIo()
                                    (void *)original.anchors.data()).clone();
     }
     FeatureDb presize;
+    std::vector<glm::vec3> presizePathPoints = flightPath;
     int presizeW = 7, presizeH = 7;
-    check(loadFeatureDb(presizePath, presize, otherWaypoints, terrain, presizeW, presizeH) &&
+    check(loadFeatureDb(presizePath, presize, otherWaypoints, presizePathPoints, terrain,
+                        presizeW, presizeH) &&
               presizeW == 0 && presizeH == 0,
           "a file without a recorded capture size loads and reports 0x0");
+    check(presizePathPoints.empty(),
+          "and a file without a flight path clears the caller's, not keeps it");
 
-    // A file from the earlier ORB build carries 32-byte binary rows; SIFT
-    // matching cannot use them, so the load must refuse rather than hand the
-    // matcher rows of the wrong type.
-    const std::string orbPath = (dir / "orb-era.yml").string();
+    // Binary rows of another width are not SIFT descriptors; matching indexes
+    // 128 floats per row, so the load must refuse rather than hand the matcher
+    // rows of the wrong type and size.
+    const std::string wrongRowsPath = (dir / "wrong-descriptor-rows.yml").string();
     {
-        cv::Mat orbRows(4, 32, CV_8U, cv::Scalar(7));
+        cv::Mat binaryRows(4, 32, CV_8U, cv::Scalar(7));
         cv::Mat anchorRows(4, 3, CV_32F, cv::Scalar(1.0f));
-        cv::FileStorage fs(orbPath, cv::FileStorage::WRITE);
-        fs << "terrain" << terrain << "descriptors" << orbRows << "anchors" << anchorRows;
+        cv::FileStorage fs(wrongRowsPath, cv::FileStorage::WRITE);
+        fs << "terrain" << terrain << "descriptors" << binaryRows << "anchors" << anchorRows;
     }
-    check(!loadFeatureDb(orbPath, other, otherWaypoints, terrain, otherW, otherH),
-          "a database saved by the ORB-era build is refused");
+    check(!loadFeatureDb(wrongRowsPath, other, otherWaypoints, otherPath, terrain,
+                         otherW, otherH),
+          "a file whose descriptors are not 128-float SIFT rows is refused");
 
     // A database with several appearances of one place -- the normal state
     // after addOtherViewAppearances -- must keep its repeats: collapsing them
@@ -134,29 +153,33 @@ void testFeatureDbIo()
     FeatureDb multi = makeDb(4);
     multi.descriptors.push_back(multi.descriptors.row(1).clone());
     multi.anchors.push_back(multi.anchors[1]);
-    check(saveFeatureDb(variantPath, multi, waypoints, terrain, 960, 540),
+    check(saveFeatureDb(variantPath, multi, waypoints, flightPath, terrain, 960, 540),
           "a multi-appearance database saves");
     FeatureDb multiBack;
     std::vector<Waypoint> multiWps;
-    check(loadFeatureDb(variantPath, multiBack, multiWps, terrain, otherW, otherH) &&
+    check(loadFeatureDb(variantPath, multiBack, multiWps, otherPath, terrain,
+                        otherW, otherH) &&
               sameDb(multi, multiBack) && multiBack.places().size() == 4,
           "five appearances of four places survive exactly");
 
-    // Zero waypoints is legal on disk and must not block the anchors; a
-    // preloaded waypoint list must come back empty, not stale.
-    check(saveFeatureDb(variantPath, original, {}, terrain, 960, 540),
+    // Zero waypoints (and no flight path) is legal on disk and must not block
+    // the anchors; preloaded lists must come back empty, not stale.
+    check(saveFeatureDb(variantPath, original, {}, {}, terrain, 960, 540),
           "a database saves with no waypoints");
     FeatureDb noWp;
     std::vector<Waypoint> noWpWps = waypoints;
-    check(loadFeatureDb(variantPath, noWp, noWpWps, terrain, otherW, otherH) &&
-              sameDb(original, noWp) && noWpWps.empty(),
-          "and loads back with an empty waypoint list");
+    std::vector<glm::vec3> noWpPath = flightPath;
+    check(loadFeatureDb(variantPath, noWp, noWpWps, noWpPath, terrain, otherW, otherH) &&
+              sameDb(original, noWp) && noWpWps.empty() && noWpPath.empty(),
+          "and loads back with empty waypoint and path lists");
 
-    check(!saveFeatureDb(path, FeatureDb{}, waypoints, terrain, 960, 540),
+    check(!saveFeatureDb(path, FeatureDb{}, waypoints, flightPath, terrain, 960, 540),
           "an empty database is not written over a good one");
     FeatureDb stillThere;
     std::vector<Waypoint> stillWaypoints;
-    check(loadFeatureDb(path, stillThere, stillWaypoints, terrain, otherW, otherH) &&
+    std::vector<glm::vec3> stillPath;
+    check(loadFeatureDb(path, stillThere, stillWaypoints, stillPath, terrain,
+                        otherW, otherH) &&
           sameDb(original, stillThere),
           "the saved database is still the one that was built");
 
